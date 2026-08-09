@@ -4,6 +4,9 @@ use std::{
     path::Path,
 };
 
+#[derive(Debug, PartialEq, Eq)]
+struct PageId(u64);
+
 fn main() -> Result<()> {
     let mut binding = OpenOptions::new();
     let options = binding.read(true).write(true).create(true);
@@ -29,7 +32,7 @@ mod tests {
         process,
     };
 
-    use crate::file_open;
+    use crate::{PageId, file_open};
 
     fn options() -> OpenOptions {
         let mut options = OpenOptions::new();
@@ -60,5 +63,13 @@ mod tests {
         }
 
         fs::remove_file(&path).expect("테스트 정리 실패");
+    }
+
+    #[test]
+    fn page_id_비교_테스트() {
+        let p1 = PageId(0);
+        let p2 = PageId(1);
+
+        assert_ne!(p1, p2);
     }
 }
