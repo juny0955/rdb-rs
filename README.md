@@ -65,7 +65,7 @@ DB 파일을 고정 크기 Page 단위로 관리한다.
 
 ### 구현
 
-* [ ] Database File 생성 / Open
+* [x] Database File 생성 / Open
 * [ ] `PageId`
 * [ ] 8KB Page
 * [ ] Page Allocate
