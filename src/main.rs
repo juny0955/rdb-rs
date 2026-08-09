@@ -4,8 +4,22 @@ use std::{
     path::Path,
 };
 
+const PAGE_SIZE: usize = 8192;
+
 #[derive(Debug, PartialEq, Eq)]
 struct PageId(u64);
+
+struct Page {
+    data: [u8; PAGE_SIZE],
+}
+
+impl Page {
+    fn new() -> Self {
+        Self {
+            data: [0u8; PAGE_SIZE],
+        }
+    }
+}
 
 fn main() -> Result<()> {
     let mut binding = OpenOptions::new();
@@ -32,7 +46,7 @@ mod tests {
         process,
     };
 
-    use crate::{PageId, file_open};
+    use crate::{PAGE_SIZE, Page, PageId, file_open};
 
     fn options() -> OpenOptions {
         let mut options = OpenOptions::new();
@@ -71,5 +85,13 @@ mod tests {
         let p2 = PageId(1);
 
         assert_ne!(p1, p2);
+    }
+
+    #[test]
+    fn page_생성_테스트() {
+        let page = Page::new();
+
+        assert_eq!(page.data.len(), PAGE_SIZE);
+        assert!(page.data.iter().all(|&byte| byte == 0));
     }
 }
