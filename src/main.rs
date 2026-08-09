@@ -4,22 +4,7 @@ use std::{
     path::Path,
 };
 
-const PAGE_SIZE: usize = 8192;
-
-#[derive(Debug, PartialEq, Eq)]
-struct PageId(u64);
-
-struct Page {
-    data: [u8; PAGE_SIZE],
-}
-
-impl Page {
-    fn new() -> Self {
-        Self {
-            data: [0u8; PAGE_SIZE],
-        }
-    }
-}
+mod page;
 
 fn main() -> Result<()> {
     let mut binding = OpenOptions::new();
@@ -40,13 +25,9 @@ fn file_open(options: &mut OpenOptions, path: &Path) -> Result<File> {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        env::temp_dir,
-        fs::{self, OpenOptions},
-        process,
-    };
+    use std::{env::temp_dir, fs, process};
 
-    use crate::{PAGE_SIZE, Page, PageId, file_open};
+    use super::*;
 
     fn options() -> OpenOptions {
         let mut options = OpenOptions::new();
@@ -77,21 +58,5 @@ mod tests {
         }
 
         fs::remove_file(&path).expect("테스트 정리 실패");
-    }
-
-    #[test]
-    fn page_id_비교_테스트() {
-        let p1 = PageId(0);
-        let p2 = PageId(1);
-
-        assert_ne!(p1, p2);
-    }
-
-    #[test]
-    fn page_생성_테스트() {
-        let page = Page::new();
-
-        assert_eq!(page.data.len(), PAGE_SIZE);
-        assert!(page.data.iter().all(|&byte| byte == 0));
     }
 }
