@@ -57,6 +57,23 @@ impl Page {
         ])
     }
 
+    fn write_slot(&mut self, slot_index: u16, slot: &Slot) -> Result<()> {
+        let offset = slot_offset(slot_index)?;
+        let bytes = slot.to_bytes();
+
+        self.data[offset..offset + SLOT_SIZE].copy_from_slice(&bytes);
+
+        Ok(())
+    }
+
+    fn read_slot(&self, slot_index: u16) -> Result<Slot> {
+        let offset = slot_offset(slot_index)?;
+        let mut bytes = [0u8; SLOT_SIZE];
+        bytes.copy_from_slice(&self.data[offset..offset + SLOT_SIZE]);
+
+        Ok(Slot::from_bytes(bytes))
+    }
+
     pub fn set_slot_count(&mut self, value: u16) {
         self.data[SLOT_COUNT_OFFSET..FREE_START_OFFSET].copy_from_slice(&value.to_be_bytes());
     }
@@ -393,5 +410,33 @@ mod tests {
 
         assert_eq!(org_slot, new_slot);
         assert_eq!(bytes, [0x1F, 0x40, 0x00, 0x0C]);
+    }
+
+    #[test]
+    fn write_slot_테스트() {
+        let mut page = Page::new();
+        let slot = Slot {
+            offset: 8000,
+            length: 12,
+        };
+        page.write_slot(0, &slot).expect("write slot 실패");
+
+        assert_eq!(
+            page.data[HEADER_SIZE..HEADER_SIZE + SLOT_SIZE],
+            slot.to_bytes()
+        );
+    }
+
+    #[test]
+    fn read_slot_테스트() {
+        let mut page = Page::new();
+        let slot = Slot {
+            offset: 8000,
+            length: 12,
+        };
+        page.write_slot(0, &slot).expect("write slot 실패");
+
+        let read = page.read_slot(0).expect("read slot 실패");
+        assert_eq!(slot, read);
     }
 }
