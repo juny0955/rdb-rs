@@ -39,7 +39,7 @@ pub fn allocate_page(file: &mut File) -> Result<PageId> {
 
 /// Database File를 PageId의 Offset을 계산하여 8KB(PAGE_SIZE)만큼 읽는다
 pub fn read_page(file: &mut File, page_id: PageId) -> Result<Page> {
-    let offset = page_id.0 * PAGE_SIZE as u64;
+    let offset = page_offset(page_id)?;
     let mut page = Page::new();
 
     file.seek(SeekFrom::Start(offset))?;
@@ -61,10 +61,19 @@ pub fn write_page(file: &mut File, page_id: PageId, page: &Page) -> Result<()> {
         return Err(Error::new(ErrorKind::InvalidInput, "invalid page id"));
     }
 
-    let offset = page_id.0 * PAGE_SIZE as u64;
+    let offset = page_offset(page_id)?;
     file.seek(SeekFrom::Start(offset))?;
     file.write_all(&page.data)?;
     Ok(())
+}
+
+fn page_offset(page_id: PageId) -> Result<u64> {
+    let offset = page_id
+        .0
+        .checked_mul(PAGE_SIZE as u64)
+        .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "page offset overflow"))?;
+
+    Ok(offset)
 }
 
 #[cfg(test)]
@@ -228,12 +237,31 @@ mod tests {
             let mut page = Page::new();
             page.data = data;
 
-            let error =
-                write_page(&mut file, PageId(1), &page).expect_err("미할당 PageId 쓰기는 실패해야한다");
+            let error = write_page(&mut file, PageId(1), &page)
+                .expect_err("미할당 PageId 쓰기는 실패해야한다");
             assert_eq!(error.kind(), ErrorKind::InvalidInput);
             assert_eq!(file.metadata().expect("metadata 읽기 실패").len(), file_len);
         }
 
         fs::remove_file(&path).expect("테스트 정리 실패");
+    }
+
+    #[test]
+    fn offset_계산_테스트() {
+        assert_eq!(page_offset(PageId(0)).expect("offset 계산 실패"), 0);
+        assert_eq!(
+            page_offset(PageId(1)).expect("offset 계산 실패"),
+            PAGE_SIZE as u64
+        );
+        assert_eq!(
+            page_offset(PageId(2)).expect("offset 계산 실패"),
+            (PAGE_SIZE * 2) as u64
+        );
+        assert_eq!(
+            page_offset(PageId(u64::MAX))
+                .expect_err("overflow 발생해야한다")
+                .kind(),
+            ErrorKind::InvalidInput
+        );
     }
 }
