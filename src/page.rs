@@ -264,4 +264,31 @@ mod tests {
             ErrorKind::InvalidInput
         );
     }
+
+    #[test]
+    fn 재시작시_page_데이터_유지_테스트() {
+        let path = temp_path(format!("restart-{}.data", process::id()).as_str());
+        let mut binding = OpenOptions::new();
+        let options = binding.read(true).write(true).create(true);
+        let data = [1u8; PAGE_SIZE];
+
+        let page_id = {
+            let mut file = options.open(&path).expect("테스트 파일 열기 실패");
+            let page_id = allocate_page(&mut file).expect("allocate 실패");
+
+            let mut page = Page::new();
+            page.data = data;
+
+            write_page(&mut file, page_id, &page).expect("write 실패");
+            page_id
+        };
+
+        {
+            let mut file = options.open(&path).expect("테스트 파일 열기 실패");
+            let page = read_page(&mut file, page_id).expect("read 실패");
+            assert_eq!(page.data, data);
+        }
+
+        fs::remove_file(&path).expect("테스트 정리 실패");
+    }
 }
