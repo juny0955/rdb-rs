@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::{Error, ErrorKind, Result, Seek, SeekFrom, Write},
+    io::{Error, ErrorKind, Read, Result, Seek, SeekFrom, Write},
 };
 
 const PAGE_SIZE: usize = 8192;
@@ -8,6 +8,7 @@ const PAGE_SIZE: usize = 8192;
 #[derive(Debug, PartialEq, Eq)]
 pub struct PageId(u64);
 
+#[derive(Debug)]
 pub struct Page {
     data: [u8; PAGE_SIZE],
 }
@@ -36,9 +37,25 @@ pub fn allocate_page(file: &mut File) -> Result<PageId> {
     Ok(PageId(current_page))
 }
 
+/// Database File를 PageID로 읽어
+pub fn read_page(file: &mut File, page_id: PageId) -> Result<Page> {
+    let offset = (page_id.0) * PAGE_SIZE as u64;
+    let mut page = Page::new();
+
+    file.seek(SeekFrom::Start(offset))?;
+    file.read_exact(&mut page.data)?;
+
+    Ok(page)
+}
+
 #[cfg(test)]
 mod tests {
-    use std::{env::temp_dir, fs, path::PathBuf, process};
+    use std::{
+        env::temp_dir,
+        fs::{self, OpenOptions},
+        path::PathBuf,
+        process,
+    };
 
     use super::*;
 
@@ -103,6 +120,53 @@ mod tests {
             let error = allocate_page(&mut file).expect_err("손상된 파일은 allocate 실패해야 한다");
             assert_eq!(error.kind(), ErrorKind::InvalidData);
             assert_eq!(file.metadata().expect("메타데이터 읽기 실패").len(), 1);
+        }
+
+        fs::remove_file(&path).expect("테스트 정리 실패");
+    }
+
+    #[test]
+    fn read_성공_테스트() {
+        let path = temp_path(format!("read-{}.data", process::id()).as_str());
+        let mut binding = OpenOptions::new();
+        let options = binding.read(true).write(true).create(true);
+
+        {
+            let mut file = options.open(&path).expect("테스트 파일 생성 실패");
+            let p1 = allocate_page(&mut file).expect("allocate 실패");
+            let p2 = allocate_page(&mut file).expect("allocate 실패");
+
+            let d1 = &[1u8; PAGE_SIZE];
+            let d2 = &[2u8; PAGE_SIZE];
+
+            file.seek(SeekFrom::Start(0)).expect("file seek 실패");
+            file.write_all(d1).expect("file write 실패");
+            file.write_all(d2).expect("file write 실패");
+
+            let page = read_page(&mut file, p1).expect("read page 실패");
+            assert_eq!(page.data, *d1);
+
+            let page = read_page(&mut file, p2).expect("read page 실패");
+            assert_eq!(page.data, *d2);
+        }
+
+        fs::remove_file(&path).expect("테스트 정리 실패");
+    }
+
+    #[test]
+    fn read_eof_테스트() {
+        let path = temp_path(format!("read-eof-{}.data", process::id()).as_str());
+        let mut binding = OpenOptions::new();
+        let options = binding.read(true).write(true).create(true);
+
+        {
+            let mut file = options.open(&path).expect("테스트 파일 생성 실패");
+            let _ = allocate_page(&mut file).expect("allocate 실패");
+
+            let page_id = PageId(1);
+
+            let error = read_page(&mut file, page_id).expect_err("Eof 에러가 반환되어야 한다");
+            assert_eq!(error.kind(), ErrorKind::UnexpectedEof);
         }
 
         fs::remove_file(&path).expect("테스트 정리 실패");
