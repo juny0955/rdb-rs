@@ -13,9 +13,26 @@ const HEADER_SIZE: usize = 6;
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PageId(u64);
 
-struct Slot {
+#[derive(Debug, PartialEq, Eq)]
+pub struct Slot {
     offset: u16,
     length: u16,
+}
+
+impl Slot {
+    pub fn from_bytes(bytes: [u8; SLOT_SIZE]) -> Self {
+        let offset = u16::from_be_bytes([bytes[0], bytes[1]]);
+        let length = u16::from_be_bytes([bytes[2], bytes[3]]);
+
+        Self { offset, length }
+    }
+
+    pub fn to_bytes(&self) -> [u8; SLOT_SIZE] {
+        let offset = self.offset.to_be_bytes();
+        let length = self.length.to_be_bytes();
+
+        [offset[0], offset[1], length[0], length[1]]
+    }
 }
 
 #[derive(Debug)]
@@ -363,5 +380,18 @@ mod tests {
         }
 
         fs::remove_file(&path).expect("테스트 정리 실패");
+    }
+
+    #[test]
+    fn slot_변환_테스트() {
+        let org_slot = Slot {
+            offset: 8000,
+            length: 12,
+        };
+        let bytes = org_slot.to_bytes();
+        let new_slot = Slot::from_bytes(bytes);
+
+        assert_eq!(org_slot, new_slot);
+        assert_eq!(bytes, [0x1F, 0x40, 0x00, 0x0C]);
     }
 }
