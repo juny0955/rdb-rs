@@ -4,6 +4,7 @@ use std::{
 };
 
 const PAGE_SIZE: usize = 8192;
+const SLOT_SIZE: usize = 4;
 const SLOT_COUNT_OFFSET: usize = 0;
 const FREE_START_OFFSET: usize = 2;
 const FREE_END_OFFSET: usize = 4;
@@ -11,6 +12,11 @@ const HEADER_SIZE: usize = 6;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PageId(u64);
+
+struct Slot {
+    offset: u16,
+    length: u16,
+}
 
 #[derive(Debug)]
 pub struct Page {
@@ -106,6 +112,18 @@ fn page_offset(page_id: PageId) -> Result<u64> {
         .0
         .checked_mul(PAGE_SIZE as u64)
         .ok_or_else(|| Error::new(ErrorKind::InvalidInput, "page offset overflow"))?;
+
+    Ok(offset)
+}
+
+fn slot_offset(slot_index: u16) -> Result<usize> {
+    let offset = HEADER_SIZE + (SLOT_SIZE * slot_index as usize);
+    if offset > PAGE_SIZE || offset + SLOT_SIZE > PAGE_SIZE {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "slot offset over page size",
+        ));
+    }
 
     Ok(offset)
 }
@@ -285,6 +303,7 @@ mod tests {
 
     #[test]
     fn offset_계산_테스트() {
+        // page offset
         assert_eq!(page_offset(PageId(0)).expect("offset 계산 실패"), 0);
         assert_eq!(
             page_offset(PageId(1)).expect("offset 계산 실패"),
@@ -297,6 +316,23 @@ mod tests {
         assert_eq!(
             page_offset(PageId(u64::MAX))
                 .expect_err("overflow 발생해야한다")
+                .kind(),
+            ErrorKind::InvalidInput
+        );
+
+        // slot offset
+        assert_eq!(slot_offset(0).expect("offset 계산 실패"), HEADER_SIZE);
+        assert_eq!(
+            slot_offset(1).expect("offset 계산 실패"),
+            HEADER_SIZE + SLOT_SIZE
+        );
+        assert_eq!(
+            slot_offset(2045).expect("offset 계산 실패"),
+            HEADER_SIZE + (SLOT_SIZE * 2045)
+        );
+        assert_eq!(
+            slot_offset(2046)
+                .expect_err("page size 보다 커야한다")
                 .kind(),
             ErrorKind::InvalidInput
         );
