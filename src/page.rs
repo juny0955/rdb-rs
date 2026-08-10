@@ -42,19 +42,35 @@ pub struct Page {
 
 impl Page {
     pub fn new() -> Self {
-        let mut data = [0u8; PAGE_SIZE];
-        data[FREE_START_OFFSET..FREE_END_OFFSET]
-            .copy_from_slice(&(HEADER_SIZE as u16).to_be_bytes());
-        data[FREE_END_OFFSET..HEADER_SIZE].copy_from_slice(&(PAGE_SIZE as u16).to_be_bytes());
+        let mut page = Self {
+            data: [0u8; PAGE_SIZE],
+        };
 
-        Self { data }
+        page.set_free_start(HEADER_SIZE as u16);
+        page.set_free_end(PAGE_SIZE as u16);
+        page
     }
 
-    pub fn slot_count(&self) -> u16 {
-        u16::from_be_bytes([
-            self.data[SLOT_COUNT_OFFSET],
-            self.data[FREE_START_OFFSET - 1],
-        ])
+    pub fn add_slot(&mut self, slot: &Slot) -> Result<u16> {
+        let next_free_start = match self.free_start().checked_add(SLOT_SIZE as u16) {
+            Some(next) => {
+                if next > self.free_end() {
+                    return Err(Error::new(
+                        ErrorKind::StorageFull,
+                        "not enough space for slot",
+                    ));
+                }
+                next
+            }
+            None => return Err(Error::new(ErrorKind::InvalidData, "free start overflow")),
+        };
+
+        let current_slot_index = self.slot_count();
+        self.write_slot(current_slot_index, slot)?;
+        self.set_slot_count(current_slot_index + 1);
+        self.set_free_start(next_free_start);
+
+        Ok(current_slot_index)
     }
 
     fn write_slot(&mut self, slot_index: u16, slot: &Slot) -> Result<()> {
@@ -72,6 +88,14 @@ impl Page {
         bytes.copy_from_slice(&self.data[offset..offset + SLOT_SIZE]);
 
         Ok(Slot::from_bytes(bytes))
+    }
+
+    // getter & setter
+    pub fn slot_count(&self) -> u16 {
+        u16::from_be_bytes([
+            self.data[SLOT_COUNT_OFFSET],
+            self.data[FREE_START_OFFSET - 1],
+        ])
     }
 
     pub fn set_slot_count(&mut self, value: u16) {
@@ -438,5 +462,20 @@ mod tests {
 
         let read = page.read_slot(0).expect("read slot 실패");
         assert_eq!(slot, read);
+    }
+
+    #[test]
+    fn add_slot_테스트() {
+        let mut page = Page::new();
+        let slot = Slot {
+            offset: 8000,
+            length: 12,
+        };
+
+        let slot_index = page.add_slot(&slot).expect("add slot 실패");
+        assert_eq!(slot_index, 0);
+        assert_eq!(page.slot_count(), 1);
+        assert_eq!(page.free_start(), (HEADER_SIZE + SLOT_SIZE) as u16);
+        assert_eq!(page.read_slot(slot_index).expect("read slot 실패"), slot);
     }
 }

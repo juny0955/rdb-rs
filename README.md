@@ -108,7 +108,7 @@ offset = page_id × PAGE_SIZE
 ### 구현
 
 * [x] Page Header
-* [ ] Slot Directory
+* [x] Slot Directory
 * [ ] Free Space 관리
 * [ ] Row 직렬화
 * [ ] Row 역직렬화
