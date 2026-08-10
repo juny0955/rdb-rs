@@ -65,14 +65,14 @@ DB 파일을 고정 크기 Page 단위로 관리한다.
 
 ### 구현
 
-* [ ] Database File 생성 / Open
-* [ ] `PageId`
-* [ ] 8KB Page
-* [ ] Page Allocate
-* [ ] Page Read
-* [ ] Page Write
-* [ ] Page Offset 계산
-* [ ] 프로그램 재시작 후 데이터 유지
+* [x] Database File 생성 / Open
+* [x] `PageId`
+* [x] 8KB Page
+* [x] Page Allocate
+* [x] Page Read
+* [x] Page Write
+* [x] Page Offset 계산
+* [x] 프로그램 재시작 후 데이터 유지
 
 ### 구조
 
