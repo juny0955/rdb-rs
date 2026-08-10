@@ -69,8 +69,8 @@ DB 파일을 고정 크기 Page 단위로 관리한다.
 * [x] `PageId`
 * [x] 8KB Page
 * [x] Page Allocate
-* [ ] Page Read
-* [ ] Page Write
+* [x] Page Read
+* [x] Page Write
 * [ ] Page Offset 계산
 * [ ] 프로그램 재시작 후 데이터 유지
 
