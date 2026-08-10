@@ -4,6 +4,10 @@ use std::{
 };
 
 const PAGE_SIZE: usize = 8192;
+const SLOT_COUNT_OFFSET: usize = 0;
+const FREE_START_OFFSET: usize = 2;
+const FREE_END_OFFSET: usize = 4;
+const HEADER_SIZE: usize = 6;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PageId(u64);
@@ -15,9 +19,39 @@ pub struct Page {
 
 impl Page {
     pub fn new() -> Self {
-        Self {
-            data: [0; PAGE_SIZE],
-        }
+        let mut data = [0u8; PAGE_SIZE];
+        data[FREE_START_OFFSET..FREE_END_OFFSET]
+            .copy_from_slice(&(HEADER_SIZE as u16).to_be_bytes());
+        data[FREE_END_OFFSET..HEADER_SIZE].copy_from_slice(&(PAGE_SIZE as u16).to_be_bytes());
+
+        Self { data }
+    }
+
+    pub fn slot_count(&self) -> u16 {
+        u16::from_be_bytes([
+            self.data[SLOT_COUNT_OFFSET],
+            self.data[FREE_START_OFFSET - 1],
+        ])
+    }
+
+    pub fn set_slot_count(&mut self, value: u16) {
+        self.data[SLOT_COUNT_OFFSET..FREE_START_OFFSET].copy_from_slice(&value.to_be_bytes());
+    }
+
+    pub fn free_start(&self) -> u16 {
+        u16::from_be_bytes([self.data[FREE_START_OFFSET], self.data[FREE_END_OFFSET - 1]])
+    }
+
+    pub fn set_free_start(&mut self, value: u16) {
+        self.data[FREE_START_OFFSET..FREE_END_OFFSET].copy_from_slice(&value.to_be_bytes());
+    }
+
+    pub fn free_end(&self) -> u16 {
+        u16::from_be_bytes([self.data[FREE_END_OFFSET], self.data[HEADER_SIZE - 1]])
+    }
+
+    pub fn set_free_end(&mut self, value: u16) {
+        self.data[FREE_END_OFFSET..HEADER_SIZE].copy_from_slice(&value.to_be_bytes());
     }
 }
 
@@ -110,7 +144,10 @@ mod tests {
         let page = Page::new();
 
         assert_eq!(page.data.len(), PAGE_SIZE);
-        assert!(page.data.iter().all(|&byte| byte == 0));
+        assert_eq!(page.slot_count(), 0);
+        assert_eq!(page.free_start(), HEADER_SIZE as u16);
+        assert_eq!(page.free_end(), PAGE_SIZE as u16);
+        assert!(page.data[HEADER_SIZE..].iter().all(|&byte| byte == 0));
     }
 
     #[test]
@@ -270,14 +307,12 @@ mod tests {
         let path = temp_path(format!("restart-{}.data", process::id()).as_str());
         let mut binding = OpenOptions::new();
         let options = binding.read(true).write(true).create(true);
-        let data = [1u8; PAGE_SIZE];
 
         let page_id = {
             let mut file = options.open(&path).expect("테스트 파일 열기 실패");
             let page_id = allocate_page(&mut file).expect("allocate 실패");
 
-            let mut page = Page::new();
-            page.data = data;
+            let page = Page::new();
 
             write_page(&mut file, page_id, &page).expect("write 실패");
             page_id
@@ -286,7 +321,9 @@ mod tests {
         {
             let mut file = options.open(&path).expect("테스트 파일 열기 실패");
             let page = read_page(&mut file, page_id).expect("read 실패");
-            assert_eq!(page.data, data);
+            assert_eq!(page.slot_count(), 0);
+            assert_eq!(page.free_start(), HEADER_SIZE as u16);
+            assert_eq!(page.free_end(), PAGE_SIZE as u16);
         }
 
         fs::remove_file(&path).expect("테스트 정리 실패");
