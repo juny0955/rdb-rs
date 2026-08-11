@@ -83,6 +83,10 @@ impl Page {
     }
 
     fn read_slot(&self, slot_index: u16) -> Result<Slot> {
+        if slot_index >= self.slot_count() {
+            return Err(Error::new(ErrorKind::NotFound, "slot not found"));
+        }
+
         let offset = slot_offset(slot_index)?;
         let mut bytes = [0u8; SLOT_SIZE];
         bytes.copy_from_slice(&self.data[offset..offset + SLOT_SIZE]);

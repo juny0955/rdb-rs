@@ -268,10 +268,17 @@ fn read_slot_테스트() {
         offset: 8000,
         length: 12,
     };
-    page.write_slot(0, &slot).expect("write slot 실패");
+    let slot_index = page.add_slot(&slot).expect("add slot 실패");
 
-    let read = page.read_slot(0).expect("read slot 실패");
+    let read = page.read_slot(slot_index).expect("read slot 실패");
     assert_eq!(slot, read);
+}
+
+#[test]
+fn read_slot_not_found_테스트() {
+    let page = Page::new();
+    let error = page.read_slot(0).expect_err("not found 오류 발생해야한다");
+    assert_eq!(error.kind(), ErrorKind::NotFound);
 }
 
 #[test]
