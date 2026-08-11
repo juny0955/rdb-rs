@@ -326,3 +326,11 @@ fn row_직렬화_역직렬화_테스트() {
     assert_eq!(bytes.to_vec(), row.data);
     assert_eq!(row.to_bytes(), bytes);
 }
+
+#[test]
+fn row_id_동등성_테스트() {
+    let row_id = RowId(PageId(1), SlotId(1));
+    assert_eq!(row_id, RowId(PageId(1), SlotId(1)));
+    assert_ne!(row_id, RowId(PageId(2), SlotId(1)));
+    assert_ne!(row_id, RowId(PageId(1), SlotId(2)));
+}

@@ -13,6 +13,12 @@ const HEADER_SIZE: usize = 6;
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PageId(u64);
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct SlotId(u16);
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct RowId(PageId, SlotId);
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct Slot {
     offset: u16,
