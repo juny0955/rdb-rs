@@ -277,7 +277,9 @@ fn read_slot_테스트() {
 #[test]
 fn read_slot_not_found_테스트() {
     let page = Page::new();
-    let error = page.read_slot(0).expect_err("not found 오류 발생해야한다");
+    let error = page
+        .read_slot(SlotId(0))
+        .expect_err("not found 오류 발생해야한다");
     assert_eq!(error.kind(), ErrorKind::NotFound);
 }
 
@@ -289,11 +291,11 @@ fn add_slot_테스트() {
         length: 12,
     };
 
-    let slot_index = page.add_slot(&slot).expect("add slot 실패");
-    assert_eq!(slot_index, 0);
+    let slot_id = page.add_slot(&slot).expect("add slot 실패");
+    assert_eq!(slot_id.0, 0);
     assert_eq!(page.slot_count(), 1);
     assert_eq!(page.free_start(), (HEADER_SIZE + SLOT_SIZE) as u16);
-    assert_eq!(page.read_slot(slot_index).expect("read slot 실패"), slot);
+    assert_eq!(page.read_slot(slot_id).expect("read slot 실패"), slot);
 }
 
 #[test]
@@ -333,4 +335,38 @@ fn row_id_동등성_테스트() {
     assert_eq!(row_id, RowId(PageId(1), SlotId(1)));
     assert_ne!(row_id, RowId(PageId(2), SlotId(1)));
     assert_ne!(row_id, RowId(PageId(1), SlotId(2)));
+}
+
+#[test]
+fn insert_row_테스트() {
+    let mut page = Page::new();
+
+    let bytes = [1, 2, 3];
+    let row = Row::from_bytes(&bytes);
+    let slot_id_1 = page.insert_row(&row).expect("insert row 실패");
+    assert_eq!(page.slot_count(), 1);
+    assert_eq!(page.free_start(), (HEADER_SIZE + SLOT_SIZE) as u16);
+    assert_eq!(page.free_end(), PAGE_SIZE as u16 - 3);
+    assert_eq!(
+        page.read_slot(slot_id_1).expect("read slot 실패"),
+        Slot::new(PAGE_SIZE as u16 - 3, 3)
+    );
+    assert_eq!(page.data[PAGE_SIZE - 3..PAGE_SIZE], bytes);
+
+    let bytes = [4, 5];
+    let row = Row::from_bytes(&bytes);
+    let slot_id_2 = page.insert_row(&row).expect("insert row 실패");
+    assert_eq!(page.slot_count(), 2);
+    assert_eq!(page.free_start(), (HEADER_SIZE + SLOT_SIZE * 2) as u16);
+    assert_eq!(page.free_end(), PAGE_SIZE as u16 - 5);
+    assert_eq!(
+        page.read_slot(slot_id_1).expect("read slot 실패"),
+        Slot::new(PAGE_SIZE as u16 - 3, 3)
+    );
+    assert_eq!(
+        page.read_slot(slot_id_2).expect("read slot 실패"),
+        Slot::new(PAGE_SIZE as u16 - 5, 2)
+    );
+    assert_eq!(page.data[PAGE_SIZE - 3..PAGE_SIZE], [1, 2, 3]);
+    assert_eq!(page.data[PAGE_SIZE - 5..PAGE_SIZE - 3], bytes);
 }

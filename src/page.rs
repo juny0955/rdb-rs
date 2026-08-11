@@ -26,6 +26,10 @@ pub struct Slot {
 }
 
 impl Slot {
+    pub fn new(offset: u16, length: u16) -> Self {
+        Self { offset, length }
+    }
+
     pub fn from_bytes(bytes: [u8; SLOT_SIZE]) -> Self {
         let offset = u16::from_be_bytes([bytes[0], bytes[1]]);
         let length = u16::from_be_bytes([bytes[2], bytes[3]]);
@@ -73,7 +77,33 @@ impl Page {
         page
     }
 
-    pub fn add_slot(&mut self, slot: &Slot) -> Result<u16> {
+    pub fn insert_row(&mut self, row: &Row) -> Result<SlotId> {
+        let row_bytes = row.to_bytes();
+        let row_len = row_bytes.len();
+        if row_len > PAGE_SIZE - HEADER_SIZE - SLOT_SIZE {
+            return Err(Error::new(ErrorKind::InvalidInput, "row too large"));
+        }
+
+        if SLOT_SIZE + row_len > self.free_space()? {
+            return Err(Error::new(
+                ErrorKind::StorageFull,
+                "not enough space for row",
+            ));
+        }
+
+        let row_end = self.free_end();
+        let row_start = row_end - row_len as u16;
+
+        let slot = Slot::new(row_start, row_len as u16);
+        let slot_id = self.add_slot(&slot)?;
+
+        self.data[row_start as usize..row_end as usize].copy_from_slice(row_bytes);
+        self.set_free_end(row_start);
+
+        Ok(slot_id)
+    }
+
+    fn add_slot(&mut self, slot: &Slot) -> Result<SlotId> {
         let next_free_start = match self.free_start().checked_add(SLOT_SIZE as u16) {
             Some(next) => {
                 if next > self.free_end() {
@@ -92,7 +122,7 @@ impl Page {
         self.set_slot_count(current_slot_index + 1);
         self.set_free_start(next_free_start);
 
-        Ok(current_slot_index)
+        Ok(SlotId(current_slot_index))
     }
 
     fn write_slot(&mut self, slot_index: u16, slot: &Slot) -> Result<()> {
@@ -104,12 +134,12 @@ impl Page {
         Ok(())
     }
 
-    fn read_slot(&self, slot_index: u16) -> Result<Slot> {
-        if slot_index >= self.slot_count() {
+    fn read_slot(&self, slot_id: SlotId) -> Result<Slot> {
+        if slot_id.0 >= self.slot_count() {
             return Err(Error::new(ErrorKind::NotFound, "slot not found"));
         }
 
-        let offset = slot_offset(slot_index)?;
+        let offset = slot_offset(slot_id.0)?;
         let mut bytes = [0u8; SLOT_SIZE];
         bytes.copy_from_slice(&self.data[offset..offset + SLOT_SIZE]);
 
