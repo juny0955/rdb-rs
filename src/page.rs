@@ -94,6 +94,17 @@ impl Page {
         Ok(Slot::from_bytes(bytes))
     }
 
+    fn free_space(&self) -> Result<usize> {
+        if self.free_start() > self.free_end() {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                "invalid free space bounds",
+            ));
+        }
+
+        Ok((self.free_end() - self.free_start()) as usize)
+    }
+
     // getter & setter
     pub fn slot_count(&self) -> u16 {
         u16::from_be_bytes([

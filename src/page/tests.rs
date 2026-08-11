@@ -295,3 +295,26 @@ fn add_slot_테스트() {
     assert_eq!(page.free_start(), (HEADER_SIZE + SLOT_SIZE) as u16);
     assert_eq!(page.read_slot(slot_index).expect("read slot 실패"), slot);
 }
+
+#[test]
+fn free_space_테스트() {
+    let mut page = Page::new();
+    assert_eq!(
+        page.free_space().expect("free space 계산 실패"),
+        PAGE_SIZE - HEADER_SIZE
+    );
+
+    page.add_slot(&Slot {
+        offset: 8000,
+        length: 12,
+    })
+    .expect("slot 추가 실패");
+    assert_eq!(
+        page.free_space().expect("free space 계산 실패"),
+        PAGE_SIZE - HEADER_SIZE - SLOT_SIZE
+    );
+
+    page.set_free_end(1);
+    let error = page.free_space().expect_err("손상된 page 이어야한다");
+    assert_eq!(error.kind(), ErrorKind::InvalidData);
+}

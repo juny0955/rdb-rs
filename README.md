@@ -109,7 +109,7 @@ offset = page_id × PAGE_SIZE
 
 * [x] Page Header
 * [x] Slot Directory
-* [ ] Free Space 관리
+* [x] Free Space 관리
 * [ ] Row 직렬화
 * [ ] Row 역직렬화
 * [ ] `RowId(PageId, SlotId)`
