@@ -370,3 +370,23 @@ fn insert_row_테스트() {
     assert_eq!(page.data[PAGE_SIZE - 3..PAGE_SIZE], [1, 2, 3]);
     assert_eq!(page.data[PAGE_SIZE - 5..PAGE_SIZE - 3], bytes);
 }
+
+#[test]
+fn read_row_테스트() {
+    let mut page = Page::new();
+    let bytes = [1, 2, 3];
+    let row = Row::from_bytes(&bytes);
+    let slot_id = page.insert_row(&row).expect("insert row 실패");
+    let row = page.read_row(slot_id).expect("read row 실패");
+
+    assert_eq!(row.to_bytes(), bytes);
+}
+
+#[test]
+fn read_row_not_found_테스트() {
+    let page = Page::new();
+    let error = page
+        .read_row(SlotId(0))
+        .expect_err("not found 발생해야한다");
+    assert_eq!(error.kind(), ErrorKind::NotFound);
+}

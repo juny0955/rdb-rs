@@ -45,6 +45,7 @@ impl Slot {
     }
 }
 
+#[derive(Debug)]
 pub struct Row {
     data: Vec<u8>,
 }
@@ -101,6 +102,17 @@ impl Page {
         self.set_free_end(row_start);
 
         Ok(slot_id)
+    }
+
+    pub fn read_row(&self, slot_id: SlotId) -> Result<Row> {
+        let slot = self.read_slot(slot_id)?;
+        let row_end = slot.offset as usize + slot.length as usize;
+        if row_end > PAGE_SIZE || slot.offset < self.free_end() {
+            return Err(Error::new(ErrorKind::InvalidData, "invalid row bounds"));
+        }
+
+        let row = Row::from_bytes(&self.data[slot.offset as usize..row_end]);
+        Ok(row)
     }
 
     fn add_slot(&mut self, slot: &Slot) -> Result<SlotId> {
