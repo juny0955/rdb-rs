@@ -35,6 +35,22 @@ impl Slot {
     }
 }
 
+pub struct Row {
+    data: Vec<u8>,
+}
+
+impl Row {
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        Self {
+            data: bytes.to_vec(),
+        }
+    }
+
+    pub fn to_bytes(&self) -> &[u8] {
+        &self.data
+    }
+}
+
 #[derive(Debug)]
 pub struct Page {
     data: [u8; PAGE_SIZE],

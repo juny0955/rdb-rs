@@ -318,3 +318,11 @@ fn free_space_테스트() {
     let error = page.free_space().expect_err("손상된 page 이어야한다");
     assert_eq!(error.kind(), ErrorKind::InvalidData);
 }
+
+#[test]
+fn row_직렬화_역직렬화_테스트() {
+    let bytes = [0, 1, 0x11, 0xAC, 0xFF];
+    let row = Row::from_bytes(&bytes);
+    assert_eq!(bytes.to_vec(), row.data);
+    assert_eq!(row.to_bytes(), bytes);
+}
