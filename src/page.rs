@@ -45,7 +45,7 @@ impl Slot {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct Row {
     data: Vec<u8>,
 }
@@ -113,6 +113,23 @@ impl Page {
 
         let row = Row::from_bytes(&self.data[slot.offset as usize..row_end]);
         Ok(row)
+    }
+
+    /// row update (같은 길이만 지원한다 추후 가변길이 지연 압축 추가 예정)
+    /// 길이 다를시 InvalidInput Err
+    pub fn update_row(&mut self, slot_id: SlotId, row: &Row) -> Result<()> {
+        let slot = self.read_slot(slot_id)?;
+        if row.to_bytes().len() != slot.length as usize {
+            return Err(Error::new(ErrorKind::InvalidInput, "different row length"));
+        }
+
+        let row_end = slot.offset as usize + slot.length as usize;
+        if row_end > PAGE_SIZE || slot.offset < self.free_end() {
+            return Err(Error::new(ErrorKind::InvalidData, "invalid row bounds"));
+        }
+
+        self.data[slot.offset as usize..row_end].copy_from_slice(row.to_bytes());
+        Ok(())
     }
 
     fn add_slot(&mut self, slot: &Slot) -> Result<SlotId> {

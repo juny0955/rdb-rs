@@ -390,3 +390,21 @@ fn read_row_not_found_테스트() {
         .expect_err("not found 발생해야한다");
     assert_eq!(error.kind(), ErrorKind::NotFound);
 }
+
+#[test]
+fn update_row_테스트() {
+    let mut page = Page::new();
+    let row = Row::from_bytes(&[1, 2, 3]);
+    let slot_id = page.insert_row(&row).expect("insert row 실패");
+    let slot = page.read_slot(slot_id).expect("read slot 실패");
+
+    let update_row = Row::from_bytes(&[4, 5, 6]);
+    let _ = page
+        .update_row(slot_id, &update_row)
+        .expect("update row 실패");
+    assert_eq!(page.read_row(slot_id).expect("read row 실패"), update_row);
+    assert_eq!(page.slot_count(), 1);
+    assert_eq!(page.free_start(), (HEADER_SIZE + SLOT_SIZE) as u16);
+    assert_eq!(page.free_end(), PAGE_SIZE as u16 - 3);
+    assert_eq!(slot, page.read_slot(slot_id).expect("read slot 실패"));
+}
