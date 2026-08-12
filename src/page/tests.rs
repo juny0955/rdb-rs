@@ -347,33 +347,33 @@ fn insert_row_테스트() {
     let mut page = Page::new();
 
     let bytes = [1, 2, 3];
-    let row = Row::from_bytes(&bytes);
-    let slot_id_1 = page.insert_row(&row).expect("insert row 실패");
+    let row1 = Row::from_bytes(&bytes);
+    let slot_id_1 = page.insert_row(&row1).expect("insert row 실패");
     assert_eq!(page.slot_count(), 1);
-    assert_eq!(page.free_start(), (HEADER_SIZE + SLOT_SIZE) as u16);
-    assert_eq!(page.free_end(), PAGE_SIZE as u16 - 3);
+    assert_eq!(page.free_start() as usize, HEADER_SIZE + SLOT_SIZE);
+    assert_eq!(page.free_end() as usize, PAGE_SIZE - FREE_BLOCK_SIZE);
     assert_eq!(
         page.read_slot(slot_id_1).expect("read slot 실패"),
-        Slot::new(PAGE_SIZE as u16 - 3, 3)
+        Slot::new((PAGE_SIZE - FREE_BLOCK_SIZE) as u16, 3)
     );
-    assert_eq!(page.data[PAGE_SIZE - 3..PAGE_SIZE], bytes);
+    assert_eq!(page.read_row(slot_id_1).expect("read row 실패"), row1);
 
     let bytes = [4, 5];
-    let row = Row::from_bytes(&bytes);
-    let slot_id_2 = page.insert_row(&row).expect("insert row 실패");
+    let row2 = Row::from_bytes(&bytes);
+    let slot_id_2 = page.insert_row(&row2).expect("insert row 실패");
     assert_eq!(page.slot_count(), 2);
-    assert_eq!(page.free_start(), (HEADER_SIZE + SLOT_SIZE * 2) as u16);
-    assert_eq!(page.free_end(), PAGE_SIZE as u16 - 5);
+    assert_eq!(page.free_start() as usize, HEADER_SIZE + SLOT_SIZE * 2);
+    assert_eq!(page.free_end() as usize, PAGE_SIZE - FREE_BLOCK_SIZE * 2);
     assert_eq!(
         page.read_slot(slot_id_1).expect("read slot 실패"),
-        Slot::new(PAGE_SIZE as u16 - 3, 3)
+        Slot::new((PAGE_SIZE - FREE_BLOCK_SIZE) as u16, 3)
     );
     assert_eq!(
         page.read_slot(slot_id_2).expect("read slot 실패"),
-        Slot::new(PAGE_SIZE as u16 - 5, 2)
+        Slot::new((PAGE_SIZE - FREE_BLOCK_SIZE * 2) as u16, 2)
     );
-    assert_eq!(page.data[PAGE_SIZE - 3..PAGE_SIZE], [1, 2, 3]);
-    assert_eq!(page.data[PAGE_SIZE - 5..PAGE_SIZE - 3], bytes);
+    assert_eq!(page.read_row(slot_id_1).expect("read row 실패"), row1);
+    assert_eq!(page.read_row(slot_id_2).expect("read row 실패"), row2);
 }
 
 #[test]
@@ -409,8 +409,8 @@ fn update_row_테스트() {
         .expect("update row 실패");
     assert_eq!(page.read_row(slot_id).expect("read row 실패"), update_row);
     assert_eq!(page.slot_count(), 1);
-    assert_eq!(page.free_start(), (HEADER_SIZE + SLOT_SIZE) as u16);
-    assert_eq!(page.free_end(), PAGE_SIZE as u16 - 3);
+    assert_eq!(page.free_start() as usize, HEADER_SIZE + SLOT_SIZE);
+    assert_eq!(page.free_end() as usize, PAGE_SIZE - FREE_BLOCK_SIZE);
     assert_eq!(slot, page.read_slot(slot_id).expect("read slot 실패"));
 }
 
@@ -427,8 +427,8 @@ fn delete_row_테스트() {
         .expect_err("not found 에러 나와야한다");
     assert_eq!(error.kind(), ErrorKind::NotFound);
     assert_eq!(page.slot_count(), 1);
-    assert_eq!(page.free_start(), (HEADER_SIZE + SLOT_SIZE) as u16);
-    assert_eq!(page.free_end(), PAGE_SIZE as u16 - 3);
+    assert_eq!(page.free_start() as usize, HEADER_SIZE + SLOT_SIZE);
+    assert_eq!(page.free_end() as usize, PAGE_SIZE - FREE_BLOCK_SIZE);
 }
 
 #[test]
