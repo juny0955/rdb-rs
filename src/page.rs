@@ -63,6 +63,10 @@ pub struct FreeBlock {
 }
 
 impl FreeBlock {
+    pub fn new(next: u16, length: u16) -> Self {
+        Self { next, length }
+    }
+
     pub fn from_bytes(bytes: [u8; 4]) -> Self {
         let next = u16::from_be_bytes([bytes[0], bytes[1]]);
         let length = u16::from_be_bytes([bytes[2], bytes[3]]);
@@ -169,6 +173,13 @@ impl Page {
 
     pub fn delete_row(&mut self, slot_id: SlotId) -> Result<()> {
         let mut slot = self.read_slot(slot_id)?;
+        let row_offset = slot.offset;
+        let allocate_len = row_allocation_size(slot.length as usize);
+        let free_block = FreeBlock::new(self.free_list_head(), allocate_len as u16);
+
+        self.write_free_block(row_offset, &free_block)?;
+        self.set_free_list_head(row_offset);
+
         slot.tombstone();
         self.write_slot(slot_id, &slot)?;
         Ok(())
@@ -232,8 +243,25 @@ impl Page {
             ));
         }
 
-        self.data[offset as usize..offset as usize + 4].copy_from_slice(&block.to_bytes());
+        self.data[offset as usize..offset as usize + FREE_BLOCK_SIZE]
+            .copy_from_slice(&block.to_bytes());
         Ok(())
+    }
+
+    fn read_free_block(&self, offset: u16) -> Result<FreeBlock> {
+        if offset < self.free_end()
+            || offset as usize + FREE_BLOCK_SIZE > PAGE_SIZE
+            || offset == u16::MAX
+        {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                "invalid free block bounds",
+            ));
+        }
+
+        let mut read_bytes = [0u8; FREE_BLOCK_SIZE];
+        read_bytes.copy_from_slice(&self.data[offset as usize..offset as usize + FREE_BLOCK_SIZE]);
+        Ok(FreeBlock::from_bytes(read_bytes))
     }
 
     fn free_space(&self) -> Result<usize> {

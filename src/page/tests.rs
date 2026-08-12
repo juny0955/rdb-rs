@@ -420,6 +420,7 @@ fn delete_row_테스트() {
     let row = Row::from_bytes(&[1, 2, 3]);
     let slot_id = page.insert_row(&row).expect("insert row 실패");
     assert_eq!(page.read_row(slot_id).expect("read row 실패"), row);
+    let slot = page.read_slot(slot_id).expect("read slot 실패");
 
     page.delete_row(slot_id).expect("delete row 실패");
     let error = page
@@ -429,6 +430,11 @@ fn delete_row_테스트() {
     assert_eq!(page.slot_count(), 1);
     assert_eq!(page.free_start() as usize, HEADER_SIZE + SLOT_SIZE);
     assert_eq!(page.free_end() as usize, PAGE_SIZE - FREE_BLOCK_SIZE);
+    assert_eq!(page.free_list_head(), slot.offset);
+
+    let block = page.read_free_block(slot.offset).expect("read free block 실패");
+    assert_eq!(block.next, u16::MAX);
+    assert_eq!(block.length as usize, FREE_BLOCK_SIZE);
 }
 
 #[test]
@@ -443,15 +449,37 @@ fn free_block_직렬화_역직렬화_테스트() {
 #[test]
 fn write_free_block_테스트() {
     let mut page = Page::new();
-    page.set_free_end(8000);
+    page.set_free_end(1000);
+    let offset = 1000;
 
     let block = FreeBlock {
-        next: 8100,
+        next: u16::MAX,
         length: 100,
     };
 
-    page.write_free_block(8000, &block).unwrap();
-    assert_eq!(&page.data[8000..8004], &block.to_bytes());
+    page.write_free_block(offset, &block)
+        .expect("write free block 실패");
+    assert_eq!(
+        &page.data[offset as usize..offset as usize + FREE_BLOCK_SIZE],
+        &block.to_bytes()
+    );
+}
+
+#[test]
+fn read_free_block_테스트() {
+    let mut page = Page::new();
+    page.set_free_end(1000);
+    let offset = 1000;
+
+    let block = FreeBlock {
+        next: u16::MAX,
+        length: 100,
+    };
+
+    page.write_free_block(offset, &block)
+        .expect("write free block 실패");
+    let read = page.read_free_block(offset).expect("read free block 실패");
+    assert_eq!(read, block);
 }
 
 #[test]

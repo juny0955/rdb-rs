@@ -115,8 +115,8 @@ offset = page_id × PAGE_SIZE
 * [x] `RowId(PageId, SlotId)`
 * [x] Row Insert
 * [x] Row Read
-* [ ] Row Update
-* [ ] Row Delete
+* [x] Row Update
+* [x] Row Delete
 
 ### 구조
 
