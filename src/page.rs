@@ -115,11 +115,12 @@ impl Page {
     pub fn insert_row(&mut self, row: &Row) -> Result<SlotId> {
         let row_bytes = row.to_bytes();
         let row_len = row_bytes.len();
-        if row_len > PAGE_SIZE - HEADER_SIZE - SLOT_SIZE {
+        let allocate_len = row_allocation_size(row_len);
+        if allocate_len > PAGE_SIZE - HEADER_SIZE - SLOT_SIZE {
             return Err(Error::new(ErrorKind::InvalidInput, "row too large"));
         }
 
-        if SLOT_SIZE + row_len > self.free_space()? {
+        if SLOT_SIZE + allocate_len > self.free_space()? {
             return Err(Error::new(
                 ErrorKind::StorageFull,
                 "not enough space for row",
@@ -127,12 +128,12 @@ impl Page {
         }
 
         let row_end = self.free_end();
-        let row_start = row_end - row_len as u16;
+        let row_start = row_end - allocate_len as u16;
 
         let slot = Slot::new(row_start, row_len as u16);
         let slot_id = self.add_slot(&slot)?;
 
-        self.data[row_start as usize..row_end as usize].copy_from_slice(row_bytes);
+        self.data[row_start as usize..row_start as usize + row_len].copy_from_slice(row_bytes);
         self.set_free_end(row_start);
 
         Ok(slot_id)
@@ -221,7 +222,10 @@ impl Page {
     }
 
     fn write_free_block(&mut self, offset: u16, block: &FreeBlock) -> Result<()> {
-        if offset < self.free_end() || offset as usize + FREE_BLOCK_SIZE > PAGE_SIZE || offset == u16::MAX {
+        if offset < self.free_end()
+            || offset as usize + FREE_BLOCK_SIZE > PAGE_SIZE
+            || offset == u16::MAX
+        {
             return Err(Error::new(
                 ErrorKind::InvalidData,
                 "invalid free block bounds",
@@ -348,6 +352,19 @@ fn slot_offset(slot_id: SlotId) -> Result<usize> {
     }
 
     Ok(offset)
+}
+
+fn row_allocation_size(row_len: usize) -> usize {
+    let remainder = row_len % FREE_BLOCK_SIZE;
+
+    if remainder == 0 {
+        if row_len == 0 {
+            return FREE_BLOCK_SIZE;
+        }
+        return row_len;
+    }
+
+    row_len + FREE_BLOCK_SIZE - remainder
 }
 
 #[cfg(test)]

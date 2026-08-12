@@ -453,3 +453,11 @@ fn write_free_block_테스트() {
     page.write_free_block(8000, &block).unwrap();
     assert_eq!(&page.data[8000..8004], &block.to_bytes());
 }
+
+#[test]
+fn row_allocation_size_테스트() {
+    assert_eq!(row_allocation_size(0), 4);
+    assert_eq!(row_allocation_size(3), 4);
+    assert_eq!(row_allocation_size(4), 4);
+    assert_eq!(row_allocation_size(6), 8);
+}
