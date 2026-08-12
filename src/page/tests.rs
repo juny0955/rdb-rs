@@ -33,6 +33,7 @@ fn page_생성_테스트() {
     assert_eq!(page.slot_count(), 0);
     assert_eq!(page.free_start(), HEADER_SIZE as u16);
     assert_eq!(page.free_end(), PAGE_SIZE as u16);
+    assert_eq!(page.free_list_head(), u16::MAX);
     assert!(page.data[HEADER_SIZE..].iter().all(|&byte| byte == 0));
 }
 
@@ -231,6 +232,7 @@ fn 재시작시_page_데이터_유지_테스트() {
         assert_eq!(page.slot_count(), 0);
         assert_eq!(page.free_start(), HEADER_SIZE as u16);
         assert_eq!(page.free_end(), PAGE_SIZE as u16);
+        assert_eq!(page.free_list_head(), u16::MAX);
     }
 
     fs::remove_file(&path).expect("테스트 정리 실패");

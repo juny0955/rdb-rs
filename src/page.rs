@@ -8,7 +8,8 @@ const SLOT_SIZE: usize = 4;
 const SLOT_COUNT_OFFSET: usize = 0;
 const FREE_START_OFFSET: usize = 2;
 const FREE_END_OFFSET: usize = 4;
-const HEADER_SIZE: usize = 6;
+const FREE_LIST_HEAD_OFFSET: usize = 6;
+const HEADER_SIZE: usize = 8;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PageId(u64);
@@ -84,6 +85,7 @@ impl Page {
 
         page.set_free_start(HEADER_SIZE as u16);
         page.set_free_end(PAGE_SIZE as u16);
+        page.set_free_list_head(u16::MAX);
         page
     }
 
@@ -227,11 +229,19 @@ impl Page {
     }
 
     pub fn free_end(&self) -> u16 {
-        u16::from_be_bytes([self.data[FREE_END_OFFSET], self.data[HEADER_SIZE - 1]])
+        u16::from_be_bytes([self.data[FREE_END_OFFSET], self.data[FREE_LIST_HEAD_OFFSET - 1]])
     }
 
     pub fn set_free_end(&mut self, value: u16) {
-        self.data[FREE_END_OFFSET..HEADER_SIZE].copy_from_slice(&value.to_be_bytes());
+        self.data[FREE_END_OFFSET..FREE_LIST_HEAD_OFFSET].copy_from_slice(&value.to_be_bytes());
+    }
+
+    pub fn free_list_head(&self) -> u16 {
+        u16::from_be_bytes([self.data[FREE_LIST_HEAD_OFFSET], self.data[HEADER_SIZE - 1]])
+    }
+
+    pub fn set_free_list_head(&mut self, value: u16) {
+        self.data[FREE_LIST_HEAD_OFFSET..HEADER_SIZE].copy_from_slice(&value.to_be_bytes());
     }
 }
 
