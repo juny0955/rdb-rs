@@ -56,6 +56,28 @@ impl Slot {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub struct FreeBlock {
+    next: u16,
+    length: u16,
+}
+
+impl FreeBlock {
+    pub fn from_bytes(bytes: [u8; 4]) -> Self {
+        let next = u16::from_be_bytes([bytes[0], bytes[1]]);
+        let length = u16::from_be_bytes([bytes[2], bytes[3]]);
+
+        Self { next, length }
+    }
+
+    pub fn to_bytes(&self) -> [u8; 4] {
+        let next = self.next.to_be_bytes();
+        let length = self.length.to_be_bytes();
+
+        [next[0], next[1], length[0], length[1]]
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub struct Row {
     data: Vec<u8>,
 }
@@ -229,7 +251,10 @@ impl Page {
     }
 
     pub fn free_end(&self) -> u16 {
-        u16::from_be_bytes([self.data[FREE_END_OFFSET], self.data[FREE_LIST_HEAD_OFFSET - 1]])
+        u16::from_be_bytes([
+            self.data[FREE_END_OFFSET],
+            self.data[FREE_LIST_HEAD_OFFSET - 1],
+        ])
     }
 
     pub fn set_free_end(&mut self, value: u16) {

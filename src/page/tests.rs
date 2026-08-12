@@ -430,3 +430,12 @@ fn delete_row_테스트() {
     assert_eq!(page.free_start(), (HEADER_SIZE + SLOT_SIZE) as u16);
     assert_eq!(page.free_end(), PAGE_SIZE as u16 - 3);
 }
+
+#[test]
+fn free_block_직렬화_역직렬화_테스트() {
+    let bytes = [0xFF, 0xFF, 0x00, 0x0C];
+    let free_block = FreeBlock::from_bytes(bytes);
+    assert_eq!(free_block.next, u16::MAX);
+    assert_eq!(free_block.length, 12);
+    assert_eq!(free_block.to_bytes(), bytes);
+}
