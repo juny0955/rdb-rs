@@ -189,17 +189,20 @@ fn offset_계산_테스트() {
     );
 
     // slot offset
-    assert_eq!(slot_offset(0).expect("offset 계산 실패"), HEADER_SIZE);
     assert_eq!(
-        slot_offset(1).expect("offset 계산 실패"),
+        slot_offset(SlotId(0)).expect("offset 계산 실패"),
+        HEADER_SIZE
+    );
+    assert_eq!(
+        slot_offset(SlotId(1)).expect("offset 계산 실패"),
         HEADER_SIZE + SLOT_SIZE
     );
     assert_eq!(
-        slot_offset(2045).expect("offset 계산 실패"),
+        slot_offset(SlotId(2045)).expect("offset 계산 실패"),
         HEADER_SIZE + (SLOT_SIZE * 2045)
     );
     assert_eq!(
-        slot_offset(2046)
+        slot_offset(SlotId(2046))
             .expect_err("page size 보다 커야한다")
             .kind(),
         ErrorKind::InvalidInput
@@ -253,7 +256,7 @@ fn write_slot_테스트() {
         offset: 8000,
         length: 12,
     };
-    page.write_slot(0, &slot).expect("write slot 실패");
+    page.write_slot(SlotId(0), &slot).expect("write slot 실패");
 
     assert_eq!(
         page.data[HEADER_SIZE..HEADER_SIZE + SLOT_SIZE],
@@ -407,4 +410,21 @@ fn update_row_테스트() {
     assert_eq!(page.free_start(), (HEADER_SIZE + SLOT_SIZE) as u16);
     assert_eq!(page.free_end(), PAGE_SIZE as u16 - 3);
     assert_eq!(slot, page.read_slot(slot_id).expect("read slot 실패"));
+}
+
+#[test]
+fn delete_row_테스트() {
+    let mut page = Page::new();
+    let row = Row::from_bytes(&[1, 2, 3]);
+    let slot_id = page.insert_row(&row).expect("insert row 실패");
+    assert_eq!(page.read_row(slot_id).expect("read row 실패"), row);
+
+    page.delete_row(slot_id).expect("delete row 실패");
+    let error = page
+        .read_row(slot_id)
+        .expect_err("not found 에러 나와야한다");
+    assert_eq!(error.kind(), ErrorKind::NotFound);
+    assert_eq!(page.slot_count(), 1);
+    assert_eq!(page.free_start(), (HEADER_SIZE + SLOT_SIZE) as u16);
+    assert_eq!(page.free_end(), PAGE_SIZE as u16 - 3);
 }

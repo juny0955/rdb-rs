@@ -43,6 +43,15 @@ impl Slot {
 
         [offset[0], offset[1], length[0], length[1]]
     }
+
+    pub fn tombstone(&mut self) {
+        self.offset = 0;
+        self.length = 0;
+    }
+
+    pub fn is_deleted(&self) -> bool {
+        self.offset == 0 && self.length == 0
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -132,6 +141,13 @@ impl Page {
         Ok(())
     }
 
+    pub fn delete_row(&mut self, slot_id: SlotId) -> Result<()> {
+        let mut slot = self.read_slot(slot_id)?;
+        slot.tombstone();
+        self.write_slot(slot_id, &slot)?;
+        Ok(())
+    }
+
     fn add_slot(&mut self, slot: &Slot) -> Result<SlotId> {
         let next_free_start = match self.free_start().checked_add(SLOT_SIZE as u16) {
             Some(next) => {
@@ -146,16 +162,16 @@ impl Page {
             None => return Err(Error::new(ErrorKind::InvalidData, "free start overflow")),
         };
 
-        let current_slot_index = self.slot_count();
-        self.write_slot(current_slot_index, slot)?;
-        self.set_slot_count(current_slot_index + 1);
+        let current_slot_id = SlotId(self.slot_count());
+        self.write_slot(current_slot_id, slot)?;
+        self.set_slot_count(current_slot_id.0 + 1);
         self.set_free_start(next_free_start);
 
-        Ok(SlotId(current_slot_index))
+        Ok(current_slot_id)
     }
 
-    fn write_slot(&mut self, slot_index: u16, slot: &Slot) -> Result<()> {
-        let offset = slot_offset(slot_index)?;
+    fn write_slot(&mut self, slot_id: SlotId, slot: &Slot) -> Result<()> {
+        let offset = slot_offset(slot_id)?;
         let bytes = slot.to_bytes();
 
         self.data[offset..offset + SLOT_SIZE].copy_from_slice(&bytes);
@@ -168,11 +184,15 @@ impl Page {
             return Err(Error::new(ErrorKind::NotFound, "slot not found"));
         }
 
-        let offset = slot_offset(slot_id.0)?;
+        let offset = slot_offset(slot_id)?;
         let mut bytes = [0u8; SLOT_SIZE];
         bytes.copy_from_slice(&self.data[offset..offset + SLOT_SIZE]);
+        let slot = Slot::from_bytes(bytes);
 
-        Ok(Slot::from_bytes(bytes))
+        if slot.is_deleted() {
+            return Err(Error::new(ErrorKind::NotFound, "slot not found"));
+        }
+        Ok(slot)
     }
 
     fn free_space(&self) -> Result<usize> {
@@ -270,8 +290,8 @@ fn page_offset(page_id: PageId) -> Result<u64> {
     Ok(offset)
 }
 
-fn slot_offset(slot_index: u16) -> Result<usize> {
-    let offset = HEADER_SIZE + (SLOT_SIZE * slot_index as usize);
+fn slot_offset(slot_id: SlotId) -> Result<usize> {
+    let offset = HEADER_SIZE + (SLOT_SIZE * slot_id.0 as usize);
     if offset > PAGE_SIZE || offset + SLOT_SIZE > PAGE_SIZE {
         return Err(Error::new(
             ErrorKind::InvalidInput,
