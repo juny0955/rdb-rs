@@ -439,3 +439,17 @@ fn free_block_직렬화_역직렬화_테스트() {
     assert_eq!(free_block.length, 12);
     assert_eq!(free_block.to_bytes(), bytes);
 }
+
+#[test]
+fn write_free_block_테스트() {
+    let mut page = Page::new();
+    page.set_free_end(8000);
+
+    let block = FreeBlock {
+        next: 8100,
+        length: 100,
+    };
+
+    page.write_free_block(8000, &block).unwrap();
+    assert_eq!(&page.data[8000..8004], &block.to_bytes());
+}

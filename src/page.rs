@@ -5,6 +5,7 @@ use std::{
 
 const PAGE_SIZE: usize = 8192;
 const SLOT_SIZE: usize = 4;
+const FREE_BLOCK_SIZE: usize = 4;
 const SLOT_COUNT_OFFSET: usize = 0;
 const FREE_START_OFFSET: usize = 2;
 const FREE_END_OFFSET: usize = 4;
@@ -217,6 +218,18 @@ impl Page {
             return Err(Error::new(ErrorKind::NotFound, "slot not found"));
         }
         Ok(slot)
+    }
+
+    fn write_free_block(&mut self, offset: u16, block: &FreeBlock) -> Result<()> {
+        if offset < self.free_end() || offset as usize + FREE_BLOCK_SIZE > PAGE_SIZE || offset == u16::MAX {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                "invalid free block bounds",
+            ));
+        }
+
+        self.data[offset as usize..offset as usize + 4].copy_from_slice(&block.to_bytes());
+        Ok(())
     }
 
     fn free_space(&self) -> Result<usize> {
