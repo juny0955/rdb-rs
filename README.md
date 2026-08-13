@@ -117,6 +117,8 @@ offset = page_id × PAGE_SIZE
 * [x] Row Read
 * [x] Row Update
 * [x] Row Delete
+* [x] free block
+* [ ] lazy compress
 
 ### 구조
 
