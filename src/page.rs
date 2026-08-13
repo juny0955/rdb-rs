@@ -282,10 +282,13 @@ impl Page {
             let block_offset = current_offset as usize;
 
             if SLOT_SIZE > self.free_space()? {
-                return Err(Error::new(
-                    ErrorKind::StorageFull,
-                    "not enough space for row",
-                ));
+                self.compact()?;
+                if SLOT_SIZE > self.free_space()? {
+                    return Err(Error::new(
+                        ErrorKind::StorageFull,
+                        "not enough space for row",
+                    ));
+                }
             }
 
             if block_len > allocate_len {
@@ -345,6 +348,37 @@ impl Page {
 
         self.data[offset as usize..offset as usize + row_bytes.len()].copy_from_slice(row_bytes);
         Ok(slot_id)
+    }
+
+    fn compact(&mut self) -> Result<()> {
+        let mut live_slots = Vec::new();
+        for i in 0..self.slot_count() {
+            let slot_id = SlotId(i);
+            let row = match self.read_row(slot_id) {
+                Ok(r) => r,
+                Err(e) if e.kind() == ErrorKind::NotFound => continue,
+                Err(e) => return Err(e),
+            };
+
+            live_slots.push((slot_id, row.to_bytes().to_vec()));
+        }
+
+        self.set_free_list_head(u16::MAX);
+        self.set_free_end(PAGE_SIZE as u16);
+
+        for (slot_id, row_bytes) in live_slots {
+            let allocation_len = row_allocation_size(row_bytes.len());
+
+            let new_offset = self.free_end() as usize - allocation_len;
+            self.data[new_offset..new_offset + row_bytes.len()].copy_from_slice(&row_bytes);
+
+            let new_offset = new_offset as u16;
+            let slot = Slot::new(new_offset, row_bytes.len() as u16);
+            self.write_slot(slot_id, &slot)?;
+            self.set_free_end(new_offset);
+        }
+
+        Ok(())
     }
 
     fn free_space(&self) -> Result<usize> {
@@ -467,7 +501,6 @@ fn slot_offset(slot_id: SlotId) -> Result<usize> {
 
 fn row_allocation_size(row_len: usize) -> usize {
     let remainder = row_len % FREE_BLOCK_SIZE;
-
     if remainder == 0 {
         if row_len == 0 {
             return FREE_BLOCK_SIZE;

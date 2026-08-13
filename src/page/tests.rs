@@ -554,3 +554,28 @@ fn find_free_block_테스트() {
 
     assert_eq!(page.find_free_block(8).expect("find free block 실패"), None);
 }
+
+#[test]
+fn compact_테스트() {
+    let mut page = Page::new();
+    let row1 = Row::from_bytes(&[1, 2, 3]);
+    let row2 = Row::from_bytes(&[4, 5, 6]);
+    let row3 = Row::from_bytes(&[7, 8, 9]);
+    let slot1 = page.insert_row(&row1).expect("insert row 실패");
+    let slot2 = page.insert_row(&row2).expect("insert row 실패");
+    let slot3 = page.insert_row(&row3).expect("insert row 실패");
+    let free_end = page.free_end();
+
+    page.delete_row(slot2).expect("delete row 실패");
+    page.compact().expect("compact 실패");
+    assert_eq!(page.read_row(slot1).expect("read row 실패"), row1);
+    assert_eq!(page.read_row(slot3).expect("read row 실패"), row3);
+    assert_eq!(page.free_list_head(), u16::MAX);
+    assert!(page.free_end() > free_end);
+    assert_eq!(
+        page.read_row(slot2)
+            .expect_err("not found 오류 반환해야함")
+            .kind(),
+        ErrorKind::NotFound
+    );
+}
