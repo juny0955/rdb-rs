@@ -107,16 +107,18 @@ offset = page_id × PAGE_SIZE
 
 ### 구현
 
-* [ ] Page Header
-* [ ] Slot Directory
-* [ ] Free Space 관리
-* [ ] Row 직렬화
-* [ ] Row 역직렬화
-* [ ] `RowId(PageId, SlotId)`
-* [ ] Row Insert
-* [ ] Row Read
-* [ ] Row Update
-* [ ] Row Delete
+* [x] Page Header
+* [x] Slot Directory
+* [x] Free Space 관리
+* [x] Row 직렬화
+* [x] Row 역직렬화
+* [x] `RowId(PageId, SlotId)`
+* [x] Row Insert
+* [x] Row Read
+* [x] Row Update
+* [x] Row Delete
+* [x] free block
+* [x] lazy compress
 
 ### 구조
 
