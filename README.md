@@ -150,7 +150,7 @@ Page
 
 ### 구현
 
-* [ ] Table File 생성
+* [x] Table File 생성
 * [ ] Page 추가
 * [ ] Row Insert
 * [ ] Row Get
