@@ -4,7 +4,7 @@ use std::{
     path::Path,
 };
 
-use crate::page::{PageId, Row, RowId, allocate_page, page_count, read_page, write_page};
+use crate::page::{Page, PageId, Row, RowId, allocate_page, page_count, read_page, write_page};
 
 pub struct HeapTable {
     file: File,
@@ -30,25 +30,22 @@ impl HeapTable {
     }
 
     pub fn insert(&mut self, row: &Row) -> Result<RowId> {
-        let mut page_id = {
-            let count = page_count(&self.file)?;
-            if count == 0 {
-                allocate_page(&mut self.file)?
-            } else {
-                PageId::new(count - 1)
-            }
-        };
+        for i in 0..page_count(&self.file)? {
+            let page_id = PageId::new(i);
+            let mut page = read_page(&mut self.file, page_id)?;
+            match page.insert_row(row) {
+                Ok(slot_id) => {
+                    write_page(&mut self.file, page_id, &page)?;
+                    return Ok(RowId::new(page_id, slot_id));
+                }
+                Err(e) if e.kind() == ErrorKind::StorageFull => continue,
+                Err(e) => return Err(e),
+            };
+        }
 
-        let mut page = read_page(&mut self.file, page_id)?;
-        let slot_id = match page.insert_row(row) {
-            Ok(s) => s,
-            Err(e) if e.kind() == ErrorKind::StorageFull => {
-                page_id = allocate_page(&mut self.file)?;
-                page = read_page(&mut self.file, page_id)?;
-                page.insert_row(row)?
-            }
-            Err(e) => return Err(e),
-        };
+        let mut page = Page::new();
+        let slot_id = page.insert_row(row)?;
+        let page_id = self.add_page()?;
         write_page(&mut self.file, page_id, &page)?;
 
         Ok(RowId::new(page_id, slot_id))
