@@ -192,6 +192,22 @@ impl Page {
         Ok(())
     }
 
+    pub fn scan_rows(&self) -> Result<Vec<(SlotId, Row)>> {
+        let mut scans = Vec::new();
+
+        let slot_count = self.slot_count();
+        for i in 0..slot_count {
+            let slot_id = SlotId(i);
+            match self.read_row(slot_id) {
+                Ok(row) => scans.push((slot_id, row)),
+                Err(e) if e.kind() == ErrorKind::NotFound => continue,
+                Err(e) => return Err(e),
+            }
+        }
+
+        Ok(scans)
+    }
+
     fn try_insert_from_free_block(
         &mut self,
         row_bytes: &[u8],

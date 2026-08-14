@@ -156,7 +156,7 @@ Page
 * [x] Row Get
 * [x] Row Update
 * [x] Row Delete
-* [ ] Full Table Scan
+* [x] Full Table Scan
 * [ ] Row를 저장할 Page 선택
 * [ ] Page Free Space 관리
 

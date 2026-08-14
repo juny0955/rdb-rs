@@ -73,6 +73,26 @@ impl HeapTable {
         write_page(&mut self.file, row_id.page_id(), &page)?;
         Ok(())
     }
+
+    pub fn scan(&mut self) -> Result<Vec<(RowId, Row)>> {
+        let mut scans = Vec::new();
+        let page_count = page_count(&self.file)?;
+        if page_count == 0 {
+            return Ok(scans);
+        }
+
+        for i in 0..page_count {
+            let page_id = PageId::new(i);
+            let page = read_page(&mut self.file, page_id)?;
+
+            let rows = page.scan_rows()?;
+            for (slot_id, row) in rows {
+                scans.push((RowId::new(page_id, slot_id), row));
+            }
+        }
+
+        Ok(scans)
+    }
 }
 
 #[cfg(test)]
