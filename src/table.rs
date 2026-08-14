@@ -66,6 +66,13 @@ impl HeapTable {
         write_page(&mut self.file, row_id.page_id(), &page)?;
         Ok(())
     }
+
+    pub fn delete(&mut self, row_id: RowId) -> Result<()> {
+        let mut page = read_page(&mut self.file, row_id.page_id())?;
+        page.delete_row(row_id.slot_id())?;
+        write_page(&mut self.file, row_id.page_id(), &page)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -169,6 +176,24 @@ mod tests {
 
             assert_ne!(row, updated_row);
             assert_eq!(update, updated_row);
+        }
+        fs::remove_file(path)?;
+        Ok(())
+    }
+
+    #[test]
+    fn delete_테스트() -> Result<()> {
+        let path = Path::new("delete.tbl");
+        {
+            let row = Row::from_bytes(&[1, 2, 3]);
+            let mut table = HeapTable::open(path)?;
+            let row_id = table.insert(&row)?;
+            let get = table.get(row_id)?;
+            assert_eq!(get, row);
+
+            table.delete(row_id)?;
+            let error = table.get(row_id).expect_err("not found");
+            assert_eq!(error.kind(), ErrorKind::NotFound);
         }
         fs::remove_file(path)?;
         Ok(())
