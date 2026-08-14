@@ -151,9 +151,9 @@ Page
 ### 구현
 
 * [x] Table File 생성
-* [ ] Page 추가
-* [ ] Row Insert
-* [ ] Row Get
+* [x] Page 추가
+* [x] Row Insert
+* [x] Row Get
 * [ ] Row Update
 * [ ] Row Delete
 * [ ] Full Table Scan

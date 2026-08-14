@@ -4,7 +4,7 @@ use std::{
     path::Path,
 };
 
-use crate::page::{Page, PageId, Row, RowId, allocate_page, page_count, read_page, write_page};
+use crate::page::{PageId, Row, RowId, allocate_page, page_count, read_page, write_page};
 
 pub struct HeapTable {
     file: File,
@@ -52,6 +52,12 @@ impl HeapTable {
         write_page(&mut self.file, page_id, &page)?;
 
         Ok(RowId::new(page_id, slot_id))
+    }
+
+    pub fn get(&mut self, row_id: RowId) -> Result<Row> {
+        let page = read_page(&mut self.file, row_id.page_id())?;
+        let row = page.read_row(row_id.slot_id())?;
+        Ok(row)
     }
 }
 
@@ -121,6 +127,22 @@ mod tests {
 
             assert_ne!(row_id1, row_id2);
             assert_eq!(table.file.metadata()?.len(), 16384);
+        }
+        fs::remove_file(path)?;
+        Ok(())
+    }
+
+    #[test]
+    fn get_테스트() -> Result<()> {
+        let path = Path::new("get.tbl");
+        {
+            let row = Row::from_bytes(&vec![1; 200]);
+            let mut table = HeapTable::open(path)?;
+            let row_id = table.insert(&row)?;
+
+            let read = table.get(row_id)?;
+
+            assert_eq!(row, read);
         }
         fs::remove_file(path)?;
         Ok(())
