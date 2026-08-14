@@ -59,6 +59,13 @@ impl HeapTable {
         let row = page.read_row(row_id.slot_id())?;
         Ok(row)
     }
+
+    pub fn update(&mut self, row_id: RowId, row: &Row) -> Result<()> {
+        let mut page = read_page(&mut self.file, row_id.page_id())?;
+        page.update_row(row_id.slot_id(), row)?;
+        write_page(&mut self.file, row_id.page_id(), &page)?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -143,6 +150,25 @@ mod tests {
             let read = table.get(row_id)?;
 
             assert_eq!(row, read);
+        }
+        fs::remove_file(path)?;
+        Ok(())
+    }
+
+    #[test]
+    fn update_테스트() -> Result<()> {
+        let path = Path::new("update.tbl");
+        {
+            let row = Row::from_bytes(&[1, 2, 3]);
+            let mut table = HeapTable::open(path)?;
+            let row_id = table.insert(&row)?;
+
+            let update = Row::from_bytes(&[4, 5, 6]);
+            table.update(row_id, &update)?;
+            let updated_row = table.get(row_id)?;
+
+            assert_ne!(row, updated_row);
+            assert_eq!(update, updated_row);
         }
         fs::remove_file(path)?;
         Ok(())

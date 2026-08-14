@@ -154,7 +154,7 @@ Page
 * [x] Page 추가
 * [x] Row Insert
 * [x] Row Get
-* [ ] Row Update
+* [x] Row Update
 * [ ] Row Delete
 * [ ] Full Table Scan
 * [ ] Row를 저장할 Page 선택
