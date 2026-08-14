@@ -283,12 +283,7 @@ impl Page {
 
             if SLOT_SIZE > self.free_space()? {
                 self.compact()?;
-                if SLOT_SIZE > self.free_space()? {
-                    return Err(Error::new(
-                        ErrorKind::StorageFull,
-                        "not enough space for row",
-                    ));
-                }
+                return Ok(None);
             }
 
             if block_len > allocate_len {
