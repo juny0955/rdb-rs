@@ -199,10 +199,10 @@ scan()
 
 ### 구현
 
-* [ ] Database Metadata
-* [ ] Table Metadata
-* [ ] Column Metadata
-* [ ] Data Type
+* [x] Database Metadata
+* [x] Table Metadata
+* [x] Column Metadata
+* [x] Data Type
 * [ ] Catalog 저장
 * [ ] Catalog 재로딩
 

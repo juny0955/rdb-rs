@@ -5,6 +5,7 @@ use std::{
 };
 
 mod page;
+mod schema;
 mod table;
 
 fn main() -> Result<()> {
