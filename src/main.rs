@@ -4,7 +4,9 @@ use std::{
     path::Path,
 };
 
+mod catalog;
 mod page;
+mod schema;
 mod table;
 
 fn main() -> Result<()> {

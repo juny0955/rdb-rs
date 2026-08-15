@@ -199,12 +199,12 @@ scan()
 
 ### 구현
 
-* [ ] Database Metadata
-* [ ] Table Metadata
-* [ ] Column Metadata
-* [ ] Data Type
-* [ ] Catalog 저장
-* [ ] Catalog 재로딩
+* [x] Database Metadata
+* [x] Table Metadata
+* [x] Column Metadata
+* [x] Data Type
+* [x] Catalog 저장
+* [x] Catalog 재로딩
 
 초기 지원 타입:
 
