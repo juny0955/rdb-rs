@@ -200,4 +200,27 @@ mod tests {
         assert_eq!(error.kind(), ErrorKind::NotFound);
         Ok(())
     }
+
+    #[test]
+    fn scan_재시작_테스트() -> Result<()> {
+        let test_file = TestFile::new("scan-reopen");
+        let row1 = Row::from_bytes(&vec![1; 8000]);
+        let row2 = Row::from_bytes(&[2; 200]);
+        let row3 = Row::from_bytes(&[3; 200]);
+
+        let (row_id1, row_id3) = {
+            let mut table = HeapTable::open(test_file.path())?;
+            let row_id1 = table.insert(&row1)?;
+            let row_id2 = table.insert(&row2)?;
+            let row_id3 = table.insert(&row3)?;
+            table.delete(row_id2)?;
+            (row_id1, row_id3)
+        };
+
+        let mut table = HeapTable::open(test_file.path())?;
+        let scans = table.scan()?;
+
+        assert_eq!(scans, vec![(row_id1, row1), (row_id3, row3)]);
+        Ok(())
+    }
 }
