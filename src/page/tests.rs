@@ -1,4 +1,7 @@
-use std::fs::OpenOptions;
+use std::{
+    fs::{File, OpenOptions},
+    io::{Seek, SeekFrom, Write},
+};
 
 use crate::test_supports::TestFile;
 
