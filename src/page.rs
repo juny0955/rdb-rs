@@ -14,12 +14,30 @@ const HEADER_SIZE: usize = 8;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PageId(u64);
+impl PageId {
+    pub fn new(page_id: u64) -> Self {
+        PageId(page_id)
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct SlotId(u16);
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct RowId(PageId, SlotId);
+impl RowId {
+    pub fn new(page_id: PageId, slot_id: SlotId) -> Self {
+        RowId(page_id, slot_id)
+    }
+
+    pub fn page_id(&self) -> PageId {
+        self.0
+    }
+
+    pub fn slot_id(&self) -> SlotId {
+        self.1
+    }
+}
 
 #[derive(Debug, PartialEq, Eq)]
 struct Slot {
@@ -172,6 +190,22 @@ impl Page {
         slot.tombstone();
         self.write_slot(slot_id, &slot)?;
         Ok(())
+    }
+
+    pub fn scan_rows(&self) -> Result<Vec<(SlotId, Row)>> {
+        let mut scans = Vec::new();
+
+        let slot_count = self.slot_count();
+        for i in 0..slot_count {
+            let slot_id = SlotId(i);
+            match self.read_row(slot_id) {
+                Ok(row) => scans.push((slot_id, row)),
+                Err(e) if e.kind() == ErrorKind::NotFound => continue,
+                Err(e) => return Err(e),
+            }
+        }
+
+        Ok(scans)
     }
 
     fn try_insert_from_free_block(
@@ -471,6 +505,15 @@ pub fn write_page(file: &mut File, page_id: PageId, page: &Page) -> Result<()> {
     file.seek(SeekFrom::Start(offset))?;
     file.write_all(&page.data)?;
     Ok(())
+}
+
+pub fn page_count(file: &File) -> Result<u64> {
+    let file_len = file.metadata()?.len();
+    if file_len % PAGE_SIZE as u64 != 0 {
+        return Err(Error::new(ErrorKind::InvalidData, "invalid file length"));
+    }
+
+    Ok(file_len / PAGE_SIZE as u64)
 }
 
 fn page_offset(page_id: PageId) -> Result<u64> {

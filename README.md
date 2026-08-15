@@ -150,15 +150,15 @@ Page
 
 ### 구현
 
-* [ ] Table File 생성
-* [ ] Page 추가
-* [ ] Row Insert
-* [ ] Row Get
-* [ ] Row Update
-* [ ] Row Delete
-* [ ] Full Table Scan
-* [ ] Row를 저장할 Page 선택
-* [ ] Page Free Space 관리
+* [x] Table File 생성
+* [x] Page 추가
+* [x] Row Insert
+* [x] Row Get
+* [x] Row Update
+* [x] Row Delete
+* [x] Full Table Scan
+* [x] Row를 저장할 Page 선택
+* [x] Page Free Space 관리
 
 ### 구조
 

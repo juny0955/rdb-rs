@@ -5,6 +5,7 @@ use std::{
 };
 
 mod page;
+mod table;
 
 fn main() -> Result<()> {
     let mut binding = OpenOptions::new();
