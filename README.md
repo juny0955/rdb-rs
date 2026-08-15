@@ -203,8 +203,8 @@ scan()
 * [x] Table Metadata
 * [x] Column Metadata
 * [x] Data Type
-* [ ] Catalog 저장
-* [ ] Catalog 재로딩
+* [x] Catalog 저장
+* [x] Catalog 재로딩
 
 초기 지원 타입:
 
