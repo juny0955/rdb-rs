@@ -73,10 +73,11 @@ impl Catalog {
 }
 
 #[cfg(test)]
-mod catalog {
-    use std::fs;
-
-    use crate::schema::{ColumnMetadata, DataType, TableMetadata};
+mod catalogs {
+    use crate::{
+        schema::{ColumnMetadata, DataType, TableMetadata},
+        test_supports::TestFile,
+    };
 
     use super::*;
 
@@ -86,20 +87,18 @@ mod catalog {
         let table = TableMetadata::new("users".to_string(), vec![column]).unwrap();
         let database = DatabaseMetadata::new("mydb".to_string(), vec![table])?;
 
-        let path = Path::new("catalog");
-
+        let test_file = TestFile::new("catalog-reload");
         {
-            let mut catalog = Catalog::open(path)?;
+            let mut catalog = Catalog::open(test_file.path())?;
             catalog.save(&database)?;
         }
 
         {
-            let mut catalog = Catalog::open(path)?;
+            let mut catalog = Catalog::open(test_file.path())?;
             let load = catalog.load()?;
             assert_eq!(database, load);
         }
 
-        fs::remove_file(&path).expect("테스트 정리 실패");
         Ok(())
     }
 }

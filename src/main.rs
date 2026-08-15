@@ -27,6 +27,9 @@ fn file_open(options: &mut OpenOptions, path: &Path) -> Result<File> {
 }
 
 #[cfg(test)]
+mod test_supports;
+
+#[cfg(test)]
 mod tests {
     use std::{env::temp_dir, fs, process};
 
