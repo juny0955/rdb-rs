@@ -1,10 +1,13 @@
 use std::{
-    fs::{File, OpenOptions, create_dir_all},
+    fs::File,
     io::{ErrorKind, Result},
     path::Path,
 };
 
-use crate::page::{Page, PageId, Row, RowId, allocate_page, page_count, read_page, write_page};
+use crate::{
+    file::open_rw_create,
+    page::{Page, PageId, Row, RowId, allocate_page, page_count, read_page, write_page},
+};
 
 pub struct HeapTable {
     file: File,
@@ -12,15 +15,7 @@ pub struct HeapTable {
 
 impl HeapTable {
     pub fn open(path: &Path) -> Result<Self> {
-        let mut binding = OpenOptions::new();
-        let options = binding.read(true).write(true).create(true);
-        if let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            create_dir_all(parent)?;
-        }
-
-        let file = options.open(path)?;
+        let file = open_rw_create(path)?;
         Ok(Self { file })
     }
 
@@ -94,125 +89,133 @@ impl HeapTable {
 
 #[cfg(test)]
 mod tests {
-    use std::{env::temp_dir, fs};
+    use crate::test_supports::TestFile;
 
     use super::*;
 
     #[test]
     fn open_테스트() -> Result<()> {
-        let path1 = Path::new("users.tbl");
-        let path2 = temp_dir().join("users.tbl");
+        let test_file1 = TestFile::new("users1.tbl");
+        let test_file2 = TestFile::new("users2.tbl");
         {
-            let _ = HeapTable::open(&path1)?;
-            let _ = HeapTable::open(&path2)?;
+            let _ = HeapTable::open(test_file1.path())?;
+            let _ = HeapTable::open(test_file2.path())?;
         }
         {
-            let _ = HeapTable::open(&path1)?;
-            let _ = HeapTable::open(&path2)?;
+            let _ = HeapTable::open(test_file1.path())?;
+            let _ = HeapTable::open(test_file2.path())?;
         }
-        fs::remove_file(path1)?;
-        fs::remove_file(path2)?;
         Ok(())
     }
 
     #[test]
     fn add_page_테스트() -> Result<()> {
-        let path = Path::new("users1.tbl");
-        let mut table = HeapTable::open(path)?;
+        let test_file = TestFile::new("add-page");
+        let mut table = HeapTable::open(test_file.path())?;
         let page_id1 = table.add_page()?;
         let page_id2 = table.add_page()?;
         assert_ne!(page_id1, page_id2);
         assert_eq!(table.file.metadata()?.len(), 8192 * 2);
-        fs::remove_file(path)?;
         Ok(())
     }
 
     #[test]
     fn insert_테스트() -> Result<()> {
-        let path = Path::new("insert.tbl");
+        let test_file = TestFile::new("insert");
         let row = Row::from_bytes(&[1, 2, 3]);
         let row_id;
         {
-            let mut table = HeapTable::open(path)?;
+            let mut table = HeapTable::open(test_file.path())?;
             row_id = table.insert(&row)?;
         }
         {
-            let mut table = HeapTable::open(path)?;
+            let mut table = HeapTable::open(test_file.path())?;
             let page = read_page(&mut table.file, row_id.page_id())?;
             let read_row = page.read_row(row_id.slot_id())?;
             assert_eq!(row, read_row);
         }
-        fs::remove_file(path)?;
         Ok(())
     }
 
     #[test]
     fn insert_storage_full_테스트() -> Result<()> {
-        let path = Path::new("insert_storage_full.tbl");
-        {
-            let row1 = Row::from_bytes(&vec![1; 8000]);
-            let row2 = Row::from_bytes(&vec![1; 200]);
-            let mut table = HeapTable::open(path)?;
-            let row_id1 = table.insert(&row1)?;
-            let row_id2 = table.insert(&row2)?;
+        let test_file = TestFile::new("insert_storage_full");
+        let row1 = Row::from_bytes(&vec![1; 8000]);
+        let row2 = Row::from_bytes(&[1; 200]);
+        let mut table = HeapTable::open(test_file.path())?;
+        let row_id1 = table.insert(&row1)?;
+        let row_id2 = table.insert(&row2)?;
 
-            assert_ne!(row_id1, row_id2);
-            assert_eq!(table.file.metadata()?.len(), 16384);
-        }
-        fs::remove_file(path)?;
+        assert_ne!(row_id1, row_id2);
+        assert_eq!(table.file.metadata()?.len(), 16384);
         Ok(())
     }
 
     #[test]
     fn get_테스트() -> Result<()> {
-        let path = Path::new("get.tbl");
-        {
-            let row = Row::from_bytes(&vec![1; 200]);
-            let mut table = HeapTable::open(path)?;
-            let row_id = table.insert(&row)?;
+        let test_file = TestFile::new("get");
+        let row = Row::from_bytes(&[1; 200]);
+        let mut table = HeapTable::open(test_file.path())?;
+        let row_id = table.insert(&row)?;
 
-            let read = table.get(row_id)?;
+        let read = table.get(row_id)?;
 
-            assert_eq!(row, read);
-        }
-        fs::remove_file(path)?;
+        assert_eq!(row, read);
         Ok(())
     }
 
     #[test]
     fn update_테스트() -> Result<()> {
-        let path = Path::new("update.tbl");
-        {
-            let row = Row::from_bytes(&[1, 2, 3]);
-            let mut table = HeapTable::open(path)?;
-            let row_id = table.insert(&row)?;
+        let test_file = TestFile::new("update");
 
-            let update = Row::from_bytes(&[4, 5, 6]);
-            table.update(row_id, &update)?;
-            let updated_row = table.get(row_id)?;
+        let row = Row::from_bytes(&[1, 2, 3]);
+        let mut table = HeapTable::open(test_file.path())?;
+        let row_id = table.insert(&row)?;
 
-            assert_ne!(row, updated_row);
-            assert_eq!(update, updated_row);
-        }
-        fs::remove_file(path)?;
+        let update = Row::from_bytes(&[4, 5, 6]);
+        table.update(row_id, &update)?;
+        let updated_row = table.get(row_id)?;
+
+        assert_ne!(row, updated_row);
+        assert_eq!(update, updated_row);
         Ok(())
     }
 
     #[test]
     fn delete_테스트() -> Result<()> {
-        let path = Path::new("delete.tbl");
-        {
-            let row = Row::from_bytes(&[1, 2, 3]);
-            let mut table = HeapTable::open(path)?;
-            let row_id = table.insert(&row)?;
-            let get = table.get(row_id)?;
-            assert_eq!(get, row);
+        let test_file = TestFile::new("delete");
+        let row = Row::from_bytes(&[1, 2, 3]);
+        let mut table = HeapTable::open(test_file.path())?;
+        let row_id = table.insert(&row)?;
+        let get = table.get(row_id)?;
+        assert_eq!(get, row);
 
-            table.delete(row_id)?;
-            let error = table.get(row_id).expect_err("not found");
-            assert_eq!(error.kind(), ErrorKind::NotFound);
-        }
-        fs::remove_file(path)?;
+        table.delete(row_id)?;
+        let error = table.get(row_id).expect_err("not found");
+        assert_eq!(error.kind(), ErrorKind::NotFound);
+        Ok(())
+    }
+
+    #[test]
+    fn scan_재시작_테스트() -> Result<()> {
+        let test_file = TestFile::new("scan-reopen");
+        let row1 = Row::from_bytes(&vec![1; 8000]);
+        let row2 = Row::from_bytes(&[2; 200]);
+        let row3 = Row::from_bytes(&[3; 200]);
+
+        let (row_id1, row_id3) = {
+            let mut table = HeapTable::open(test_file.path())?;
+            let row_id1 = table.insert(&row1)?;
+            let row_id2 = table.insert(&row2)?;
+            let row_id3 = table.insert(&row3)?;
+            table.delete(row_id2)?;
+            (row_id1, row_id3)
+        };
+
+        let mut table = HeapTable::open(test_file.path())?;
+        let scans = table.scan()?;
+
+        assert_eq!(scans, vec![(row_id1, row1), (row_id3, row3)]);
         Ok(())
     }
 }
