@@ -1,10 +1,15 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, str::from_utf8};
+
+const COLUMN_NAME_LENGTH_PREFIX_BYTES: usize = 2;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SchemaError {
     DuplicateColumnName(String),
     DuplicateTableName(String),
     InvalidDataTypeTag(u8),
+    ColumnNameTooLong(usize),
+    TruncatedColumnMetadata,
+    InvalidColumnNameEncoding,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -48,6 +53,45 @@ pub struct ColumnMetadata {
 impl ColumnMetadata {
     pub fn new(name: String, data_type: DataType) -> Self {
         Self { name, data_type }
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<(Self, usize), SchemaError> {
+        if bytes.len() < COLUMN_NAME_LENGTH_PREFIX_BYTES {
+            return Err(SchemaError::TruncatedColumnMetadata);
+        }
+
+        let name_len = u16::from_be_bytes([bytes[0], bytes[1]]) as usize;
+        let type_tag_index = COLUMN_NAME_LENGTH_PREFIX_BYTES + name_len;
+        let consumed_bytes = type_tag_index + 1;
+
+        if bytes.len() < consumed_bytes {
+            return Err(SchemaError::TruncatedColumnMetadata);
+        }
+
+        let name_bytes = &bytes[COLUMN_NAME_LENGTH_PREFIX_BYTES..type_tag_index];
+        let name = match from_utf8(name_bytes) {
+            Ok(n) => n.to_string(),
+            Err(_) => return Err(SchemaError::InvalidColumnNameEncoding),
+        };
+        let data_type = DataType::from_tag(bytes[type_tag_index])?;
+
+        Ok((ColumnMetadata::new(name, data_type), consumed_bytes))
+    }
+
+    /// example: [0, 4] ['n', 'a', 'm', 'e'] [3]
+    pub fn to_bytes(&self) -> Result<Vec<u8>, SchemaError> {
+        let name_bytes = self.name.as_bytes();
+        let name_len = match u16::try_from(name_bytes.len()) {
+            Ok(len) => len,
+            Err(_) => return Err(SchemaError::ColumnNameTooLong(name_bytes.len())),
+        };
+
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&name_len.to_be_bytes());
+        bytes.extend_from_slice(name_bytes);
+        bytes.push(self.data_type.tag());
+
+        Ok(bytes)
     }
 
     pub fn name(&self) -> &str {
