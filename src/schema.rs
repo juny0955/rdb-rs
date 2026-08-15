@@ -2,6 +2,7 @@ use std::{collections::HashSet, str::from_utf8};
 
 const COLUMN_NAME_LENGTH_PREFIX_BYTES: usize = 2;
 const TABLE_NAME_LENGTH_PREFIX_BYTES: usize = 2;
+const DATABASE_NAME_LENGTH_PREFIX_BYTES: usize = 2;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SchemaError {
@@ -10,11 +11,15 @@ pub enum SchemaError {
     InvalidDataTypeTag(u8),
     ColumnNameTooLong(usize),
     TableNameTooLong(usize),
+    DatabaseNameTooLong(usize),
     TooManyColumns,
+    TooManyTables,
     TruncatedColumnMetadata,
     TruncatedTableMetadata,
+    TruncatedDatabaseMetadata,
     InvalidColumnNameEncoding,
     InvalidTableNameEncoding,
+    InvalidDatabaseNameEncoding,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -49,7 +54,7 @@ impl DataType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ColumnMetadata {
     name: String,
     data_type: DataType,
@@ -105,7 +110,7 @@ impl ColumnMetadata {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct TableMetadata {
     name: String,
     columns: Vec<ColumnMetadata>,
@@ -135,7 +140,8 @@ impl TableMetadata {
         if bytes.len() < column_start {
             return Err(SchemaError::TruncatedTableMetadata);
         }
-        let column_count = u16::from_be_bytes([bytes[column_count_index], bytes[column_count_index + 1]]) as usize;
+        let column_count =
+            u16::from_be_bytes([bytes[column_count_index], bytes[column_count_index + 1]]) as usize;
 
         let name_bytes = &bytes[TABLE_NAME_LENGTH_PREFIX_BYTES..column_count_index];
         let name = from_utf8(name_bytes)
@@ -182,7 +188,7 @@ impl TableMetadata {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct DatabaseMetadata {
     name: String,
     tables: Vec<TableMetadata>,
@@ -200,12 +206,76 @@ impl DatabaseMetadata {
         Ok(Self { name, tables })
     }
 
+    pub fn from_bytes(bytes: &[u8]) -> Result<(Self, usize), SchemaError> {
+        if bytes.len() < DATABASE_NAME_LENGTH_PREFIX_BYTES {
+            return Err(SchemaError::TruncatedDatabaseMetadata);
+        }
+
+        let name_len = u16::from_be_bytes([bytes[0], bytes[1]]) as usize;
+        let table_count_index = DATABASE_NAME_LENGTH_PREFIX_BYTES + name_len;
+        let table_start = table_count_index + 2;
+
+        if bytes.len() < table_start {
+            return Err(SchemaError::TruncatedDatabaseMetadata);
+        }
+        let table_count =
+            u16::from_be_bytes([bytes[table_count_index], bytes[table_count_index + 1]]) as usize;
+
+        let name_bytes = &bytes[DATABASE_NAME_LENGTH_PREFIX_BYTES..table_count_index];
+        let name = from_utf8(name_bytes)
+            .map_err(|_| SchemaError::InvalidDatabaseNameEncoding)?
+            .to_string();
+
+        let mut offset = table_start;
+        let mut tables = Vec::new();
+        for _ in 0..table_count {
+            let (table, used) = TableMetadata::from_bytes(&bytes[offset..])?;
+            tables.push(table);
+            offset += used;
+        }
+
+        Ok((Self::new(name, tables)?, offset))
+    }
+
+    pub fn to_bytes(&self) -> Result<Vec<u8>, SchemaError> {
+        let name_bytes = self.name.as_bytes();
+        let name_len = u16::try_from(name_bytes.len())
+            .map_err(|_| SchemaError::DatabaseNameTooLong(name_bytes.len()))?;
+        let table_count =
+            u16::try_from(self.tables.len()).map_err(|_| SchemaError::TooManyTables)?;
+        let mut table_bytes = Vec::new();
+        for table in &self.tables {
+            table_bytes.extend_from_slice(&table.to_bytes()?);
+        }
+
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&name_len.to_be_bytes());
+        bytes.extend_from_slice(name_bytes);
+        bytes.extend_from_slice(&table_count.to_be_bytes());
+        bytes.extend_from_slice(&table_bytes);
+
+        Ok(bytes)
+    }
+
     pub fn name(&self) -> &str {
         &self.name
     }
 
     pub fn tables(&self) -> &[TableMetadata] {
         &self.tables
+    }
+}
+
+#[cfg(test)]
+mod column_metadata {
+    use super::*;
+
+    #[test]
+    fn 직렬화_역직렬화_테스트() -> Result<(), SchemaError> {
+        let column = ColumnMetadata::new("name".to_string(), DataType::Varchar);
+        let bytes = column.to_bytes()?;
+        assert_eq!(column, ColumnMetadata::from_bytes(&bytes)?.0);
+        Ok(())
     }
 }
 
@@ -223,6 +293,15 @@ mod table_metadata {
 
         let error = TableMetadata::new("users".to_string(), columns).expect_err("에러 발생해야함");
         assert_eq!(error, SchemaError::DuplicateColumnName("name".to_string()));
+    }
+
+    #[test]
+    fn 직렬화_역직렬화_테스트() -> Result<(), SchemaError> {
+        let column = ColumnMetadata::new("name".to_string(), DataType::Varchar);
+        let table = TableMetadata::new("users".to_string(), vec![column])?;
+        let bytes = table.to_bytes()?;
+        assert_eq!(table, TableMetadata::from_bytes(&bytes)?.0);
+        Ok(())
     }
 }
 
@@ -248,6 +327,16 @@ mod database_metadata {
         let error = DatabaseMetadata::new("mydb".to_string(), tables).expect_err("에러 발생해야함");
         assert_eq!(error, SchemaError::DuplicateTableName("users".to_string()));
 
+        Ok(())
+    }
+
+    #[test]
+    fn 직렬화_역직렬화_테스트() -> Result<(), SchemaError> {
+        let column = ColumnMetadata::new("name".to_string(), DataType::Varchar);
+        let table = TableMetadata::new("users".to_string(), vec![column])?;
+        let database = DatabaseMetadata::new("mydb".to_string(), vec![table])?;
+        let bytes = database.to_bytes()?;
+        assert_eq!(database, DatabaseMetadata::from_bytes(&bytes)?.0);
         Ok(())
     }
 }
