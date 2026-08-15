@@ -1,6 +1,7 @@
 use std::{collections::HashSet, str::from_utf8};
 
 const COLUMN_NAME_LENGTH_PREFIX_BYTES: usize = 2;
+const TABLE_NAME_LENGTH_PREFIX_BYTES: usize = 2;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SchemaError {
@@ -8,8 +9,12 @@ pub enum SchemaError {
     DuplicateTableName(String),
     InvalidDataTypeTag(u8),
     ColumnNameTooLong(usize),
+    TableNameTooLong(usize),
+    TooManyColumns,
     TruncatedColumnMetadata,
+    TruncatedTableMetadata,
     InvalidColumnNameEncoding,
+    InvalidTableNameEncoding,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -69,10 +74,9 @@ impl ColumnMetadata {
         }
 
         let name_bytes = &bytes[COLUMN_NAME_LENGTH_PREFIX_BYTES..type_tag_index];
-        let name = match from_utf8(name_bytes) {
-            Ok(n) => n.to_string(),
-            Err(_) => return Err(SchemaError::InvalidColumnNameEncoding),
-        };
+        let name = from_utf8(name_bytes)
+            .map_err(|_| SchemaError::InvalidColumnNameEncoding)?
+            .to_string();
         let data_type = DataType::from_tag(bytes[type_tag_index])?;
 
         Ok((ColumnMetadata::new(name, data_type), consumed_bytes))
@@ -81,10 +85,8 @@ impl ColumnMetadata {
     /// example: [0, 4] ['n', 'a', 'm', 'e'] [3]
     pub fn to_bytes(&self) -> Result<Vec<u8>, SchemaError> {
         let name_bytes = self.name.as_bytes();
-        let name_len = match u16::try_from(name_bytes.len()) {
-            Ok(len) => len,
-            Err(_) => return Err(SchemaError::ColumnNameTooLong(name_bytes.len())),
-        };
+        let name_len = u16::try_from(name_bytes.len())
+            .map_err(|_| SchemaError::ColumnNameTooLong(name_bytes.len()))?;
 
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&name_len.to_be_bytes());
@@ -119,6 +121,56 @@ impl TableMetadata {
         }
 
         Ok(Self { name, columns })
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<(Self, usize), SchemaError> {
+        if bytes.len() < TABLE_NAME_LENGTH_PREFIX_BYTES {
+            return Err(SchemaError::TruncatedTableMetadata);
+        }
+
+        let name_len = u16::from_be_bytes([bytes[0], bytes[1]]) as usize;
+        let column_count_index = TABLE_NAME_LENGTH_PREFIX_BYTES + name_len;
+        let column_start = column_count_index + 2;
+
+        if bytes.len() < column_start {
+            return Err(SchemaError::TruncatedTableMetadata);
+        }
+        let column_count = u16::from_be_bytes([bytes[column_count_index], bytes[column_count_index + 1]]) as usize;
+
+        let name_bytes = &bytes[TABLE_NAME_LENGTH_PREFIX_BYTES..column_count_index];
+        let name = from_utf8(name_bytes)
+            .map_err(|_| SchemaError::InvalidTableNameEncoding)?
+            .to_string();
+
+        let mut offset = column_start;
+        let mut columns = Vec::new();
+        for _ in 0..column_count {
+            let (column, used) = ColumnMetadata::from_bytes(&bytes[offset..])?;
+            columns.push(column);
+            offset += used;
+        }
+
+        Ok((Self::new(name, columns)?, offset))
+    }
+
+    pub fn to_bytes(&self) -> Result<Vec<u8>, SchemaError> {
+        let name_bytes = self.name.as_bytes();
+        let name_len = u16::try_from(name_bytes.len())
+            .map_err(|_| SchemaError::TableNameTooLong(name_bytes.len()))?;
+        let column_count =
+            u16::try_from(self.columns.len()).map_err(|_| SchemaError::TooManyColumns)?;
+        let mut column_bytes = Vec::new();
+        for column in &self.columns {
+            column_bytes.extend_from_slice(&column.to_bytes()?);
+        }
+
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&name_len.to_be_bytes());
+        bytes.extend_from_slice(name_bytes);
+        bytes.extend_from_slice(&column_count.to_be_bytes());
+        bytes.extend_from_slice(&column_bytes);
+
+        Ok(bytes)
     }
 
     pub fn name(&self) -> &str {
