@@ -1,10 +1,13 @@
 use std::{
-    fs::{File, OpenOptions, create_dir_all},
+    fs::File,
     io::{self, Read, Seek, SeekFrom, Write},
     path::Path,
 };
 
-use crate::schema::{DatabaseMetadata, SchemaError};
+use crate::{
+    file::open_rw_create,
+    schema::{DatabaseMetadata, SchemaError},
+};
 
 #[derive(Debug)]
 pub enum CatalogError {
@@ -33,15 +36,7 @@ pub struct Catalog {
 
 impl Catalog {
     pub fn open(path: &Path) -> Result<Catalog, CatalogError> {
-        let mut binding = OpenOptions::new();
-        let options = binding.read(true).write(true).create(true);
-        if let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            create_dir_all(parent)?;
-        }
-
-        let file = options.open(path)?;
+        let file = open_rw_create(path)?;
         Ok(Self { file })
     }
 

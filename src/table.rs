@@ -1,10 +1,13 @@
 use std::{
-    fs::{File, OpenOptions, create_dir_all},
+    fs::File,
     io::{ErrorKind, Result},
     path::Path,
 };
 
-use crate::page::{Page, PageId, Row, RowId, allocate_page, page_count, read_page, write_page};
+use crate::{
+    file::open_rw_create,
+    page::{Page, PageId, Row, RowId, allocate_page, page_count, read_page, write_page},
+};
 
 pub struct HeapTable {
     file: File,
@@ -12,15 +15,7 @@ pub struct HeapTable {
 
 impl HeapTable {
     pub fn open(path: &Path) -> Result<Self> {
-        let mut binding = OpenOptions::new();
-        let options = binding.read(true).write(true).create(true);
-        if let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty()
-        {
-            create_dir_all(parent)?;
-        }
-
-        let file = options.open(path)?;
+        let file = open_rw_create(path)?;
         Ok(Self { file })
     }
 
