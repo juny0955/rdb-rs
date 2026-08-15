@@ -332,34 +332,15 @@ impl Page {
     }
 
     fn read_free_block(&self, offset: u16) -> Result<FreeBlock> {
-        if offset < self.free_end()
-            || offset as usize + FREE_BLOCK_SIZE > PAGE_SIZE
-            || offset == u16::MAX
-        {
-            return Err(Error::new(
-                ErrorKind::InvalidData,
-                "invalid free block bounds",
-            ));
-        }
-
+        let offset = self.free_block_offset(offset)?;
         let mut read_bytes = [0u8; FREE_BLOCK_SIZE];
-        read_bytes.copy_from_slice(&self.data[offset as usize..offset as usize + FREE_BLOCK_SIZE]);
+        read_bytes.copy_from_slice(&self.data[offset..offset + FREE_BLOCK_SIZE]);
         Ok(FreeBlock::from_bytes(read_bytes))
     }
 
     fn write_free_block(&mut self, offset: u16, block: &FreeBlock) -> Result<()> {
-        if offset < self.free_end()
-            || offset as usize + FREE_BLOCK_SIZE > PAGE_SIZE
-            || offset == u16::MAX
-        {
-            return Err(Error::new(
-                ErrorKind::InvalidData,
-                "invalid free block bounds",
-            ));
-        }
-
-        self.data[offset as usize..offset as usize + FREE_BLOCK_SIZE]
-            .copy_from_slice(&block.to_bytes());
+        let offset = self.free_block_offset(offset)?;
+        self.data[offset..offset + FREE_BLOCK_SIZE].copy_from_slice(&block.to_bytes());
         Ok(())
     }
 
@@ -419,6 +400,20 @@ impl Page {
         }
 
         Ok((self.free_end() - self.free_start()) as usize)
+    }
+
+    fn free_block_offset(&self, offset: u16) -> Result<usize> {
+        if offset < self.free_end()
+            || offset as usize + FREE_BLOCK_SIZE > PAGE_SIZE
+            || offset == u16::MAX
+        {
+            return Err(Error::new(
+                ErrorKind::InvalidData,
+                "invalid free block bounds",
+            ));
+        }
+
+        Ok(offset as usize)
     }
 
     // getter & setter
