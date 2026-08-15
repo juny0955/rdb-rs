@@ -4,6 +4,7 @@ use std::collections::HashSet;
 pub enum SchemaError {
     DuplicateColumnName(String),
     DuplicateTableName(String),
+    InvalidDataTypeTag(u8),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -13,6 +14,29 @@ pub enum DataType {
     Boolean,
     Varchar,
     Null,
+}
+
+impl DataType {
+    pub fn tag(&self) -> u8 {
+        match self {
+            DataType::Int => 0,
+            DataType::BigInt => 1,
+            DataType::Boolean => 2,
+            DataType::Varchar => 3,
+            DataType::Null => 4,
+        }
+    }
+
+    pub fn from_tag(tag: u8) -> Result<Self, SchemaError> {
+        match tag {
+            0 => Ok(DataType::Int),
+            1 => Ok(DataType::BigInt),
+            2 => Ok(DataType::Boolean),
+            3 => Ok(DataType::Varchar),
+            4 => Ok(DataType::Null),
+            _ => Err(SchemaError::InvalidDataTypeTag(tag)),
+        }
+    }
 }
 
 #[derive(Debug)]
