@@ -243,17 +243,17 @@ SQL 문자열을 AST(Abstract Syntax Tree)로 변환한다.
 
 ### 구현
 
-* [ ] Lexer
-* [ ] Parser
-* [ ] AST
-* [ ] Literal
-* [ ] Expression
+* [x] Lexer
+* [x] Parser
+* [x] AST
+* [x] Literal
+* [x] Expression
 
 초기 지원 SQL:
 
 * [ ] `CREATE TABLE`
 * [ ] `INSERT`
-* [ ] `SELECT`
+* [x] `SELECT`
 * [ ] `UPDATE`
 * [ ] `DELETE`
 
