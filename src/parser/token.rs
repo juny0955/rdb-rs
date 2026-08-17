@@ -24,6 +24,10 @@ pub(crate) enum TokenKind {
     Update,
     Set,
     Delete,
+    Int,
+    BigInt,
+    Boolean,
+    Varchar,
     Null,
 
     // value
@@ -56,6 +60,10 @@ impl From<&str> for TokenKind {
             "UPDATE" => Self::Update,
             "SET" => Self::Set,
             "DELETE" => Self::Delete,
+            "INT" => Self::Int,
+            "BIGINT" => Self::BigInt,
+            "BOOLEAN" => Self::Boolean,
+            "VARCHAR" => Self::Varchar,
             "NULL" => Self::Null,
             _ => Self::Identifier(value.to_owned()),
         }
