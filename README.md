@@ -251,8 +251,8 @@ SQL 문자열을 AST(Abstract Syntax Tree)로 변환한다.
 
 초기 지원 SQL:
 
-* [ ] `CREATE TABLE`
-* [ ] `INSERT`
+* [x] `CREATE TABLE`
+* [x] `INSERT`
 * [x] `SELECT`
 * [ ] `UPDATE`
 * [ ] `DELETE`

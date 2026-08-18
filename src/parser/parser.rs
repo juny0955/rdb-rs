@@ -1,5 +1,8 @@
 use crate::parser::{
-    ast::{Expression, Literal, Projection, SelectStatement, Statement},
+    ast::{
+        ColumnDefinition, CreateTableStatement, DataType, Expression, InsertStatement, Literal,
+        Projection, SelectStatement, Statement,
+    },
     token::{Token, TokenKind},
 };
 
@@ -25,12 +28,13 @@ impl Parser {
         let current = self.current();
         let statement = match current.kind {
             TokenKind::Select => Statement::Select(self.parse_select()?),
+            TokenKind::Create => Statement::CreateTable(self.parse_create_table()?),
+            TokenKind::Insert => Statement::Insert(self.parse_insert()?),
             _ => return Err(ParseError::UnexpectedToken(current.offset)),
         };
 
         self.expect(TokenKind::Semicolon)?;
         self.expect(TokenKind::Eof)?;
-
         Ok(statement)
     }
 
@@ -51,6 +55,30 @@ impl Parser {
             table,
             filter,
         })
+    }
+
+    fn parse_insert(&mut self) -> Result<InsertStatement, ParseError> {
+        self.expect(TokenKind::Insert)?;
+        self.expect(TokenKind::Into)?;
+        let table = self.expect_identifier()?;
+        self.expect(TokenKind::Values)?;
+        let literals = self.parse_literals()?;
+
+        Ok(InsertStatement { table, literals })
+    }
+
+    fn parse_literals(&mut self) -> Result<Vec<Literal>, ParseError> {
+        self.expect(TokenKind::LeftParen)?;
+        let mut literals = Vec::new();
+        literals.push(self.expect_literal()?);
+
+        while self.current().kind == TokenKind::Comma {
+            self.expect(TokenKind::Comma)?;
+            literals.push(self.expect_literal()?);
+        }
+        self.expect(TokenKind::RightParen)?;
+
+        Ok(literals)
     }
 
     fn parse_projections(&mut self) -> Result<Vec<Projection>, ParseError> {
@@ -91,6 +119,51 @@ impl Parser {
         })
     }
 
+    fn parse_create_table(&mut self) -> Result<CreateTableStatement, ParseError> {
+        self.expect(TokenKind::Create)?;
+        self.expect(TokenKind::Table)?;
+        let table = self.expect_identifier()?;
+        let columns = self.parse_column_definitions()?;
+
+        Ok(CreateTableStatement { table, columns })
+    }
+
+    fn parse_column_definitions(&mut self) -> Result<Vec<ColumnDefinition>, ParseError> {
+        self.expect(TokenKind::LeftParen)?;
+        let mut definitions = Vec::new();
+        definitions.push(self.parse_column_definition()?);
+
+        while self.current().kind == TokenKind::Comma {
+            self.expect(TokenKind::Comma)?;
+            definitions.push(self.parse_column_definition()?);
+        }
+        self.expect(TokenKind::RightParen)?;
+
+        Ok(definitions)
+    }
+
+    fn parse_column_definition(&mut self) -> Result<ColumnDefinition, ParseError> {
+        let name = self.expect_identifier()?;
+        let data_type = self.parse_data_type()?;
+
+        Ok(ColumnDefinition { name, data_type })
+    }
+
+    fn parse_data_type(&mut self) -> Result<DataType, ParseError> {
+        let current_token = self.current();
+        let data_type = match &current_token.kind {
+            TokenKind::Int => DataType::Int,
+            TokenKind::BigInt => DataType::BigInt,
+            TokenKind::Boolean => DataType::Boolean,
+            TokenKind::Varchar => DataType::Varchar,
+            TokenKind::Null => DataType::Null,
+            _ => return Err(ParseError::UnexpectedToken(current_token.offset)),
+        };
+
+        self.advance();
+        Ok(data_type)
+    }
+
     fn expect_identifier(&mut self) -> Result<String, ParseError> {
         let current_token = self.current();
         match &current_token.kind {
@@ -105,23 +178,21 @@ impl Parser {
 
     fn expect_literal(&mut self) -> Result<Literal, ParseError> {
         let current_token = self.current();
-        match &current_token.kind {
+        let literal = match &current_token.kind {
             TokenKind::Integer(integer) => {
                 let integer = *integer;
-                self.advance();
-                Ok(Literal::Integer(integer))
+                Literal::Integer(integer)
             }
             TokenKind::StringLiteral(str) => {
                 let str = str.clone();
-                self.advance();
-                Ok(Literal::String(str))
+                Literal::String(str)
             }
-            TokenKind::Null => {
-                self.advance();
-                Ok(Literal::Null)
-            }
-            _ => Err(ParseError::UnexpectedToken(current_token.offset)),
-        }
+            TokenKind::Null => Literal::Null,
+            _ => return Err(ParseError::UnexpectedToken(current_token.offset)),
+        };
+
+        self.advance();
+        Ok(literal)
     }
 
     fn expect(&mut self, expected: TokenKind) -> Result<(), ParseError> {
@@ -170,6 +241,53 @@ mod tests {
                     left: Box::new(Expression::Identifier("id".to_owned())),
                     right: Box::new(Expression::Literal(Literal::Integer(10))),
                 }),
+            })
+        );
+    }
+
+    #[test]
+    fn create_table_문을_ast로_파싱한다() {
+        let mut lexer = Lexer::new("CREATE TABLE users (id BIGINT, name VARCHAR);");
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+
+        let statement = parser.parse().unwrap();
+
+        assert_eq!(
+            statement,
+            Statement::CreateTable(CreateTableStatement {
+                table: "users".to_owned(),
+                columns: vec![
+                    ColumnDefinition {
+                        name: "id".to_owned(),
+                        data_type: DataType::BigInt,
+                    },
+                    ColumnDefinition {
+                        name: "name".to_owned(),
+                        data_type: DataType::Varchar,
+                    },
+                ],
+            })
+        );
+    }
+
+    #[test]
+    fn insert_문을_ast로_파싱한다() {
+        let mut lexer = Lexer::new("INSERT INTO users VALUES (1, 'Kim', NULL);");
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+
+        let statement = parser.parse().unwrap();
+
+        assert_eq!(
+            statement,
+            Statement::Insert(InsertStatement {
+                table: "users".to_owned(),
+                literals: vec![
+                    Literal::Integer(1),
+                    Literal::String("Kim".to_owned()),
+                    Literal::Null,
+                ],
             })
         );
     }

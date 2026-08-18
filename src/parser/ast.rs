@@ -2,14 +2,26 @@
 pub(crate) enum Statement {
     Select(SelectStatement),
     CreateTable(CreateTableStatement),
+    Insert(InsertStatement),
 }
 
-// SELECT AST //
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SelectStatement {
     pub(crate) projections: Vec<Projection>,
     pub(crate) table: String,
     pub(crate) filter: Option<Expression>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CreateTableStatement {
+    pub(crate) table: String,
+    pub(crate) columns: Vec<ColumnDefinition>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct InsertStatement {
+    pub(crate) table: String,
+    pub(crate) literals: Vec<Literal>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,13 +45,6 @@ pub(crate) enum Literal {
     Integer(i64),
     String(String),
     Null,
-}
-
-// CREATE TABLE AST //
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CreateTableStatement {
-    pub(crate) table: String,
-    pub(crate) columns: Vec<ColumnDefinition>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
