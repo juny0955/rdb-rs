@@ -4,6 +4,7 @@ pub(crate) enum Statement {
     CreateTable(CreateTableStatement),
     Insert(InsertStatement),
     Update(UpdateStatement),
+    Delete(DeleteStatement),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,6 +30,12 @@ pub(crate) struct InsertStatement {
 pub(crate) struct UpdateStatement {
     pub(crate) table: String,
     pub(crate) assignments: Vec<Assignment>,
+    pub(crate) filter: Option<Expression>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DeleteStatement {
+    pub(crate) table: String,
     pub(crate) filter: Option<Expression>,
 }
 

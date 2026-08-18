@@ -1,7 +1,7 @@
 use crate::parser::{
     ast::{
-        Assignment, ColumnDefinition, CreateTableStatement, DataType, Expression, InsertStatement,
-        Literal, Projection, SelectStatement, Statement, UpdateStatement,
+        Assignment, ColumnDefinition, CreateTableStatement, DataType, DeleteStatement, Expression,
+        InsertStatement, Literal, Projection, SelectStatement, Statement, UpdateStatement,
     },
     token::{Token, TokenKind},
 };
@@ -31,6 +31,7 @@ impl Parser {
             TokenKind::Create => Statement::CreateTable(self.parse_create_table()?),
             TokenKind::Insert => Statement::Insert(self.parse_insert()?),
             TokenKind::Update => Statement::Update(self.parse_update()?),
+            TokenKind::Delete => Statement::Delete(self.parse_delete()?),
             _ => return Err(ParseError::UnexpectedToken(current.offset)),
         };
 
@@ -85,6 +86,19 @@ impl Parser {
             assignments,
             filter,
         })
+    }
+
+    fn parse_delete(&mut self) -> Result<DeleteStatement, ParseError> {
+        self.expect(TokenKind::Delete)?;
+        self.expect(TokenKind::From)?;
+        let table = self.expect_identifier()?;
+        let mut filter = None;
+        if self.current().kind == TokenKind::Where {
+            self.expect(TokenKind::Where)?;
+            filter = Some(self.parse_equal_expression()?);
+        }
+
+        Ok(DeleteStatement { table, filter })
     }
 
     fn parse_assignments(&mut self) -> Result<Vec<Assignment>, ParseError> {
@@ -347,6 +361,26 @@ mod tests {
                     column: "name".to_owned(),
                     value: Literal::String("Lee".to_owned()),
                 }],
+                filter: Some(Expression::Equal {
+                    left: Box::new(Expression::Identifier("id".to_owned())),
+                    right: Box::new(Expression::Literal(Literal::Integer(1))),
+                }),
+            })
+        );
+    }
+
+    #[test]
+    fn delete_문을_ast로_파싱한다() {
+        let mut lexer = Lexer::new("DELETE FROM users WHERE id = 1;");
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+
+        let statement = parser.parse().unwrap();
+
+        assert_eq!(
+            statement,
+            Statement::Delete(DeleteStatement {
+                table: "users".to_owned(),
                 filter: Some(Expression::Equal {
                     left: Box::new(Expression::Identifier("id".to_owned())),
                     right: Box::new(Expression::Literal(Literal::Integer(1))),

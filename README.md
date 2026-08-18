@@ -255,7 +255,7 @@ SQL 문자열을 AST(Abstract Syntax Tree)로 변환한다.
 * [x] `INSERT`
 * [x] `SELECT`
 * [x] `UPDATE`
-* [ ] `DELETE`
+* [x] `DELETE`
 
 ### 흐름
 
