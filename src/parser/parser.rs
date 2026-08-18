@@ -1,7 +1,7 @@
 use crate::parser::{
     ast::{
-        ColumnDefinition, CreateTableStatement, DataType, Expression, InsertStatement, Literal,
-        Projection, SelectStatement, Statement,
+        Assignment, ColumnDefinition, CreateTableStatement, DataType, Expression, InsertStatement,
+        Literal, Projection, SelectStatement, Statement, UpdateStatement,
     },
     token::{Token, TokenKind},
 };
@@ -30,6 +30,7 @@ impl Parser {
             TokenKind::Select => Statement::Select(self.parse_select()?),
             TokenKind::Create => Statement::CreateTable(self.parse_create_table()?),
             TokenKind::Insert => Statement::Insert(self.parse_insert()?),
+            TokenKind::Update => Statement::Update(self.parse_update()?),
             _ => return Err(ParseError::UnexpectedToken(current.offset)),
         };
 
@@ -65,6 +66,44 @@ impl Parser {
         let literals = self.parse_literals()?;
 
         Ok(InsertStatement { table, literals })
+    }
+
+    fn parse_update(&mut self) -> Result<UpdateStatement, ParseError> {
+        self.expect(TokenKind::Update)?;
+        let table = self.expect_identifier()?;
+        self.expect(TokenKind::Set)?;
+        let assignments = self.parse_assignments()?;
+        let mut filter = None;
+
+        if self.current().kind == TokenKind::Where {
+            self.expect(TokenKind::Where)?;
+            filter = Some(self.parse_equal_expression()?);
+        }
+
+        Ok(UpdateStatement {
+            table,
+            assignments,
+            filter,
+        })
+    }
+
+    fn parse_assignments(&mut self) -> Result<Vec<Assignment>, ParseError> {
+        let mut assignments = Vec::new();
+        assignments.push(self.parse_assignment()?);
+
+        while self.current().kind == TokenKind::Comma {
+            self.expect(TokenKind::Comma)?;
+            assignments.push(self.parse_assignment()?);
+        }
+
+        Ok(assignments)
+    }
+
+    fn parse_assignment(&mut self) -> Result<Assignment, ParseError> {
+        let column = self.expect_identifier()?;
+        self.expect(TokenKind::Eq)?;
+        let value = self.expect_literal()?;
+        Ok(Assignment { column, value })
     }
 
     fn parse_literals(&mut self) -> Result<Vec<Literal>, ParseError> {
@@ -288,6 +327,30 @@ mod tests {
                     Literal::String("Kim".to_owned()),
                     Literal::Null,
                 ],
+            })
+        );
+    }
+
+    #[test]
+    fn update_문을_ast로_파싱한다() {
+        let mut lexer = Lexer::new("UPDATE users SET name = 'Lee' WHERE id = 1;");
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+
+        let statement = parser.parse().unwrap();
+
+        assert_eq!(
+            statement,
+            Statement::Update(UpdateStatement {
+                table: "users".to_owned(),
+                assignments: vec![Assignment {
+                    column: "name".to_owned(),
+                    value: Literal::String("Lee".to_owned()),
+                }],
+                filter: Some(Expression::Equal {
+                    left: Box::new(Expression::Identifier("id".to_owned())),
+                    right: Box::new(Expression::Literal(Literal::Integer(1))),
+                }),
             })
         );
     }
