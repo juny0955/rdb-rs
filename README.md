@@ -299,11 +299,11 @@ SQL AST를 실제 Storage Engine의 작업으로 연결한다.
 
 ### Binder
 
-* [ ] Table 존재 여부 확인
-* [ ] Column 존재 여부 확인
-* [ ] Column Type 확인
-* [ ] Expression Type 검사
-* [ ] 이름을 내부 ID로 변환
+* [x] Table 존재 여부 확인
+* [x] Column 존재 여부 확인
+* [x] Column Type 확인
+* [x] Expression Type 검사
+* [x] 이름을 내부 ID로 변환
 
 ### Executor
 
