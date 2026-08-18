@@ -5,6 +5,7 @@ use crate::file::open_rw_create;
 mod catalog;
 mod file;
 mod page;
+mod parser;
 mod schema;
 mod table;
 
