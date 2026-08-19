@@ -1,4 +1,7 @@
-use std::io::{Error, ErrorKind, Result};
+use std::{
+    cmp::Ordering,
+    io::{Error, ErrorKind, Result},
+};
 
 const PAGE_SIZE: usize = 8192;
 const SLOT_SIZE: usize = 4;
@@ -165,20 +168,56 @@ impl Page {
         Ok(row)
     }
 
-    /// row update (같은 길이만 지원한다 추후 가변길이 지연 압축 추가 예정)
-    /// 길이 다를시 InvalidInput Err
     pub fn update_row(&mut self, slot_id: SlotId, row: &Row) -> Result<()> {
-        let slot = self.read_slot(slot_id)?;
-        if row.to_bytes().len() != slot.length as usize {
-            return Err(Error::new(ErrorKind::InvalidInput, "different row length"));
-        }
+        let mut slot = self.read_slot(slot_id)?;
+        let slot_length = slot.length as usize;
+        let slot_offset = slot.offset as usize;
+        let row_bytes = row.to_bytes();
+        let old_allocate_len = row_allocation_size(slot_length);
+        let new_allocate_len = row_allocation_size(row_bytes.len());
+        let allocate_end = slot_offset + old_allocate_len;
 
-        let row_end = slot.offset as usize + slot.length as usize;
-        if row_end > PAGE_SIZE || slot.offset < self.free_end() {
+        if allocate_end > PAGE_SIZE || slot_offset < self.free_end() as usize {
             return Err(Error::new(ErrorKind::InvalidData, "invalid row bounds"));
         }
 
-        self.data[slot.offset as usize..row_end].copy_from_slice(row.to_bytes());
+        match new_allocate_len.cmp(&old_allocate_len) {
+            Ordering::Equal => {
+                let new_row_end = slot_offset + row_bytes.len();
+
+                slot.length = row_bytes.len() as u16;
+                self.write_slot(slot_id, &slot)?;
+
+                self.data[slot_offset..new_row_end].copy_from_slice(row_bytes);
+            }
+            Ordering::Less => {
+                self.write_row_bytes_at(slot.offset, row_bytes)?;
+
+                slot.length = row_bytes.len() as u16;
+                self.write_slot(slot_id, &slot)?;
+
+                let free_block_length = (old_allocate_len - new_allocate_len) as u16;
+                let free_block_offset = (slot_offset + new_allocate_len) as u16;
+                self.add_free_block(free_block_offset, free_block_length)?;
+            }
+            Ordering::Greater => {
+                let new_offset = match self.try_allocate_from_free_block(new_allocate_len)? {
+                    Some(offset) => Some(offset),
+                    None => self.try_allocate_from_free_end(new_allocate_len)?,
+                }
+                .ok_or_else(|| Error::new(ErrorKind::StorageFull, "not enough space for row"))?;
+
+                self.write_row_bytes_at(new_offset, row_bytes)?;
+
+                let old_slot_offset = slot.offset;
+                slot.offset = new_offset;
+                slot.length = row_bytes.len() as u16;
+                self.write_slot(slot_id, &slot)?;
+
+                self.add_free_block(old_slot_offset, old_allocate_len as u16)?;
+            }
+        }
+
         Ok(())
     }
 
@@ -186,10 +225,8 @@ impl Page {
         let mut slot = self.read_slot(slot_id)?;
         let row_offset = slot.offset;
         let allocate_len = row_allocation_size(slot.length as usize);
-        let free_block = FreeBlock::new(self.free_list_head(), allocate_len as u16);
 
-        self.write_free_block(row_offset, &free_block)?;
-        self.set_free_list_head(row_offset);
+        self.add_free_block(row_offset, allocate_len as u16)?;
 
         slot.tombstone();
         self.write_slot(slot_id, &slot)?;
@@ -217,16 +254,32 @@ impl Page {
         row_bytes: &[u8],
         allocate_len: usize,
     ) -> Result<Option<SlotId>> {
+        if SLOT_SIZE > self.free_space()? {
+            self.compact()?;
+            return Ok(None);
+        }
+
+        self.try_allocate_from_free_block(allocate_len)?
+            .map(|offset| self.write_row_at(offset, row_bytes))
+            .transpose()
+    }
+
+    fn try_allocate_from_free_end(&mut self, allocate_len: usize) -> Result<Option<u16>> {
+        if allocate_len > self.free_space()? {
+            return Ok(None);
+        }
+
+        let row_start = self.free_end() - allocate_len as u16;
+        self.set_free_end(row_start);
+        Ok(Some(row_start))
+    }
+
+    fn try_allocate_from_free_block(&mut self, allocate_len: usize) -> Result<Option<u16>> {
         if let Some((current_offset, prev_offset, block)) =
             self.find_free_block(allocate_len as u16)?
         {
             let block_len = block.length as usize;
             let block_offset = current_offset as usize;
-
-            if SLOT_SIZE > self.free_space()? {
-                self.compact()?;
-                return Ok(None);
-            }
 
             if block_len > allocate_len {
                 let remaining_length = (block_len - allocate_len) as u16;
@@ -239,8 +292,7 @@ impl Page {
                 self.replace_free_block_link(prev_offset, block.next)?;
             }
 
-            let slot_id = self.write_row_at(current_offset, row_bytes)?;
-            return Ok(Some(slot_id));
+            return Ok(Some(current_offset));
         }
 
         Ok(None)
@@ -263,11 +315,18 @@ impl Page {
         Ok(slot_id)
     }
 
+    fn write_row_bytes_at(&mut self, offset: u16, row_bytes: &[u8]) -> Result<()> {
+        let offset = offset as usize;
+        self.data[offset..offset + row_bytes.len()].copy_from_slice(row_bytes);
+        Ok(())
+    }
+
     fn write_row_at(&mut self, offset: u16, row_bytes: &[u8]) -> Result<SlotId> {
         let slot = Slot::new(offset, row_bytes.len() as u16);
         let slot_id = self.add_slot(&slot)?;
 
-        self.data[offset as usize..offset as usize + row_bytes.len()].copy_from_slice(row_bytes);
+        let offset = offset as usize;
+        self.data[offset..offset + row_bytes.len()].copy_from_slice(row_bytes);
         Ok(slot_id)
     }
 
@@ -392,6 +451,13 @@ impl Page {
 
         self.data[offset..offset + SLOT_SIZE].copy_from_slice(&bytes);
 
+        Ok(())
+    }
+
+    fn add_free_block(&mut self, offset: u16, length: u16) -> Result<()> {
+        let block = FreeBlock::new(self.free_list_head(), length);
+        self.write_free_block(offset, &block)?;
+        self.set_free_list_head(offset);
         Ok(())
     }
 
