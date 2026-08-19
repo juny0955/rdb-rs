@@ -23,7 +23,7 @@ pub enum TupleError {
     TrailingBytes,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
     Int(i32),
     BigInt(i64),

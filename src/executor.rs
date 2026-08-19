@@ -1,7 +1,7 @@
 use std::{io, path::Path};
 
 use crate::{
-    binder::{BoundExpression, BoundSelect},
+    binder::{BoundExpression, BoundProjection, BoundSelect},
     page::{Row, RowId},
     parser::ast::Literal,
     schema::{ColumnId, DatabaseMetadata, TableId, TableMetadata},
@@ -42,7 +42,7 @@ impl<'a> Executor<'a> {
         }
     }
 
-    pub fn execute_select(&self, select: &BoundSelect) -> Result<Vec<(RowId, Row)>, ExecutorError> {
+    pub fn execute_select(&self, select: &BoundSelect) -> Result<Vec<Vec<Value>>, ExecutorError> {
         let table_id = select.table_id;
         let table = self
             .database
@@ -53,11 +53,13 @@ impl<'a> Executor<'a> {
         let mut heap_table = HeapTable::open_existing(&path)?;
         let rows = heap_table.scan()?;
 
+        let projections = &select.projections;
         let Some(filter) = select.filter.as_ref() else {
-            return Ok(rows);
+            return Self::project_rows(rows, table, projections);
         };
 
-        Self::filter_rows(rows, table, filter)
+        let filtered_rows = Self::filter_rows(rows, table, filter)?;
+        Self::project_rows(filtered_rows, table, projections)
     }
 
     fn filter_rows(
@@ -83,6 +85,35 @@ impl<'a> Executor<'a> {
         Ok(results)
     }
 
+    fn project_rows(
+        rows: Vec<(RowId, Row)>,
+        table: &TableMetadata,
+        projections: &[BoundProjection],
+    ) -> Result<Vec<Vec<Value>>, ExecutorError> {
+        let mut results = Vec::new();
+
+        for (_, row) in rows {
+            let values = decode(&row, table.columns())?;
+            let mut projection_values = Vec::new();
+
+            for projection in projections {
+                match projection {
+                    BoundProjection::All => projection_values.extend(values.iter().cloned()),
+                    BoundProjection::Column(column_id) => {
+                        let column_index = table
+                            .column_index(*column_id)
+                            .ok_or(ExecutorError::ColumnNotFound(*column_id))?;
+                        projection_values.push(values[column_index].clone());
+                    }
+                }
+            }
+
+            results.push(projection_values);
+        }
+
+        Ok(results)
+    }
+
     fn is_equal(value: &Value, literal: &Literal) -> bool {
         match (value, literal) {
             (Value::Null, Literal::Null) => false,
@@ -96,64 +127,28 @@ impl<'a> Executor<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        env::temp_dir,
-        fs::{create_dir, remove_dir_all},
-        io::ErrorKind,
-        path::{Path, PathBuf},
-        process,
-        sync::atomic::{AtomicUsize, Ordering},
-    };
+    use std::io::ErrorKind;
 
     use crate::{
         binder::{BoundExpression, BoundProjection, BoundSelect},
-        page::Row,
         parser::ast::Literal,
         schema::{ColumnId, ColumnMetadata, DataType, DatabaseMetadata, TableId, TableMetadata},
         table::HeapTable,
+        test_supports::TestDirectory,
         tuple::{Value, encode},
     };
 
     use super::{Executor, ExecutorError};
 
-    static NEXT_TEST_DIRECTORY_ID: AtomicUsize = AtomicUsize::new(0);
-
-    struct TestDirectory {
-        path: PathBuf,
-    }
-
-    impl TestDirectory {
-        fn new(label: &str) -> Self {
-            let counter = NEXT_TEST_DIRECTORY_ID.fetch_add(1, Ordering::Relaxed);
-            let path = temp_dir().join(format!(
-                "rdb-rs-executor-{label}-{}-{counter}",
-                process::id()
-            ));
-            create_dir(&path).expect("테스트 디렉터리를 생성해야 함");
-            Self { path }
-        }
-
-        fn path(&self) -> &Path {
-            &self.path
-        }
-    }
-
-    impl Drop for TestDirectory {
-        fn drop(&mut self) {
-            let _ = remove_dir_all(&self.path);
-        }
-    }
-
-    fn name_columns() -> Vec<ColumnMetadata> {
-        vec![ColumnMetadata::new(
-            ColumnId::new(1),
-            "name".to_owned(),
-            DataType::Varchar,
-        )]
+    fn users_columns() -> Vec<ColumnMetadata> {
+        vec![
+            ColumnMetadata::new(ColumnId::new(1), "id".to_owned(), DataType::BigInt),
+            ColumnMetadata::new(ColumnId::new(2), "name".to_owned(), DataType::Varchar),
+        ]
     }
 
     fn database(table_id: TableId) -> DatabaseMetadata {
-        let table = TableMetadata::new(table_id, "users".to_owned(), name_columns())
+        let table = TableMetadata::new(table_id, "users".to_owned(), users_columns())
             .expect("테이블 메타데이터가 유효해야 함");
         DatabaseMetadata::new("test".to_owned(), vec![table])
             .expect("데이터베이스 메타데이터가 유효해야 함")
@@ -167,12 +162,20 @@ mod tests {
         }
     }
 
+    fn select_name(table_id: TableId) -> BoundSelect {
+        BoundSelect {
+            table_id,
+            projections: vec![BoundProjection::Column(ColumnId::new(2))],
+            filter: None,
+        }
+    }
+
     fn select_name_equals(table_id: TableId, value: Literal) -> BoundSelect {
         BoundSelect {
             table_id,
             projections: vec![BoundProjection::All],
             filter: Some(BoundExpression::Equal {
-                column_id: ColumnId::new(1),
+                column_id: ColumnId::new(2),
                 value,
             }),
         }
@@ -182,26 +185,63 @@ mod tests {
     fn select는_테이블의_모든_row를_반환한다() {
         let table_id = TableId::new(1);
         let database = database(table_id);
+        let columns = users_columns();
         let directory = TestDirectory::new("select-all");
         let path = directory.path().join("1.tbl");
-        let first_row = Row::from_bytes(&[1, 2]);
-        let second_row = Row::from_bytes(&[3, 4]);
+        let first_values = vec![Value::BigInt(1), Value::Varchar("Kim".to_owned())];
+        let second_values = vec![Value::BigInt(2), Value::Varchar("Lee".to_owned())];
+        let first_row = encode(&first_values, &columns).expect("첫 Row를 변환해야 함");
+        let second_row = encode(&second_values, &columns).expect("둘째 Row를 변환해야 함");
 
-        let (first_row_id, second_row_id) = {
+        {
             let mut table = HeapTable::open(&path).expect("테이블 파일을 생성해야 함");
-            let first_row_id = table.insert(&first_row).expect("첫 Row를 삽입해야 함");
-            let second_row_id = table.insert(&second_row).expect("둘째 Row를 삽입해야 함");
-            (first_row_id, second_row_id)
-        };
+            table.insert(&first_row).expect("첫 Row를 삽입해야 함");
+            table.insert(&second_row).expect("둘째 Row를 삽입해야 함");
+        }
 
         let executor = Executor::new(&database, directory.path());
         let rows = executor
             .execute_select(&select_all(table_id))
             .expect("SELECT가 성공해야 함");
 
+        assert_eq!(rows, vec![first_values, second_values]);
+    }
+
+    #[test]
+    fn select는_지정한_컬럼만_반환한다() {
+        let table_id = TableId::new(1);
+        let database = database(table_id);
+        let columns = users_columns();
+        let directory = TestDirectory::new("select-name");
+        let path = directory.path().join("1.tbl");
+        let kim = encode(
+            &[Value::BigInt(1), Value::Varchar("Kim".to_owned())],
+            &columns,
+        )
+        .expect("Kim Row를 변환해야 함");
+        let lee = encode(
+            &[Value::BigInt(2), Value::Varchar("Lee".to_owned())],
+            &columns,
+        )
+        .expect("Lee Row를 변환해야 함");
+
+        {
+            let mut table = HeapTable::open(&path).expect("테이블 파일을 생성해야 함");
+            table.insert(&kim).expect("Kim Row를 삽입해야 함");
+            table.insert(&lee).expect("Lee Row를 삽입해야 함");
+        }
+
+        let executor = Executor::new(&database, directory.path());
+        let rows = executor
+            .execute_select(&select_name(table_id))
+            .expect("SELECT가 성공해야 함");
+
         assert_eq!(
             rows,
-            vec![(first_row_id, first_row), (second_row_id, second_row)]
+            vec![
+                vec![Value::Varchar("Kim".to_owned())],
+                vec![Value::Varchar("Lee".to_owned())],
+            ]
         );
     }
 
@@ -209,20 +249,19 @@ mod tests {
     fn select는_equal_filter와_일치하는_row만_반환한다() {
         let table_id = TableId::new(1);
         let database = database(table_id);
-        let columns = name_columns();
+        let columns = users_columns();
         let directory = TestDirectory::new("select-filter");
         let path = directory.path().join("1.tbl");
-        let kim =
-            encode(&[Value::Varchar("Kim".to_owned())], &columns).expect("Kim Row를 변환해야 함");
-        let lee =
-            encode(&[Value::Varchar("Lee".to_owned())], &columns).expect("Lee Row를 변환해야 함");
+        let kim_values = vec![Value::BigInt(1), Value::Varchar("Kim".to_owned())];
+        let lee_values = vec![Value::BigInt(2), Value::Varchar("Lee".to_owned())];
+        let kim = encode(&kim_values, &columns).expect("Kim Row를 변환해야 함");
+        let lee = encode(&lee_values, &columns).expect("Lee Row를 변환해야 함");
 
-        let kim_row_id = {
+        {
             let mut table = HeapTable::open(&path).expect("테이블 파일을 생성해야 함");
-            let kim_row_id = table.insert(&kim).expect("Kim Row를 삽입해야 함");
+            table.insert(&kim).expect("Kim Row를 삽입해야 함");
             table.insert(&lee).expect("Lee Row를 삽입해야 함");
-            kim_row_id
-        };
+        }
 
         let executor = Executor::new(&database, directory.path());
         let rows = executor
@@ -232,17 +271,18 @@ mod tests {
             ))
             .expect("SELECT가 성공해야 함");
 
-        assert_eq!(rows, vec![(kim_row_id, kim)]);
+        assert_eq!(rows, vec![kim_values]);
     }
 
     #[test]
     fn select에서_null_equal_filter는_row를_반환하지_않는다() {
         let table_id = TableId::new(1);
         let database = database(table_id);
-        let columns = name_columns();
+        let columns = users_columns();
         let directory = TestDirectory::new("select-null-filter");
         let path = directory.path().join("1.tbl");
-        let null_name = encode(&[Value::Null], &columns).expect("NULL Row를 변환해야 함");
+        let null_name =
+            encode(&[Value::BigInt(1), Value::Null], &columns).expect("NULL Row를 변환해야 함");
 
         {
             let mut table = HeapTable::open(&path).expect("테이블 파일을 생성해야 함");
