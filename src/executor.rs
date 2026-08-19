@@ -1,12 +1,12 @@
 use std::{io, path::Path};
 
 use crate::{
-    binder::{BoundExpression, BoundProjection, BoundSelect},
+    binder::{BoundExpression, BoundInsert, BoundProjection, BoundSelect},
     page::{Row, RowId},
     parser::ast::Literal,
-    schema::{ColumnId, DatabaseMetadata, TableId, TableMetadata},
+    schema::{ColumnId, DataType, DatabaseMetadata, TableId, TableMetadata},
     table::HeapTable,
-    tuple::{TupleError, Value, decode},
+    tuple::{TupleError, Value, decode, encode},
 };
 
 #[derive(Debug)]
@@ -15,6 +15,7 @@ pub enum ExecutorError {
     TupleError(TupleError),
     TableNotFound(TableId),
     ColumnNotFound(ColumnId),
+    LiteralTypeMismatch { expected: DataType },
 }
 
 impl From<io::Error> for ExecutorError {
@@ -42,8 +43,8 @@ impl<'a> Executor<'a> {
         }
     }
 
-    pub fn execute_select(&self, select: &BoundSelect) -> Result<Vec<Vec<Value>>, ExecutorError> {
-        let table_id = select.table_id;
+    pub fn execute_select(&self, bound: &BoundSelect) -> Result<Vec<Vec<Value>>, ExecutorError> {
+        let table_id = bound.table_id;
         let table = self
             .database
             .table_by_id(table_id)
@@ -53,13 +54,34 @@ impl<'a> Executor<'a> {
         let mut heap_table = HeapTable::open_existing(&path)?;
         let rows = heap_table.scan()?;
 
-        let projections = &select.projections;
-        let Some(filter) = select.filter.as_ref() else {
+        let projections = &bound.projections;
+        let Some(filter) = bound.filter.as_ref() else {
             return Self::project_rows(rows, table, projections);
         };
 
         let filtered_rows = Self::filter_rows(rows, table, filter)?;
         Self::project_rows(filtered_rows, table, projections)
+    }
+
+    pub fn execute_insert(&self, bound: &BoundInsert) -> Result<RowId, ExecutorError> {
+        let table_id = bound.table_id;
+        let table = self
+            .database
+            .table_by_id(table_id)
+            .ok_or(ExecutorError::TableNotFound(table_id))?;
+
+        let mut values = Vec::new();
+        for (literal, column) in bound.literals.iter().zip(table.columns()) {
+            let value = Self::literal_to_value(literal, column.data_type())?;
+            values.push(value);
+        }
+        let row = encode(&values, table.columns())?;
+
+        let path = self.table_dir.join(format!("{}.tbl", table_id.id()));
+        let mut heap_table = HeapTable::open_existing(&path)?;
+        let row_id = heap_table.insert(&row)?;
+
+        Ok(row_id)
     }
 
     fn filter_rows(
@@ -123,6 +145,24 @@ impl<'a> Executor<'a> {
             _ => false,
         }
     }
+
+    fn literal_to_value(literal: &Literal, data_type: DataType) -> Result<Value, ExecutorError> {
+        Ok(match (literal, data_type.clone()) {
+            (Literal::Null, _) => Value::Null,
+            (Literal::Integer(a), DataType::Int) => Value::Int(i32::try_from(*a).map_err(
+                |_| ExecutorError::LiteralTypeMismatch {
+                    expected: data_type,
+                },
+            )?),
+            (Literal::Integer(a), DataType::BigInt) => Value::BigInt(*a),
+            (Literal::String(a), DataType::Varchar) => Value::Varchar(a.to_owned()),
+            _ => {
+                return Err(ExecutorError::LiteralTypeMismatch {
+                    expected: data_type,
+                });
+            }
+        })
+    }
 }
 
 #[cfg(test)]
@@ -130,12 +170,12 @@ mod tests {
     use std::io::ErrorKind;
 
     use crate::{
-        binder::{BoundExpression, BoundProjection, BoundSelect},
+        binder::{BoundExpression, BoundInsert, BoundProjection, BoundSelect},
         parser::ast::Literal,
         schema::{ColumnId, ColumnMetadata, DataType, DatabaseMetadata, TableId, TableMetadata},
         table::HeapTable,
         test_supports::TestDirectory,
-        tuple::{Value, encode},
+        tuple::{Value, decode, encode},
     };
 
     use super::{Executor, ExecutorError};
@@ -170,6 +210,17 @@ mod tests {
         }
     }
 
+    fn select_name_then_all(table_id: TableId) -> BoundSelect {
+        BoundSelect {
+            table_id,
+            projections: vec![
+                BoundProjection::Column(ColumnId::new(2)),
+                BoundProjection::All,
+            ],
+            filter: None,
+        }
+    }
+
     fn select_name_equals(table_id: TableId, value: Literal) -> BoundSelect {
         BoundSelect {
             table_id,
@@ -179,6 +230,35 @@ mod tests {
                 value,
             }),
         }
+    }
+
+    #[test]
+    fn insert는_리터럴을_row로_변환해_테이블에_저장한다() {
+        let table_id = TableId::new(1);
+        let database = database(table_id);
+        let columns = users_columns();
+        let directory = TestDirectory::new("insert");
+        let path = directory.path().join("1.tbl");
+        let bound = BoundInsert {
+            table_id,
+            literals: vec![Literal::Integer(1), Literal::String("Kim".to_owned())],
+        };
+
+        HeapTable::open(&path).expect("테이블 파일을 생성해야 함");
+        let executor = Executor::new(&database, directory.path());
+
+        let row_id = executor
+            .execute_insert(&bound)
+            .expect("INSERT가 성공해야 함");
+
+        let mut table = HeapTable::open_existing(&path).expect("테이블 파일을 열어야 함");
+        let row = table.get(row_id).expect("삽입한 Row를 읽어야 함");
+        let values = decode(&row, &columns).expect("Row를 값으로 변환해야 함");
+
+        assert_eq!(
+            values,
+            vec![Value::BigInt(1), Value::Varchar("Kim".to_owned())]
+        );
     }
 
     #[test]
@@ -242,6 +322,39 @@ mod tests {
                 vec![Value::Varchar("Kim".to_owned())],
                 vec![Value::Varchar("Lee".to_owned())],
             ]
+        );
+    }
+
+    #[test]
+    fn select는_projection_목록_순서대로_값을_반환한다() {
+        let table_id = TableId::new(1);
+        let database = database(table_id);
+        let columns = users_columns();
+        let directory = TestDirectory::new("select-name-then-all");
+        let path = directory.path().join("1.tbl");
+        let row = encode(
+            &[Value::BigInt(1), Value::Varchar("Kim".to_owned())],
+            &columns,
+        )
+        .expect("Row를 변환해야 함");
+
+        {
+            let mut table = HeapTable::open(&path).expect("테이블 파일을 생성해야 함");
+            table.insert(&row).expect("Row를 삽입해야 함");
+        }
+
+        let executor = Executor::new(&database, directory.path());
+        let rows = executor
+            .execute_select(&select_name_then_all(table_id))
+            .expect("SELECT가 성공해야 함");
+
+        assert_eq!(
+            rows,
+            vec![vec![
+                Value::Varchar("Kim".to_owned()),
+                Value::BigInt(1),
+                Value::Varchar("Kim".to_owned()),
+            ]]
         );
     }
 
