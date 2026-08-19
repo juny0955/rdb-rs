@@ -307,8 +307,8 @@ SQL AST를 실제 Storage Engine의 작업으로 연결한다.
 
 ### Executor
 
-* [ ] SeqScan
-* [ ] Filter
+* [x] SeqScan
+* [x] Filter
 * [ ] Projection
 * [ ] Insert Executor
 * [ ] Update Executor

@@ -10,6 +10,9 @@ impl TableId {
     pub fn new(value: u32) -> Self {
         Self(value)
     }
+    pub fn id(&self) -> u32 {
+        self.0
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -228,6 +231,12 @@ impl TableMetadata {
         self.columns.iter().find(|column| column.name() == name)
     }
 
+    pub fn column_index(&self, column_id: ColumnId) -> Option<usize> {
+        self.columns
+            .iter()
+            .position(|column| column.id() == column_id)
+    }
+
     pub fn id(&self) -> TableId {
         self.id
     }
@@ -317,6 +326,10 @@ impl DatabaseMetadata {
         Ok(bytes)
     }
 
+    pub fn table_by_id(&self, table_id: TableId) -> Option<&TableMetadata> {
+        self.tables.iter().find(|table| table.id() == table_id)
+    }
+
     pub fn table(&self, name: &str) -> Option<&TableMetadata> {
         self.tables.iter().find(|table| table.name() == name)
     }
@@ -371,6 +384,24 @@ mod table_metadata {
             .expect_err("에러 발생해야함");
 
         assert_eq!(error, SchemaError::DuplicateColumnId(ColumnId::new(1)));
+    }
+
+    #[test]
+    fn column_id로_컬럼_순서를_조회한다() -> Result<(), SchemaError> {
+        let table = TableMetadata::new(
+            TableId::new(1),
+            "users".to_string(),
+            vec![
+                ColumnMetadata::new(ColumnId::new(10), "id".to_string(), DataType::BigInt),
+                ColumnMetadata::new(ColumnId::new(20), "name".to_string(), DataType::Varchar),
+            ],
+        )?;
+
+        assert_eq!(table.column_index(ColumnId::new(10)), Some(0));
+        assert_eq!(table.column_index(ColumnId::new(20)), Some(1));
+        assert_eq!(table.column_index(ColumnId::new(30)), None);
+
+        Ok(())
     }
 
     #[test]
