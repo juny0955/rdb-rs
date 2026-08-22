@@ -702,10 +702,10 @@ M4  Schema / Catalog
 M5  SQL Parser
  ↓
 M6  Binder / Executor
- │
- └──── RDBMS v0.1
  ↓
 M7  CLI
+ │
+ └──── RDBMS v0.1
  ↓
 M8  Buffer Pool
  ↓
