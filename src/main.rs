@@ -4,6 +4,7 @@ use crate::file::open_rw_create;
 
 mod binder;
 mod catalog;
+mod database;
 mod executor;
 mod file;
 mod page;

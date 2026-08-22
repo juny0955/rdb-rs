@@ -311,8 +311,15 @@ SQL AST를 실제 Storage Engine의 작업으로 연결한다.
 * [x] Filter
 * [x] Projection
 * [x] Insert Executor
-* [ ] Update Executor
-* [ ] Delete Executor
+* [x] Update Executor
+* [x] Delete Executor
+
+### DDL
+
+* [x] Database 실행 계층
+* [x] `CREATE TABLE` metadata 생성
+* [x] table file 생성
+* [x] Catalog 영속화
 
 ### 흐름
 

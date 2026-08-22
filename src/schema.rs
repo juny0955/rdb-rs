@@ -6,6 +6,8 @@ pub use column::ColumnMetadata;
 pub use database::DatabaseMetadata;
 pub use table::TableMetadata;
 
+use crate::parser::ast;
+
 const COLUMN_NAME_LENGTH_PREFIX_BYTES: usize = 6;
 const TABLE_NAME_LENGTH_PREFIX_BYTES: usize = 6;
 const DATABASE_NAME_LENGTH_PREFIX_BYTES: usize = 2;
@@ -77,6 +79,18 @@ impl DataType {
             3 => Ok(DataType::Varchar),
             4 => Ok(DataType::Null),
             _ => Err(SchemaError::InvalidDataTypeTag(tag)),
+        }
+    }
+}
+
+impl From<ast::DataType> for DataType {
+    fn from(value: ast::DataType) -> Self {
+        match value {
+            ast::DataType::Int => Self::Int,
+            ast::DataType::BigInt => Self::BigInt,
+            ast::DataType::Boolean => Self::Boolean,
+            ast::DataType::Varchar => Self::Varchar,
+            ast::DataType::Null => Self::Null,
         }
     }
 }

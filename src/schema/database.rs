@@ -27,6 +27,19 @@ impl DatabaseMetadata {
         Ok(Self { name, tables })
     }
 
+    pub fn add_table(&mut self, table: TableMetadata) -> Result<(), SchemaError> {
+        if self.table_by_id(table.id()).is_some() {
+            return Err(SchemaError::DuplicateTableId(table.id()));
+        }
+
+        if self.table(table.name()).is_some() {
+            return Err(SchemaError::DuplicateTableName(table.name().to_owned()));
+        }
+
+        self.tables.push(table);
+        Ok(())
+    }
+
     pub fn from_bytes(bytes: &[u8]) -> Result<(Self, usize), SchemaError> {
         if bytes.len() < DATABASE_NAME_LENGTH_PREFIX_BYTES {
             return Err(SchemaError::TruncatedDatabaseMetadata);
@@ -101,6 +114,18 @@ mod database_metadata {
 
     use super::*;
 
+    fn table(id: u32, name: &str) -> Result<TableMetadata, SchemaError> {
+        TableMetadata::new(
+            TableId::new(id),
+            name.to_owned(),
+            vec![ColumnMetadata::new(
+                ColumnId::new(1),
+                "id".to_owned(),
+                DataType::BigInt,
+            )],
+        )
+    }
+
     #[test]
     fn duplicate_table_name_테스트() -> Result<(), SchemaError> {
         let columns1 = vec![
@@ -147,6 +172,48 @@ mod database_metadata {
             .expect_err("에러 발생해야함");
 
         assert_eq!(error, SchemaError::DuplicateTableId(TableId::new(1)));
+        Ok(())
+    }
+
+    #[test]
+    fn add_table은_새_테이블을_추가한다() -> Result<(), SchemaError> {
+        let mut database = DatabaseMetadata::new("mydb".to_owned(), vec![])?;
+
+        database.add_table(table(1, "users")?)?;
+
+        assert_eq!(database.tables().len(), 1);
+        assert_eq!(
+            database.table_by_id(TableId::new(1)).unwrap().name(),
+            "users"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn add_table은_중복_id를_거부하고_변경하지_않는다() -> Result<(), SchemaError> {
+        let mut database = DatabaseMetadata::new("mydb".to_owned(), vec![table(1, "users")?])?;
+
+        let error = database
+            .add_table(table(1, "orders")?)
+            .expect_err("중복 TableId 오류가 발생해야 함");
+
+        assert_eq!(error, SchemaError::DuplicateTableId(TableId::new(1)));
+        assert_eq!(database.tables().len(), 1);
+        assert!(database.table("orders").is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn add_table은_중복_이름을_거부하고_변경하지_않는다() -> Result<(), SchemaError> {
+        let mut database = DatabaseMetadata::new("mydb".to_owned(), vec![table(1, "users")?])?;
+
+        let error = database
+            .add_table(table(2, "users")?)
+            .expect_err("중복 table 이름 오류가 발생해야 함");
+
+        assert_eq!(error, SchemaError::DuplicateTableName("users".to_owned()));
+        assert_eq!(database.tables().len(), 1);
+        assert!(database.table_by_id(TableId::new(2)).is_none());
         Ok(())
     }
 
