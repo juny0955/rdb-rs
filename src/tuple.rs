@@ -1,9 +1,9 @@
-use std::str::from_utf8;
-
 use crate::{
     page::Row,
     schema::{ColumnMetadata, DataType},
 };
+use std::str::from_utf8;
+use thiserror::Error;
 
 const NULL_MARKER: u8 = 0;
 const NOT_NULL_MARKER: u8 = 1;
@@ -11,15 +11,23 @@ const NOT_NULL_MARKER: u8 = 1;
 const BOOLEAN_FALSE: u8 = 0;
 const BOOLEAN_TRUE: u8 = 1;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum TupleError {
+    #[error("값 개수가 컬럼 개수와 일치하지 않습니다.")]
     ValueCountMismatch,
+    #[error("값 타입이 컬럼 타입과 일치하지 않습니다.")]
     TypeMismatch,
+    #[error("VARCHAR 길이가 허용 범위를 초과되었습니다.")]
     VarcharTooLong,
+    #[error("NULL 마커가 올바르지 않습니다.")]
     InvalidNullMarker,
+    #[error("BOOLEAN 값이 올바르지 않습니다.")]
     InvalidBoolean,
+    #[error("VARCHAR 값이 유효한 UTF-8이 아닙니다.")]
     InvalidUtf8,
+    #[error("row 데이터가 중간에 끝났습니다.")]
     TruncatedRow,
+    #[error("row 데이터 뒤에 읽히지 않은 바이트가 남아 있습니다.")]
     TrailingBytes,
 }
 
