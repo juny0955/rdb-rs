@@ -6,6 +6,10 @@ use crate::parser::{
     token::{Token, TokenKind},
 };
 
+pub mod ast;
+pub mod lexer;
+pub mod token;
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ParseError {
     UnexpectedToken(usize),

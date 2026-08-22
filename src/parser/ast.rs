@@ -7,6 +7,18 @@ pub(crate) enum Statement {
     Delete(DeleteStatement),
 }
 
+impl Statement {
+    pub fn table(&self) -> &str {
+        match self {
+            Self::Select(s) => &s.table,
+            Self::CreateTable(s) => &s.table,
+            Self::Insert(s) => &s.table,
+            Self::Update(s) => &s.table,
+            Self::Delete(s) => &s.table,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SelectStatement {
     pub(crate) projections: Vec<Projection>,

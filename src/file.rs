@@ -16,3 +16,10 @@ pub fn open_rw_create(path: &Path) -> Result<File> {
     let file = options.open(path)?;
     Ok(file)
 }
+
+pub fn open_rw(path: &Path) -> Result<File> {
+    let mut binding = OpenOptions::new();
+    let options = binding.read(true).write(true);
+    let file = options.open(path)?;
+    Ok(file)
+}

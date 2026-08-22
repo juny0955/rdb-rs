@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    file::open_rw_create,
+    file::{open_rw, open_rw_create},
     page::{Page, PageId, Row, RowId, allocate_page, page_count, read_page, write_page},
 };
 
@@ -16,6 +16,11 @@ pub struct HeapTable {
 impl HeapTable {
     pub fn open(path: &Path) -> Result<Self> {
         let file = open_rw_create(path)?;
+        Ok(Self { file })
+    }
+
+    pub fn open_existing(path: &Path) -> Result<Self> {
+        let file = open_rw(path)?;
         Ok(Self { file })
     }
 

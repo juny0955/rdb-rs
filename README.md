@@ -299,20 +299,27 @@ SQL AST를 실제 Storage Engine의 작업으로 연결한다.
 
 ### Binder
 
-* [ ] Table 존재 여부 확인
-* [ ] Column 존재 여부 확인
-* [ ] Column Type 확인
-* [ ] Expression Type 검사
-* [ ] 이름을 내부 ID로 변환
+* [x] Table 존재 여부 확인
+* [x] Column 존재 여부 확인
+* [x] Column Type 확인
+* [x] Expression Type 검사
+* [x] 이름을 내부 ID로 변환
 
 ### Executor
 
-* [ ] SeqScan
-* [ ] Filter
-* [ ] Projection
-* [ ] Insert Executor
-* [ ] Update Executor
-* [ ] Delete Executor
+* [x] SeqScan
+* [x] Filter
+* [x] Projection
+* [x] Insert Executor
+* [x] Update Executor
+* [x] Delete Executor
+
+### DDL
+
+* [x] Database 실행 계층
+* [x] `CREATE TABLE` metadata 생성
+* [x] table file 생성
+* [x] Catalog 영속화
 
 ### 흐름
 
