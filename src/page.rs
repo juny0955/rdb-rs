@@ -12,7 +12,13 @@ const FREE_END_OFFSET: usize = 4;
 const FREE_LIST_HEAD_OFFSET: usize = 6;
 const HEADER_SIZE: usize = 8;
 
+mod free_space;
 mod pager;
+mod slot;
+
+use free_space::{FreeBlock, row_allocation_size};
+pub use slot::SlotId;
+use slot::{Slot, slot_offset};
 
 pub(crate) use pager::{allocate_page, page_count, read_page, write_page};
 
@@ -28,9 +34,6 @@ impl PageId {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct SlotId(u16);
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct RowId(PageId, SlotId);
 impl RowId {
     pub fn new(page_id: PageId, slot_id: SlotId) -> Self {
@@ -43,67 +46,6 @@ impl RowId {
 
     pub fn slot_id(&self) -> SlotId {
         self.1
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-struct Slot {
-    offset: u16,
-    length: u16,
-}
-
-impl Slot {
-    fn new(offset: u16, length: u16) -> Self {
-        Self { offset, length }
-    }
-
-    fn from_bytes(bytes: [u8; SLOT_SIZE]) -> Self {
-        let offset = u16::from_be_bytes([bytes[0], bytes[1]]);
-        let length = u16::from_be_bytes([bytes[2], bytes[3]]);
-
-        Self { offset, length }
-    }
-
-    fn to_bytes(&self) -> [u8; SLOT_SIZE] {
-        let offset = self.offset.to_be_bytes();
-        let length = self.length.to_be_bytes();
-
-        [offset[0], offset[1], length[0], length[1]]
-    }
-
-    fn tombstone(&mut self) {
-        self.offset = 0;
-        self.length = 0;
-    }
-
-    fn is_deleted(&self) -> bool {
-        self.offset == 0 && self.length == 0
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-struct FreeBlock {
-    next: u16,
-    length: u16,
-}
-
-impl FreeBlock {
-    fn new(next: u16, length: u16) -> Self {
-        Self { next, length }
-    }
-
-    fn from_bytes(bytes: [u8; 4]) -> Self {
-        let next = u16::from_be_bytes([bytes[0], bytes[1]]);
-        let length = u16::from_be_bytes([bytes[2], bytes[3]]);
-
-        Self { next, length }
-    }
-
-    fn to_bytes(&self) -> [u8; 4] {
-        let next = self.next.to_be_bytes();
-        let length = self.length.to_be_bytes();
-
-        [next[0], next[1], length[0], length[1]]
     }
 }
 
@@ -278,40 +220,6 @@ impl Page {
             .transpose()
     }
 
-    fn try_allocate_from_free_end(&mut self, allocate_len: usize) -> Result<Option<u16>> {
-        if allocate_len > self.free_space()? {
-            return Ok(None);
-        }
-
-        let row_start = self.free_end() - allocate_len as u16;
-        self.set_free_end(row_start);
-        Ok(Some(row_start))
-    }
-
-    fn try_allocate_from_free_block(&mut self, allocate_len: usize) -> Result<Option<u16>> {
-        if let Some((current_offset, prev_offset, block)) =
-            self.find_free_block(allocate_len as u16)?
-        {
-            let block_len = block.length as usize;
-            let block_offset = current_offset as usize;
-
-            if block_len > allocate_len {
-                let remaining_length = (block_len - allocate_len) as u16;
-                let remaining_offset = (block_offset + allocate_len) as u16;
-                let remaining_block = FreeBlock::new(block.next, remaining_length);
-
-                self.write_free_block(remaining_offset, &remaining_block)?;
-                self.replace_free_block_link(prev_offset, remaining_offset)?;
-            } else if block_len == allocate_len {
-                self.replace_free_block_link(prev_offset, block.next)?;
-            }
-
-            return Ok(Some(current_offset));
-        }
-
-        Ok(None)
-    }
-
     fn insert_from_free_end(&mut self, row_bytes: &[u8], allocate_len: usize) -> Result<SlotId> {
         if SLOT_SIZE + allocate_len > self.free_space()? {
             return Err(Error::new(
@@ -375,106 +283,6 @@ impl Page {
         Ok(())
     }
 
-    fn find_free_block(&self, required_len: u16) -> Result<Option<(u16, Option<u16>, FreeBlock)>> {
-        let mut current_offset = self.free_list_head();
-        let mut prev_offset = None;
-
-        while current_offset != u16::MAX {
-            let block = self.read_free_block(current_offset)?;
-            if block.length >= required_len {
-                return Ok(Some((current_offset, prev_offset, block)));
-            }
-
-            prev_offset = Some(current_offset);
-            current_offset = block.next;
-        }
-
-        Ok(None)
-    }
-
-    fn replace_free_block_link(
-        &mut self,
-        prev_offset: Option<u16>,
-        next_offset: u16,
-    ) -> Result<()> {
-        if let Some(prev) = prev_offset {
-            let mut prev_block = self.read_free_block(prev)?;
-            prev_block.next = next_offset;
-            self.write_free_block(prev, &prev_block)?;
-        } else {
-            self.set_free_list_head(next_offset);
-        }
-
-        Ok(())
-    }
-
-    fn read_free_block(&self, offset: u16) -> Result<FreeBlock> {
-        let offset = self.free_block_offset(offset)?;
-        let mut read_bytes = [0u8; FREE_BLOCK_SIZE];
-        read_bytes.copy_from_slice(&self.data[offset..offset + FREE_BLOCK_SIZE]);
-        Ok(FreeBlock::from_bytes(read_bytes))
-    }
-
-    fn write_free_block(&mut self, offset: u16, block: &FreeBlock) -> Result<()> {
-        let offset = self.free_block_offset(offset)?;
-        self.data[offset..offset + FREE_BLOCK_SIZE].copy_from_slice(&block.to_bytes());
-        Ok(())
-    }
-
-    fn add_slot(&mut self, slot: &Slot) -> Result<SlotId> {
-        let next_free_start = match self.free_start().checked_add(SLOT_SIZE as u16) {
-            Some(next) => {
-                if next > self.free_end() {
-                    return Err(Error::new(
-                        ErrorKind::StorageFull,
-                        "not enough space for slot",
-                    ));
-                }
-                next
-            }
-            None => return Err(Error::new(ErrorKind::InvalidData, "free start overflow")),
-        };
-
-        let current_slot_id = SlotId(self.slot_count());
-        self.write_slot(current_slot_id, slot)?;
-        self.set_slot_count(current_slot_id.0 + 1);
-        self.set_free_start(next_free_start);
-
-        Ok(current_slot_id)
-    }
-
-    fn read_slot(&self, slot_id: SlotId) -> Result<Slot> {
-        if slot_id.0 >= self.slot_count() {
-            return Err(Error::new(ErrorKind::NotFound, "slot not found"));
-        }
-
-        let offset = slot_offset(slot_id)?;
-        let mut bytes = [0u8; SLOT_SIZE];
-        bytes.copy_from_slice(&self.data[offset..offset + SLOT_SIZE]);
-        let slot = Slot::from_bytes(bytes);
-
-        if slot.is_deleted() {
-            return Err(Error::new(ErrorKind::NotFound, "slot not found"));
-        }
-        Ok(slot)
-    }
-
-    fn write_slot(&mut self, slot_id: SlotId, slot: &Slot) -> Result<()> {
-        let offset = slot_offset(slot_id)?;
-        let bytes = slot.to_bytes();
-
-        self.data[offset..offset + SLOT_SIZE].copy_from_slice(&bytes);
-
-        Ok(())
-    }
-
-    fn add_free_block(&mut self, offset: u16, length: u16) -> Result<()> {
-        let block = FreeBlock::new(self.free_list_head(), length);
-        self.write_free_block(offset, &block)?;
-        self.set_free_list_head(offset);
-        Ok(())
-    }
-
     fn free_space(&self) -> Result<usize> {
         if self.free_start() > self.free_end() {
             return Err(Error::new(
@@ -484,20 +292,6 @@ impl Page {
         }
 
         Ok((self.free_end() - self.free_start()) as usize)
-    }
-
-    fn free_block_offset(&self, offset: u16) -> Result<usize> {
-        if offset < self.free_end()
-            || offset as usize + FREE_BLOCK_SIZE > PAGE_SIZE
-            || offset == u16::MAX
-        {
-            return Err(Error::new(
-                ErrorKind::InvalidData,
-                "invalid free block bounds",
-            ));
-        }
-
-        Ok(offset as usize)
     }
 
     // getter & setter
@@ -538,30 +332,6 @@ impl Page {
     fn set_free_list_head(&mut self, value: u16) {
         self.data[FREE_LIST_HEAD_OFFSET..HEADER_SIZE].copy_from_slice(&value.to_be_bytes());
     }
-}
-
-fn slot_offset(slot_id: SlotId) -> Result<usize> {
-    let offset = HEADER_SIZE + (SLOT_SIZE * slot_id.0 as usize);
-    if offset > PAGE_SIZE || offset + SLOT_SIZE > PAGE_SIZE {
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            "slot offset over page size",
-        ));
-    }
-
-    Ok(offset)
-}
-
-fn row_allocation_size(row_len: usize) -> usize {
-    let remainder = row_len % FREE_BLOCK_SIZE;
-    if remainder == 0 {
-        if row_len == 0 {
-            return FREE_BLOCK_SIZE;
-        }
-        return row_len;
-    }
-
-    row_len + FREE_BLOCK_SIZE - remainder
 }
 
 #[cfg(test)]
