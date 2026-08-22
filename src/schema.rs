@@ -5,6 +5,7 @@ mod table;
 pub use column::ColumnMetadata;
 pub use database::DatabaseMetadata;
 pub use table::TableMetadata;
+use thiserror::Error;
 
 use crate::parser::ast;
 
@@ -31,23 +32,39 @@ impl ColumnId {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Error)]
 pub enum SchemaError {
+    #[error("컬럼 이름이 중복됩니다: {0}")]
     DuplicateColumnName(String),
+    #[error("테이블 이름이 중복됩니다: {0}")]
     DuplicateTableName(String),
+    #[error("데이터 타입 태그가 올바르지 않습니다: {0}")]
     InvalidDataTypeTag(u8),
+    #[error("컬럼 이름이 최대 길이를 초과했습니다: {0}바이트")]
     ColumnNameTooLong(usize),
+    #[error("테이블 이름이 최대 길이를 초과했습니다: {0}바이트")]
     TableNameTooLong(usize),
+    #[error("데이터베이스 이름이 최대 길이를 초과했습니다: {0}바이트")]
     DatabaseNameTooLong(usize),
+    #[error("컬럼 수가 최대 개수를 초과했습니다")]
     TooManyColumns,
+    #[error("테이블 수가 최대 개수를 초과했습니다")]
     TooManyTables,
+    #[error("컬럼 metadata 데이터가 중간에 끝났습니다")]
     TruncatedColumnMetadata,
+    #[error("테이블 metadata 데이터가 중간에 끝났습니다")]
     TruncatedTableMetadata,
+    #[error("데이터베이스 metadata 데이터가 중간에 끝났습니다")]
     TruncatedDatabaseMetadata,
+    #[error("컬럼 이름이 유효한 UTF-8이 아닙니다")]
     InvalidColumnNameEncoding,
+    #[error("테이블 이름이 유효한 UTF-8이 아닙니다")]
     InvalidTableNameEncoding,
+    #[error("데이터베이스 이름이 유효한 UTF-8이 아닙니다")]
     InvalidDatabaseNameEncoding,
+    #[error("컬럼 ID가 중복됩니다: {0:?}")]
     DuplicateColumnId(ColumnId),
+    #[error("테이블 ID가 중복됩니다: {0:?}")]
     DuplicateTableId(TableId),
 }
 
