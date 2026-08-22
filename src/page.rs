@@ -154,7 +154,14 @@ impl Page {
             return Ok(slot_id);
         }
 
-        self.insert_from_free_end(row_bytes, allocate_len)
+        match self.insert_from_free_end(row_bytes, allocate_len) {
+            Ok(slot_id) => Ok(slot_id),
+            Err(e) if e.kind() == ErrorKind::StorageFull => {
+                self.compact()?;
+                Ok(self.insert_from_free_end(row_bytes, allocate_len)?)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     pub fn read_row(&self, slot_id: SlotId) -> Result<Row> {
@@ -173,7 +180,7 @@ impl Page {
         let slot_length = slot.length as usize;
         let slot_offset = slot.offset as usize;
         let row_bytes = row.to_bytes();
-        let old_allocate_len = row_allocation_size(slot_length);
+        let mut old_allocate_len = row_allocation_size(slot_length);
         let new_allocate_len = row_allocation_size(row_bytes.len());
         let allocate_end = slot_offset + old_allocate_len;
 
@@ -203,7 +210,15 @@ impl Page {
             Ordering::Greater => {
                 let new_offset = match self.try_allocate_from_free_block(new_allocate_len)? {
                     Some(offset) => Some(offset),
-                    None => self.try_allocate_from_free_end(new_allocate_len)?,
+                    None => match self.try_allocate_from_free_end(new_allocate_len)? {
+                        Some(offset) => Some(offset),
+                        None => {
+                            self.compact()?;
+                            slot = self.read_slot(slot_id)?;
+                            old_allocate_len = row_allocation_size(slot.length as usize);
+                            self.try_allocate_from_free_end(new_allocate_len)?
+                        }
+                    },
                 }
                 .ok_or_else(|| Error::new(ErrorKind::StorageFull, "not enough space for row"))?;
 
@@ -255,7 +270,6 @@ impl Page {
         allocate_len: usize,
     ) -> Result<Option<SlotId>> {
         if SLOT_SIZE > self.free_space()? {
-            self.compact()?;
             return Ok(None);
         }
 

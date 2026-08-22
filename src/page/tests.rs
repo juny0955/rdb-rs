@@ -433,6 +433,78 @@ fn update_row_테스트() {
 }
 
 #[test]
+fn update_row는_더_짧아진_공간을_free_block으로_반환한다() {
+    let mut page = Page::new();
+    let row = Row::from_bytes(&[1; 8]);
+    let slot_id = page.insert_row(&row).expect("insert row 실패");
+    let slot = page.read_slot(slot_id).expect("read slot 실패");
+    let update_row = Row::from_bytes(&[2; 4]);
+
+    page.update_row(slot_id, &update_row)
+        .expect("더 짧은 Row update 실패");
+
+    assert_eq!(page.read_row(slot_id).expect("read row 실패"), update_row);
+    assert_eq!(
+        page.read_slot(slot_id).expect("read slot 실패").offset,
+        slot.offset
+    );
+
+    let free_offset = slot.offset + 4;
+    let free_block = page
+        .read_free_block(free_offset)
+        .expect("반환한 free block을 읽어야 함");
+    assert_eq!(page.free_list_head(), free_offset);
+    assert_eq!(free_block.length, 4);
+}
+
+#[test]
+fn update_row는_더_긴_row를_새_공간으로_이동하고_slot_id를_유지한다() {
+    let mut page = Page::new();
+    let row = Row::from_bytes(&[1; 4]);
+    let slot_id = page.insert_row(&row).expect("insert row 실패");
+    let old_slot = page.read_slot(slot_id).expect("read slot 실패");
+    let update_row = Row::from_bytes(&[2; 8]);
+
+    page.update_row(slot_id, &update_row)
+        .expect("더 긴 Row update 실패");
+
+    assert_eq!(page.read_row(slot_id).expect("read row 실패"), update_row);
+    let updated_slot = page.read_slot(slot_id).expect("read slot 실패");
+    assert_ne!(updated_slot.offset, old_slot.offset);
+
+    let free_block = page
+        .read_free_block(old_slot.offset)
+        .expect("이전 Row 영역은 free block이어야 함");
+    assert_eq!(page.free_list_head(), old_slot.offset);
+    assert_eq!(free_block.length, 4);
+}
+
+#[test]
+fn update_row는_공간_부족시_압축후_재시도한다() {
+    let mut page = Page::new();
+    let deleted_row = Row::from_bytes(&vec![1; 4000]);
+    let target_row = Row::from_bytes(&vec![2; 4000]);
+    let deleted_slot = page.insert_row(&deleted_row).expect("첫 Row insert 실패");
+    let target_slot = page.insert_row(&target_row).expect("둘째 Row insert 실패");
+    page.delete_row(deleted_slot).expect("첫 Row delete 실패");
+
+    let update_row = Row::from_bytes(&vec![3; 4100]);
+    page.update_row(target_slot, &update_row)
+        .expect("압축 후 더 긴 Row update 실패");
+
+    assert_eq!(
+        page.read_row(target_slot).expect("수정된 Row를 읽어야 함"),
+        update_row
+    );
+    assert_eq!(
+        page.read_row(deleted_slot)
+            .expect_err("삭제된 Row는 계속 읽을 수 없어야 함")
+            .kind(),
+        ErrorKind::NotFound
+    );
+}
+
+#[test]
 fn delete_row_테스트() {
     let mut page = Page::new();
     let row = Row::from_bytes(&[1, 2, 3]);
