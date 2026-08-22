@@ -1,7 +1,10 @@
-use std::{io, path::Path};
+use std::{
+    io,
+    path::{Path, PathBuf},
+};
 
 use crate::{
-    binder::{BoundExpression, BoundInsert, BoundProjection, BoundSelect},
+    binder::{BoundExpression, BoundInsert, BoundProjection, BoundSelect, BoundUpdate},
     page::{Row, RowId},
     parser::ast::Literal,
     schema::{ColumnId, DataType, DatabaseMetadata, TableId, TableMetadata},
@@ -50,8 +53,7 @@ impl<'a> Executor<'a> {
             .table_by_id(table_id)
             .ok_or(ExecutorError::TableNotFound(table_id))?;
 
-        let path = self.table_dir.join(format!("{}.tbl", table_id.id()));
-        let mut heap_table = HeapTable::open_existing(&path)?;
+        let mut heap_table = HeapTable::open_existing(&self.table_path(table_id))?;
         let rows = heap_table.scan()?;
 
         let projections = &bound.projections;
@@ -77,11 +79,48 @@ impl<'a> Executor<'a> {
         }
         let row = encode(&values, table.columns())?;
 
-        let path = self.table_dir.join(format!("{}.tbl", table_id.id()));
-        let mut heap_table = HeapTable::open_existing(&path)?;
+        let mut heap_table = HeapTable::open_existing(&self.table_path(table_id))?;
         let row_id = heap_table.insert(&row)?;
 
         Ok(row_id)
+    }
+
+    pub fn execute_update(&self, bound: &BoundUpdate) -> Result<usize, ExecutorError> {
+        let table_id = bound.table_id;
+        let table = self
+            .database
+            .table_by_id(table_id)
+            .ok_or(ExecutorError::TableNotFound(table_id))?;
+
+        let mut heap_table = HeapTable::open_existing(&self.table_path(table_id))?;
+        let rows = heap_table.scan()?;
+
+        let rows = {
+            if let Some(filter) = bound.filter.as_ref() {
+                Self::filter_rows(rows, table, filter)?
+            } else {
+                rows
+            }
+        };
+
+        let mut updated = 0;
+        for (row_id, row) in rows {
+            let mut values = decode(&row, table.columns())?;
+            for assignment in &bound.assignments {
+                let column_index = table
+                    .column_index(assignment.column_id)
+                    .ok_or(ExecutorError::ColumnNotFound(assignment.column_id))?;
+                let column = &table.columns()[column_index];
+
+                let value = Self::literal_to_value(&assignment.value, column.data_type())?;
+                values[column_index] = value;
+            }
+            let row = encode(&values, table.columns())?;
+            heap_table.update(row_id, &row)?;
+            updated += 1;
+        }
+
+        Ok(updated)
     }
 
     fn filter_rows(
@@ -147,7 +186,7 @@ impl<'a> Executor<'a> {
     }
 
     fn literal_to_value(literal: &Literal, data_type: DataType) -> Result<Value, ExecutorError> {
-        Ok(match (literal, data_type.clone()) {
+        Ok(match (literal, data_type) {
             (Literal::Null, _) => Value::Null,
             (Literal::Integer(a), DataType::Int) => Value::Int(i32::try_from(*a).map_err(
                 |_| ExecutorError::LiteralTypeMismatch {
@@ -163,6 +202,10 @@ impl<'a> Executor<'a> {
             }
         })
     }
+
+    fn table_path(&self, table_id: TableId) -> PathBuf {
+        self.table_dir.join(format!("{}.tbl", table_id.id()))
+    }
 }
 
 #[cfg(test)]
@@ -170,7 +213,10 @@ mod tests {
     use std::io::ErrorKind;
 
     use crate::{
-        binder::{BoundExpression, BoundInsert, BoundProjection, BoundSelect},
+        binder::{
+            BoundAssignment, BoundExpression, BoundInsert, BoundProjection, BoundSelect,
+            BoundUpdate,
+        },
         parser::ast::Literal,
         schema::{ColumnId, ColumnMetadata, DataType, DatabaseMetadata, TableId, TableMetadata},
         table::HeapTable,
@@ -258,6 +304,72 @@ mod tests {
         assert_eq!(
             values,
             vec![Value::BigInt(1), Value::Varchar("Kim".to_owned())]
+        );
+    }
+
+    #[test]
+    fn update는_필터와_일치하는_row만_수정하고_재시작후에도_유지한다() {
+        let table_id = TableId::new(1);
+        let database = database(table_id);
+        let columns = users_columns();
+        let directory = TestDirectory::new("update-filter");
+        let path = directory.path().join("1.tbl");
+        let kim = encode(
+            &[Value::BigInt(1), Value::Varchar("Kim".to_owned())],
+            &columns,
+        )
+        .expect("Kim Row를 변환해야 함");
+        let lee = encode(
+            &[Value::BigInt(2), Value::Varchar("Lee".to_owned())],
+            &columns,
+        )
+        .expect("Lee Row를 변환해야 함");
+
+        let (kim_id, lee_id) = {
+            let mut table = HeapTable::open(&path).expect("테이블 파일을 생성해야 함");
+            let kim_id = table.insert(&kim).expect("Kim Row를 삽입해야 함");
+            let lee_id = table.insert(&lee).expect("Lee Row를 삽입해야 함");
+            (kim_id, lee_id)
+        };
+
+        let bound = BoundUpdate {
+            table_id,
+            assignments: vec![BoundAssignment {
+                column_id: ColumnId::new(2),
+                value: Literal::String("Park".to_owned()),
+            }],
+            filter: Some(BoundExpression::Equal {
+                column_id: ColumnId::new(1),
+                value: Literal::Integer(1),
+            }),
+        };
+
+        let executor = Executor::new(&database, directory.path());
+        let updated = executor
+            .execute_update(&bound)
+            .expect("UPDATE가 성공해야 함");
+
+        assert_eq!(updated, 1);
+
+        let mut table = HeapTable::open_existing(&path).expect("테이블 파일을 다시 열어야 함");
+        let kim = decode(
+            &table.get(kim_id).expect("수정한 Kim Row를 읽어야 함"),
+            &columns,
+        )
+        .expect("Kim Row를 값으로 변환해야 함");
+        let lee = decode(
+            &table.get(lee_id).expect("유지된 Lee Row를 읽어야 함"),
+            &columns,
+        )
+        .expect("Lee Row를 값으로 변환해야 함");
+
+        assert_eq!(
+            kim,
+            vec![Value::BigInt(1), Value::Varchar("Park".to_owned())]
+        );
+        assert_eq!(
+            lee,
+            vec![Value::BigInt(2), Value::Varchar("Lee".to_owned())]
         );
     }
 
