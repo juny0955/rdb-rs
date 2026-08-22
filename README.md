@@ -367,11 +367,27 @@ DELETE FROM users
 WHERE id = 1;
 ```
 
-**RDBMS v0.1 완료**
+---
+
+## M7. CLI
+
+로컬 Database를 직접 실행하는 SQL REPL을 만든다.
+
+### 구현
+
+* [ ] `rdb>` 프롬프트
+* [ ] SQL 한 문장 입력
+* [ ] Lexer → Parser → Binder → Executor 연결
+* [ ] CREATE / INSERT / SELECT / UPDATE / DELETE 결과 출력
+* [ ] SQL 오류 출력 후 REPL 계속 실행
+* [ ] `\q`로 종료
+* [ ] 재시작 후 데이터 유지 확인
 
 ---
 
-## M7. Buffer Pool
+**RDBMS v0.1 완료**
+
+## M8. Buffer Pool
 
 Disk Page를 메모리에 캐싱한다.
 
@@ -405,7 +421,7 @@ Disk
 
 ---
 
-## M8. B+Tree Index
+## M9. B+Tree Index
 
 Full Table Scan 없이 데이터를 검색할 수 있도록 B+Tree Index를 구현한다.
 
@@ -443,7 +459,7 @@ Heap Table
 
 ---
 
-## M9. Query Engine 확장
+## M10. Query Engine 확장
 
 일반적인 관계형 Query 기능을 추가한다.
 
@@ -478,7 +494,7 @@ JOIN orders o
 
 ---
 
-## M10. Query Planner / Optimizer
+## M11. Query Planner / Optimizer
 
 하나의 SQL을 어떤 방법으로 실행할지 결정한다.
 
@@ -520,7 +536,7 @@ Optimizer가 더 적절한 Plan을 선택한다.
 
 ---
 
-## M11. Transaction / Lock
+## M12. Transaction / Lock
 
 ACID Transaction의 기본 기능을 구현한다.
 
@@ -555,7 +571,7 @@ COMMIT;
 
 ---
 
-## M12. WAL / Crash Recovery
+## M13. WAL / Crash Recovery
 
 프로세스가 비정상 종료되어도 데이터베이스를 복구할 수 있도록 한다.
 
@@ -600,7 +616,7 @@ Consistency 검증
 
 ---
 
-## M13. MVCC
+## M14. MVCC
 
 여러 Transaction이 동시에 데이터를 처리할 수 있도록 MVCC를 구현한다.
 
@@ -629,7 +645,7 @@ Tuple
 
 ---
 
-## M14. Client / Server
+## M15. Client / Server
 
 RDBMS를 독립적인 Server Process로 실행할 수 있도록 한다.
 
@@ -689,25 +705,27 @@ M6  Binder / Executor
  │
  └──── RDBMS v0.1
  ↓
-M7  Buffer Pool
+M7  CLI
  ↓
-M8  B+Tree Index
+M8  Buffer Pool
  ↓
-M9  Query Engine
+M9  B+Tree Index
  ↓
-M10 Query Planner / Optimizer
+M10 Query Engine
+ ↓
+M11 Query Planner / Optimizer
  │
  └──── Query Engine v1
  ↓
-M11 Transaction / Lock
+M12 Transaction / Lock
  ↓
-M12 WAL / Recovery
+M13 WAL / Recovery
  ↓
-M13 MVCC
+M14 MVCC
  │
  └──── Transaction Engine v1
  ↓
-M14 Client / Server
+M15 Client / Server
  │
  └──── RDBMS v1
 ```
