@@ -4,7 +4,9 @@ use std::{
 };
 
 use crate::{
-    binder::{BoundExpression, BoundInsert, BoundProjection, BoundSelect, BoundUpdate},
+    binder::{
+        BoundDelete, BoundExpression, BoundInsert, BoundProjection, BoundSelect, BoundUpdate,
+    },
     page::{Row, RowId},
     parser::ast::Literal,
     schema::{ColumnId, DataType, DatabaseMetadata, TableId, TableMetadata},
@@ -123,6 +125,33 @@ impl<'a> Executor<'a> {
         Ok(updated)
     }
 
+    pub fn execute_delete(&self, bound: &BoundDelete) -> Result<usize, ExecutorError> {
+        let table_id = bound.table_id;
+        let table = self
+            .database
+            .table_by_id(table_id)
+            .ok_or(ExecutorError::TableNotFound(table_id))?;
+
+        let mut heap_table = HeapTable::open_existing(&self.table_path(table_id))?;
+        let rows = heap_table.scan()?;
+
+        let rows = {
+            if let Some(filter) = bound.filter.as_ref() {
+                Self::filter_rows(rows, table, filter)?
+            } else {
+                rows
+            }
+        };
+
+        let mut deleted = 0;
+        for (row_id, _) in rows {
+            heap_table.delete(row_id)?;
+            deleted += 1;
+        }
+
+        Ok(deleted)
+    }
+
     fn filter_rows(
         rows: Vec<(RowId, Row)>,
         table: &TableMetadata,
@@ -214,8 +243,8 @@ mod tests {
 
     use crate::{
         binder::{
-            BoundAssignment, BoundExpression, BoundInsert, BoundProjection, BoundSelect,
-            BoundUpdate,
+            BoundAssignment, BoundDelete, BoundExpression, BoundInsert, BoundProjection,
+            BoundSelect, BoundUpdate,
         },
         parser::ast::Literal,
         schema::{ColumnId, ColumnMetadata, DataType, DatabaseMetadata, TableId, TableMetadata},
@@ -367,6 +396,65 @@ mod tests {
             kim,
             vec![Value::BigInt(1), Value::Varchar("Park".to_owned())]
         );
+        assert_eq!(
+            lee,
+            vec![Value::BigInt(2), Value::Varchar("Lee".to_owned())]
+        );
+    }
+
+    #[test]
+    fn delete는_필터와_일치하는_row만_삭제하고_재시작후에도_유지한다() {
+        let table_id = TableId::new(1);
+        let database = database(table_id);
+        let columns = users_columns();
+        let directory = TestDirectory::new("delete-filter");
+        let path = directory.path().join("1.tbl");
+        let kim = encode(
+            &[Value::BigInt(1), Value::Varchar("Kim".to_owned())],
+            &columns,
+        )
+        .expect("Kim Row를 변환해야 함");
+        let lee = encode(
+            &[Value::BigInt(2), Value::Varchar("Lee".to_owned())],
+            &columns,
+        )
+        .expect("Lee Row를 변환해야 함");
+
+        let (kim_id, lee_id) = {
+            let mut table = HeapTable::open(&path).expect("테이블 파일을 생성해야 함");
+            let kim_id = table.insert(&kim).expect("Kim Row를 삽입해야 함");
+            let lee_id = table.insert(&lee).expect("Lee Row를 삽입해야 함");
+            (kim_id, lee_id)
+        };
+
+        let bound = BoundDelete {
+            table_id,
+            filter: Some(BoundExpression::Equal {
+                column_id: ColumnId::new(1),
+                value: Literal::Integer(1),
+            }),
+        };
+
+        let executor = Executor::new(&database, directory.path());
+        let deleted = executor
+            .execute_delete(&bound)
+            .expect("DELETE가 성공해야 함");
+
+        assert_eq!(deleted, 1);
+
+        let mut table = HeapTable::open_existing(&path).expect("테이블 파일을 다시 열어야 함");
+        assert!(matches!(
+            table.get(kim_id),
+            Err(error) if error.kind() == ErrorKind::NotFound
+        ));
+
+        let lee = decode(
+            &table
+                .get(lee_id)
+                .expect("삭제하지 않은 Lee Row를 읽어야 함"),
+            &columns,
+        )
+        .expect("Lee Row를 값으로 변환해야 함");
         assert_eq!(
             lee,
             vec![Value::BigInt(2), Value::Varchar("Lee".to_owned())]
