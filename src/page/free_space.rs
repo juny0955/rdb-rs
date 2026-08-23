@@ -1,5 +1,4 @@
-use std::io::{Error, ErrorKind, Result};
-
+use crate::page::error::PageError;
 use crate::page::{FREE_BLOCK_SIZE, PAGE_SIZE, Page};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -29,7 +28,7 @@ impl FreeBlock {
 }
 
 impl Page {
-    pub(super) fn add_free_block(&mut self, offset: u16, length: u16) -> Result<()> {
+    pub(super) fn add_free_block(&mut self, offset: u16, length: u16) -> Result<(), PageError> {
         let block = FreeBlock::new(self.free_list_head(), length);
         self.write_free_block(offset, &block)?;
         self.set_free_list_head(offset);
@@ -39,7 +38,7 @@ impl Page {
     pub(super) fn find_free_block(
         &self,
         required_len: u16,
-    ) -> Result<Option<(u16, Option<u16>, FreeBlock)>> {
+    ) -> Result<Option<(u16, Option<u16>, FreeBlock)>, PageError> {
         let mut current_offset = self.free_list_head();
         let mut prev_offset = None;
 
@@ -60,7 +59,7 @@ impl Page {
         &mut self,
         prev_offset: Option<u16>,
         next_offset: u16,
-    ) -> Result<()> {
+    ) -> Result<(), PageError> {
         if let Some(prev) = prev_offset {
             let mut prev_block = self.read_free_block(prev)?;
             prev_block.next = next_offset;
@@ -72,28 +71,29 @@ impl Page {
         Ok(())
     }
 
-    pub(super) fn read_free_block(&self, offset: u16) -> Result<FreeBlock> {
+    pub(super) fn read_free_block(&self, offset: u16) -> Result<FreeBlock, PageError> {
         let offset = self.free_block_offset(offset)?;
         let mut read_bytes = [0u8; FREE_BLOCK_SIZE];
         read_bytes.copy_from_slice(&self.data[offset..offset + FREE_BLOCK_SIZE]);
         Ok(FreeBlock::from_bytes(read_bytes))
     }
 
-    pub(super) fn write_free_block(&mut self, offset: u16, block: &FreeBlock) -> Result<()> {
+    pub(super) fn write_free_block(
+        &mut self,
+        offset: u16,
+        block: &FreeBlock,
+    ) -> Result<(), PageError> {
         let offset = self.free_block_offset(offset)?;
         self.data[offset..offset + FREE_BLOCK_SIZE].copy_from_slice(&block.to_bytes());
         Ok(())
     }
 
-    pub(super) fn free_block_offset(&self, offset: u16) -> Result<usize> {
+    pub(super) fn free_block_offset(&self, offset: u16) -> Result<usize, PageError> {
         if offset < self.free_end()
             || offset as usize + FREE_BLOCK_SIZE > PAGE_SIZE
             || offset == u16::MAX
         {
-            return Err(Error::new(
-                ErrorKind::InvalidData,
-                "invalid free block bounds",
-            ));
+            return Err(PageError::InvalidFreeBlockBounds);
         }
 
         Ok(offset as usize)
@@ -102,7 +102,7 @@ impl Page {
     pub(super) fn try_allocate_from_free_end(
         &mut self,
         allocate_len: usize,
-    ) -> Result<Option<u16>> {
+    ) -> Result<Option<u16>, PageError> {
         if allocate_len > self.free_space()? {
             return Ok(None);
         }
@@ -115,7 +115,7 @@ impl Page {
     pub(super) fn try_allocate_from_free_block(
         &mut self,
         allocate_len: usize,
-    ) -> Result<Option<u16>> {
+    ) -> Result<Option<u16>, PageError> {
         if let Some((current_offset, prev_offset, block)) =
             self.find_free_block(allocate_len as u16)?
         {

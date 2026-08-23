@@ -176,12 +176,10 @@ fn offset_계산_테스트() {
         slot_offset(SlotId(2045)).expect("offset 계산 실패"),
         HEADER_SIZE + (SLOT_SIZE * 2045)
     );
-    assert_eq!(
-        slot_offset(SlotId(2046))
-            .expect_err("page size 보다 커야한다")
-            .kind(),
-        ErrorKind::InvalidInput
-    );
+    assert!(matches!(
+        slot_offset(SlotId(2046)).expect_err("page size 보다 커야한다"),
+        PageError::SlotOffsetOutOfBounds
+    ));
 }
 
 #[test]
@@ -261,7 +259,7 @@ fn read_slot_not_found_테스트() {
     let error = page
         .read_slot(SlotId(0))
         .expect_err("not found 오류 발생해야한다");
-    assert_eq!(error.kind(), ErrorKind::NotFound);
+    assert!(matches!(error, PageError::SlotNotFound));
 }
 
 #[test]
@@ -299,7 +297,7 @@ fn free_space_테스트() {
 
     page.set_free_end(1);
     let error = page.free_space().expect_err("손상된 page 이어야한다");
-    assert_eq!(error.kind(), ErrorKind::InvalidData);
+    assert!(matches!(error, PageError::InvalidFreeSpaceBounds));
 }
 
 #[test]
@@ -411,7 +409,7 @@ fn read_row_not_found_테스트() {
     let error = page
         .read_row(SlotId(0))
         .expect_err("not found 발생해야한다");
-    assert_eq!(error.kind(), ErrorKind::NotFound);
+    assert!(matches!(error, PageError::SlotNotFound));
 }
 
 #[test]
@@ -496,12 +494,11 @@ fn update_row는_공간_부족시_압축후_재시도한다() {
         page.read_row(target_slot).expect("수정된 Row를 읽어야 함"),
         update_row
     );
-    assert_eq!(
+    assert!(matches!(
         page.read_row(deleted_slot)
-            .expect_err("삭제된 Row는 계속 읽을 수 없어야 함")
-            .kind(),
-        ErrorKind::NotFound
-    );
+            .expect_err("삭제된 Row는 계속 읽을 수 없어야 함"),
+        PageError::SlotNotFound
+    ));
 }
 
 #[test]
@@ -516,7 +513,7 @@ fn delete_row_테스트() {
     let error = page
         .read_row(slot_id)
         .expect_err("not found 에러 나와야한다");
-    assert_eq!(error.kind(), ErrorKind::NotFound);
+    assert!(matches!(error, PageError::SlotNotFound));
     assert_eq!(page.slot_count(), 1);
     assert_eq!(page.free_start() as usize, HEADER_SIZE + SLOT_SIZE);
     assert_eq!(page.free_end() as usize, PAGE_SIZE - FREE_BLOCK_SIZE);
@@ -620,12 +617,10 @@ fn compact_테스트() {
     assert_eq!(page.read_row(slot3).expect("read row 실패"), row3);
     assert_eq!(page.free_list_head(), u16::MAX);
     assert!(page.free_end() > free_end);
-    assert_eq!(
-        page.read_row(slot2)
-            .expect_err("not found 오류 반환해야함")
-            .kind(),
-        ErrorKind::NotFound
-    );
+    assert!(matches!(
+        page.read_row(slot2).expect_err("not found 오류 반환해야함"),
+        PageError::SlotNotFound
+    ));
 }
 
 #[test]
@@ -647,12 +642,11 @@ fn insert_row_compress_테스트() {
 
     for i in 0..7 {
         if i == 3 {
-            assert_eq!(
+            assert!(matches!(
                 page.read_row(slots[i])
-                    .expect_err("not found 오류 반환해야한다")
-                    .kind(),
-                ErrorKind::NotFound
-            );
+                    .expect_err("not found 오류 반환해야한다"),
+                PageError::SlotNotFound
+            ));
             continue;
         }
 

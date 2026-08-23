@@ -1,5 +1,4 @@
-use std::io::{Error, ErrorKind, Result};
-
+use crate::page::error::PageError;
 use crate::page::{HEADER_SIZE, PAGE_SIZE, Page, SLOT_SIZE};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -41,18 +40,15 @@ impl Slot {
 }
 
 impl Page {
-    pub(super) fn add_slot(&mut self, slot: &Slot) -> Result<SlotId> {
+    pub(super) fn add_slot(&mut self, slot: &Slot) -> Result<SlotId, PageError> {
         let next_free_start = match self.free_start().checked_add(SLOT_SIZE as u16) {
             Some(next) => {
                 if next > self.free_end() {
-                    return Err(Error::new(
-                        ErrorKind::StorageFull,
-                        "not enough space for slot",
-                    ));
+                    return Err(PageError::StorageFull);
                 }
                 next
             }
-            None => return Err(Error::new(ErrorKind::InvalidData, "free start overflow")),
+            None => return Err(PageError::FreeStartOverflow),
         };
 
         let current_slot_id = SlotId(self.slot_count());
@@ -63,9 +59,9 @@ impl Page {
         Ok(current_slot_id)
     }
 
-    pub(super) fn read_slot(&self, slot_id: SlotId) -> Result<Slot> {
+    pub(super) fn read_slot(&self, slot_id: SlotId) -> Result<Slot, PageError> {
         if slot_id.0 >= self.slot_count() {
-            return Err(Error::new(ErrorKind::NotFound, "slot not found"));
+            return Err(PageError::SlotNotFound);
         }
 
         let offset = slot_offset(slot_id)?;
@@ -74,12 +70,12 @@ impl Page {
         let slot = Slot::from_bytes(bytes);
 
         if slot.is_deleted() {
-            return Err(Error::new(ErrorKind::NotFound, "slot not found"));
+            return Err(PageError::SlotNotFound);
         }
         Ok(slot)
     }
 
-    pub(super) fn write_slot(&mut self, slot_id: SlotId, slot: &Slot) -> Result<()> {
+    pub(super) fn write_slot(&mut self, slot_id: SlotId, slot: &Slot) -> Result<(), PageError> {
         let offset = slot_offset(slot_id)?;
         let bytes = slot.to_bytes();
 
@@ -89,13 +85,10 @@ impl Page {
     }
 }
 
-pub(super) fn slot_offset(slot_id: SlotId) -> Result<usize> {
+pub(super) fn slot_offset(slot_id: SlotId) -> Result<usize, PageError> {
     let offset = HEADER_SIZE + (SLOT_SIZE * slot_id.0 as usize);
     if offset > PAGE_SIZE || offset + SLOT_SIZE > PAGE_SIZE {
-        return Err(Error::new(
-            ErrorKind::InvalidInput,
-            "slot offset over page size",
-        ));
+        return Err(PageError::SlotOffsetOutOfBounds);
     }
 
     Ok(offset)

@@ -1,7 +1,4 @@
-use std::{
-    cmp::Ordering,
-    io::{Error, ErrorKind, Result},
-};
+use std::cmp::Ordering;
 
 const PAGE_SIZE: usize = 8192;
 const SLOT_SIZE: usize = 4;
@@ -12,15 +9,16 @@ const FREE_END_OFFSET: usize = 4;
 const FREE_LIST_HEAD_OFFSET: usize = 6;
 const HEADER_SIZE: usize = 8;
 
+mod error;
 mod free_space;
 mod pager;
 mod slot;
 
+pub(crate) use error::PageError;
 use free_space::{FreeBlock, row_allocation_size};
+pub(crate) use pager::{allocate_page, page_count, read_page, write_page};
 pub use slot::SlotId;
 use slot::{Slot, slot_offset};
-
-pub(crate) use pager::{allocate_page, page_count, read_page, write_page};
 
 #[cfg(test)]
 use pager::page_offset;
@@ -83,13 +81,13 @@ impl Page {
         page
     }
 
-    pub fn insert_row(&mut self, row: &Row) -> Result<SlotId> {
+    pub fn insert_row(&mut self, row: &Row) -> Result<SlotId, PageError> {
         let row_bytes = row.to_bytes();
         let row_len = row_bytes.len();
         let allocate_len = row_allocation_size(row_len);
 
         if allocate_len > PAGE_SIZE - HEADER_SIZE - SLOT_SIZE {
-            return Err(Error::new(ErrorKind::InvalidInput, "row too large"));
+            return Err(PageError::RowTooLarge);
         }
 
         if let Some(slot_id) = self.try_insert_from_free_block(row_bytes, allocate_len)? {
@@ -98,7 +96,7 @@ impl Page {
 
         match self.insert_from_free_end(row_bytes, allocate_len) {
             Ok(slot_id) => Ok(slot_id),
-            Err(e) if e.kind() == ErrorKind::StorageFull => {
+            Err(PageError::StorageFull) => {
                 self.compact()?;
                 Ok(self.insert_from_free_end(row_bytes, allocate_len)?)
             }
@@ -106,18 +104,18 @@ impl Page {
         }
     }
 
-    pub fn read_row(&self, slot_id: SlotId) -> Result<Row> {
+    pub fn read_row(&self, slot_id: SlotId) -> Result<Row, PageError> {
         let slot = self.read_slot(slot_id)?;
         let row_end = slot.offset as usize + slot.length as usize;
         if row_end > PAGE_SIZE || slot.offset < self.free_end() {
-            return Err(Error::new(ErrorKind::InvalidData, "invalid row bounds"));
+            return Err(PageError::InvalidRowBounds);
         }
 
         let row = Row::from_bytes(&self.data[slot.offset as usize..row_end]);
         Ok(row)
     }
 
-    pub fn update_row(&mut self, slot_id: SlotId, row: &Row) -> Result<()> {
+    pub fn update_row(&mut self, slot_id: SlotId, row: &Row) -> Result<(), PageError> {
         let mut slot = self.read_slot(slot_id)?;
         let slot_length = slot.length as usize;
         let slot_offset = slot.offset as usize;
@@ -127,7 +125,7 @@ impl Page {
         let allocate_end = slot_offset + old_allocate_len;
 
         if allocate_end > PAGE_SIZE || slot_offset < self.free_end() as usize {
-            return Err(Error::new(ErrorKind::InvalidData, "invalid row bounds"));
+            return Err(PageError::InvalidRowBounds);
         }
 
         match new_allocate_len.cmp(&old_allocate_len) {
@@ -162,7 +160,7 @@ impl Page {
                         }
                     },
                 }
-                .ok_or_else(|| Error::new(ErrorKind::StorageFull, "not enough space for row"))?;
+                .ok_or_else(|| PageError::StorageFull)?;
 
                 self.write_row_bytes_at(new_offset, row_bytes)?;
 
@@ -178,7 +176,7 @@ impl Page {
         Ok(())
     }
 
-    pub fn delete_row(&mut self, slot_id: SlotId) -> Result<()> {
+    pub fn delete_row(&mut self, slot_id: SlotId) -> Result<(), PageError> {
         let mut slot = self.read_slot(slot_id)?;
         let row_offset = slot.offset;
         let allocate_len = row_allocation_size(slot.length as usize);
@@ -190,7 +188,7 @@ impl Page {
         Ok(())
     }
 
-    pub fn scan_rows(&self) -> Result<Vec<(SlotId, Row)>> {
+    pub fn scan_rows(&self) -> Result<Vec<(SlotId, Row)>, PageError> {
         let mut scans = Vec::new();
 
         let slot_count = self.slot_count();
@@ -198,7 +196,7 @@ impl Page {
             let slot_id = SlotId(i);
             match self.read_row(slot_id) {
                 Ok(row) => scans.push((slot_id, row)),
-                Err(e) if e.kind() == ErrorKind::NotFound => continue,
+                Err(PageError::SlotNotFound) => continue,
                 Err(e) => return Err(e),
             }
         }
@@ -210,7 +208,7 @@ impl Page {
         &mut self,
         row_bytes: &[u8],
         allocate_len: usize,
-    ) -> Result<Option<SlotId>> {
+    ) -> Result<Option<SlotId>, PageError> {
         if SLOT_SIZE > self.free_space()? {
             return Ok(None);
         }
@@ -220,12 +218,13 @@ impl Page {
             .transpose()
     }
 
-    fn insert_from_free_end(&mut self, row_bytes: &[u8], allocate_len: usize) -> Result<SlotId> {
+    fn insert_from_free_end(
+        &mut self,
+        row_bytes: &[u8],
+        allocate_len: usize,
+    ) -> Result<SlotId, PageError> {
         if SLOT_SIZE + allocate_len > self.free_space()? {
-            return Err(Error::new(
-                ErrorKind::StorageFull,
-                "not enough space for row",
-            ));
+            return Err(PageError::StorageFull);
         }
 
         let row_end = self.free_end();
@@ -237,13 +236,13 @@ impl Page {
         Ok(slot_id)
     }
 
-    fn write_row_bytes_at(&mut self, offset: u16, row_bytes: &[u8]) -> Result<()> {
+    fn write_row_bytes_at(&mut self, offset: u16, row_bytes: &[u8]) -> Result<(), PageError> {
         let offset = offset as usize;
         self.data[offset..offset + row_bytes.len()].copy_from_slice(row_bytes);
         Ok(())
     }
 
-    fn write_row_at(&mut self, offset: u16, row_bytes: &[u8]) -> Result<SlotId> {
+    fn write_row_at(&mut self, offset: u16, row_bytes: &[u8]) -> Result<SlotId, PageError> {
         let slot = Slot::new(offset, row_bytes.len() as u16);
         let slot_id = self.add_slot(&slot)?;
 
@@ -252,13 +251,13 @@ impl Page {
         Ok(slot_id)
     }
 
-    fn compact(&mut self) -> Result<()> {
+    fn compact(&mut self) -> Result<(), PageError> {
         let mut live_slots = Vec::new();
         for i in 0..self.slot_count() {
             let slot_id = SlotId(i);
             let row = match self.read_row(slot_id) {
                 Ok(r) => r,
-                Err(e) if e.kind() == ErrorKind::NotFound => continue,
+                Err(PageError::SlotNotFound) => continue,
                 Err(e) => return Err(e),
             };
 
@@ -283,12 +282,9 @@ impl Page {
         Ok(())
     }
 
-    fn free_space(&self) -> Result<usize> {
+    fn free_space(&self) -> Result<usize, PageError> {
         if self.free_start() > self.free_end() {
-            return Err(Error::new(
-                ErrorKind::InvalidData,
-                "invalid free space bounds",
-            ));
+            return Err(PageError::InvalidFreeSpaceBounds);
         }
 
         Ok((self.free_end() - self.free_start()) as usize)
