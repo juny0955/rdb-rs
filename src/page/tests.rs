@@ -3,7 +3,10 @@ use std::{
     io::{ErrorKind, Seek, SeekFrom, Write},
 };
 
-use crate::test_supports::TestFile;
+use crate::{
+    page::{free_space::FreeBlock, slot::slot_offset},
+    test_supports::TestFile,
+};
 
 use super::*;
 

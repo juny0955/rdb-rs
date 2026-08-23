@@ -15,9 +15,9 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum ExecutorError {
     #[error("tuple 처리 오류: {0}")]
-    TupleError(#[from] TupleError),
+    Tuple(#[from] TupleError),
     #[error("heap table 처리 오류: {0}")]
-    HeapTableError(#[from] HeapTableError),
+    HeapTable(#[from] HeapTableError),
     #[error("테이블을 찾을 수 없습니다: {0:?}")]
     TableNotFound(TableId),
     #[error("컬럼을 찾을 수 없습니다: {0:?}")]
@@ -626,7 +626,7 @@ mod tests {
 
         assert!(matches!(
             result,
-            Err(ExecutorError::HeapTableError(HeapTableError::Io(error)))
+            Err(ExecutorError::HeapTable(HeapTableError::Io(error)))
                 if error.kind() == ErrorKind::NotFound
         ));
         assert!(!directory.path().join("1.tbl").exists());
