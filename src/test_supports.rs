@@ -1,54 +1,40 @@
-use std::{
-    env::temp_dir,
-    fs::{create_dir, remove_dir_all, remove_file},
-    path::{Path, PathBuf},
-    process,
-    sync::atomic::{AtomicUsize, Ordering},
-};
+use std::path::Path;
 
-static NEXT_TEST_PATH_ID: AtomicUsize = AtomicUsize::new(0);
+use tempfile::{Builder, TempDir, TempPath};
 
 pub struct TestFile {
-    path: PathBuf,
+    path: TempPath,
 }
 
 impl TestFile {
     pub fn new(label: &str) -> Self {
-        let counter = NEXT_TEST_PATH_ID.fetch_add(1, Ordering::Relaxed);
-        let path = temp_dir().join(format!("rdb-rs-{label}-{}-{counter}", process::id()));
+        let path = Builder::new()
+            .prefix(&format!("rdb-rs-{label}-"))
+            .tempfile()
+            .expect("테스트 파일을 생성해야 함")
+            .into_temp_path();
         Self { path }
     }
 
     pub fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for TestFile {
-    fn drop(&mut self) {
-        let _ = remove_file(&self.path);
+        self.path.as_ref()
     }
 }
 
 pub struct TestDirectory {
-    path: PathBuf,
+    directory: TempDir,
 }
 
 impl TestDirectory {
     pub fn new(label: &str) -> Self {
-        let counter = NEXT_TEST_PATH_ID.fetch_add(1, Ordering::Relaxed);
-        let path = temp_dir().join(format!("rdb-rs-{label}-{}-{counter}", process::id()));
-        create_dir(&path).expect("테스트 디렉터리를 생성해야 함");
-        Self { path }
+        let directory = Builder::new()
+            .prefix(&format!("rdb-rs-{label}-"))
+            .tempdir()
+            .expect("테스트 디렉터리를 생성해야 함");
+        Self { directory }
     }
 
     pub fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl Drop for TestDirectory {
-    fn drop(&mut self) {
-        let _ = remove_dir_all(&self.path);
+        self.directory.path()
     }
 }
