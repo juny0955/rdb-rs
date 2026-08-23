@@ -1,9 +1,13 @@
 use crate::parser::token::{Token, TokenKind};
+use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum LexError {
+    #[error("예상하지 않은 문자입니다 (위치 {0}): {1:?}")]
     UnexpectedCharacter(usize, char),
+    #[error("유효하지 않은 정수 리터럴입니다 (위치 {0})")]
     InvalidInteger(usize),
+    #[error("문자열 리터럴이 끝나지 않았습니다 (위치 {0})")]
     UnterminatedString(usize),
 }
 
