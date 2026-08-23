@@ -1,4 +1,8 @@
+use std::io;
+
 use thiserror::Error;
+
+use crate::page::PageId;
 
 #[derive(Debug, PartialEq, Eq, Error)]
 pub enum PageError {
@@ -18,4 +22,16 @@ pub enum PageError {
     FreeStartOverflow,
     #[error("slot offset이 page 경계를 벗어났습니다.")]
     SlotOffsetOutOfBounds,
+}
+
+#[derive(Debug, Error)]
+pub enum PagerError {
+    #[error("page I/O 오류: {0}")]
+    Io(#[from] io::Error),
+    #[error("database file 크기가 page 크기의 배수가 아닙니다.")]
+    InvalidFileSize,
+    #[error("아직 할당되지 않은 page입니다: {0:?}")]
+    PageNotAllocated(PageId),
+    #[error("page offset 계산 중 범위를 초과했습니다: {0:?}")]
+    PageOffsetOverflow(PageId),
 }

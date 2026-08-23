@@ -14,7 +14,7 @@ mod free_space;
 mod pager;
 mod slot;
 
-pub(crate) use error::PageError;
+pub(crate) use error::{PageError, PagerError};
 use free_space::{FreeBlock, row_allocation_size};
 pub(crate) use pager::{allocate_page, page_count, read_page, write_page};
 pub use slot::SlotId;

@@ -1,6 +1,6 @@
 use std::{
     fs::{File, OpenOptions},
-    io::{Seek, SeekFrom, Write},
+    io::{ErrorKind, Seek, SeekFrom, Write},
 };
 
 use crate::test_supports::TestFile;
@@ -55,7 +55,7 @@ fn allocate_손상된파일_테스트() {
     file.write_all("1".as_bytes())
         .expect("테스트 파일 작성 실패");
     let error = allocate_page(&mut file).expect_err("손상된 파일은 allocate 실패해야 한다");
-    assert_eq!(error.kind(), ErrorKind::InvalidData);
+    assert!(matches!(error, PagerError::InvalidFileSize));
     assert_eq!(file.metadata().expect("메타데이터 읽기 실패").len(), 1);
 }
 
@@ -99,7 +99,10 @@ fn read_eof_테스트() {
     let page_id = PageId(1);
 
     let error = read_page(&mut file, page_id).expect_err("Eof 에러가 반환되어야 한다");
-    assert_eq!(error.kind(), ErrorKind::UnexpectedEof);
+    assert!(matches!(
+        error,
+        PagerError::Io(error) if error.kind() == ErrorKind::UnexpectedEof
+    ));
 }
 
 #[test]
@@ -140,7 +143,7 @@ fn write_미할당_page_id_테스트() {
 
     let error =
         write_page(&mut file, PageId(1), &page).expect_err("미할당 PageId 쓰기는 실패해야한다");
-    assert_eq!(error.kind(), ErrorKind::InvalidInput);
+    assert!(matches!(error, PagerError::PageNotAllocated(PageId(1))));
     assert_eq!(file.metadata().expect("metadata 읽기 실패").len(), file_len);
 }
 
@@ -156,12 +159,10 @@ fn offset_계산_테스트() {
         page_offset(PageId(2)).expect("offset 계산 실패"),
         (PAGE_SIZE * 2) as u64
     );
-    assert_eq!(
-        page_offset(PageId(u64::MAX))
-            .expect_err("overflow 발생해야한다")
-            .kind(),
-        ErrorKind::InvalidInput
-    );
+    assert!(matches!(
+        page_offset(PageId(u64::MAX)).expect_err("overflow 발생해야한다"),
+        PagerError::PageOffsetOverflow(PageId(u64::MAX))
+    ));
 
     // slot offset
     assert_eq!(
