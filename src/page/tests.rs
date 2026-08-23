@@ -1,9 +1,12 @@
 use std::{
     fs::{File, OpenOptions},
-    io::{Seek, SeekFrom, Write},
+    io::{ErrorKind, Seek, SeekFrom, Write},
 };
 
-use crate::test_supports::TestFile;
+use crate::{
+    page::{free_space::FreeBlock, slot::slot_offset},
+    test_supports::TestFile,
+};
 
 use super::*;
 
@@ -55,7 +58,7 @@ fn allocate_손상된파일_테스트() {
     file.write_all("1".as_bytes())
         .expect("테스트 파일 작성 실패");
     let error = allocate_page(&mut file).expect_err("손상된 파일은 allocate 실패해야 한다");
-    assert_eq!(error.kind(), ErrorKind::InvalidData);
+    assert!(matches!(error, PagerError::InvalidFileSize));
     assert_eq!(file.metadata().expect("메타데이터 읽기 실패").len(), 1);
 }
 
@@ -99,7 +102,10 @@ fn read_eof_테스트() {
     let page_id = PageId(1);
 
     let error = read_page(&mut file, page_id).expect_err("Eof 에러가 반환되어야 한다");
-    assert_eq!(error.kind(), ErrorKind::UnexpectedEof);
+    assert!(matches!(
+        error,
+        PagerError::Io(error) if error.kind() == ErrorKind::UnexpectedEof
+    ));
 }
 
 #[test]
@@ -140,7 +146,7 @@ fn write_미할당_page_id_테스트() {
 
     let error =
         write_page(&mut file, PageId(1), &page).expect_err("미할당 PageId 쓰기는 실패해야한다");
-    assert_eq!(error.kind(), ErrorKind::InvalidInput);
+    assert!(matches!(error, PagerError::PageNotAllocated(PageId(1))));
     assert_eq!(file.metadata().expect("metadata 읽기 실패").len(), file_len);
 }
 
@@ -156,12 +162,10 @@ fn offset_계산_테스트() {
         page_offset(PageId(2)).expect("offset 계산 실패"),
         (PAGE_SIZE * 2) as u64
     );
-    assert_eq!(
-        page_offset(PageId(u64::MAX))
-            .expect_err("overflow 발생해야한다")
-            .kind(),
-        ErrorKind::InvalidInput
-    );
+    assert!(matches!(
+        page_offset(PageId(u64::MAX)).expect_err("overflow 발생해야한다"),
+        PagerError::PageOffsetOverflow(PageId(u64::MAX))
+    ));
 
     // slot offset
     assert_eq!(
@@ -176,12 +180,10 @@ fn offset_계산_테스트() {
         slot_offset(SlotId(2045)).expect("offset 계산 실패"),
         HEADER_SIZE + (SLOT_SIZE * 2045)
     );
-    assert_eq!(
-        slot_offset(SlotId(2046))
-            .expect_err("page size 보다 커야한다")
-            .kind(),
-        ErrorKind::InvalidInput
-    );
+    assert!(matches!(
+        slot_offset(SlotId(2046)).expect_err("page size 보다 커야한다"),
+        PageError::SlotOffsetOutOfBounds
+    ));
 }
 
 #[test]
@@ -261,7 +263,7 @@ fn read_slot_not_found_테스트() {
     let error = page
         .read_slot(SlotId(0))
         .expect_err("not found 오류 발생해야한다");
-    assert_eq!(error.kind(), ErrorKind::NotFound);
+    assert!(matches!(error, PageError::SlotNotFound));
 }
 
 #[test]
@@ -299,7 +301,7 @@ fn free_space_테스트() {
 
     page.set_free_end(1);
     let error = page.free_space().expect_err("손상된 page 이어야한다");
-    assert_eq!(error.kind(), ErrorKind::InvalidData);
+    assert!(matches!(error, PageError::InvalidFreeSpaceBounds));
 }
 
 #[test]
@@ -411,7 +413,7 @@ fn read_row_not_found_테스트() {
     let error = page
         .read_row(SlotId(0))
         .expect_err("not found 발생해야한다");
-    assert_eq!(error.kind(), ErrorKind::NotFound);
+    assert!(matches!(error, PageError::SlotNotFound));
 }
 
 #[test]
@@ -496,12 +498,11 @@ fn update_row는_공간_부족시_압축후_재시도한다() {
         page.read_row(target_slot).expect("수정된 Row를 읽어야 함"),
         update_row
     );
-    assert_eq!(
+    assert!(matches!(
         page.read_row(deleted_slot)
-            .expect_err("삭제된 Row는 계속 읽을 수 없어야 함")
-            .kind(),
-        ErrorKind::NotFound
-    );
+            .expect_err("삭제된 Row는 계속 읽을 수 없어야 함"),
+        PageError::SlotNotFound
+    ));
 }
 
 #[test]
@@ -516,7 +517,7 @@ fn delete_row_테스트() {
     let error = page
         .read_row(slot_id)
         .expect_err("not found 에러 나와야한다");
-    assert_eq!(error.kind(), ErrorKind::NotFound);
+    assert!(matches!(error, PageError::SlotNotFound));
     assert_eq!(page.slot_count(), 1);
     assert_eq!(page.free_start() as usize, HEADER_SIZE + SLOT_SIZE);
     assert_eq!(page.free_end() as usize, PAGE_SIZE - FREE_BLOCK_SIZE);
@@ -620,12 +621,10 @@ fn compact_테스트() {
     assert_eq!(page.read_row(slot3).expect("read row 실패"), row3);
     assert_eq!(page.free_list_head(), u16::MAX);
     assert!(page.free_end() > free_end);
-    assert_eq!(
-        page.read_row(slot2)
-            .expect_err("not found 오류 반환해야함")
-            .kind(),
-        ErrorKind::NotFound
-    );
+    assert!(matches!(
+        page.read_row(slot2).expect_err("not found 오류 반환해야함"),
+        PageError::SlotNotFound
+    ));
 }
 
 #[test]
@@ -647,12 +646,11 @@ fn insert_row_compress_테스트() {
 
     for i in 0..7 {
         if i == 3 {
-            assert_eq!(
+            assert!(matches!(
                 page.read_row(slots[i])
-                    .expect_err("not found 오류 반환해야한다")
-                    .kind(),
-                ErrorKind::NotFound
-            );
+                    .expect_err("not found 오류 반환해야한다"),
+                PageError::SlotNotFound
+            ));
             continue;
         }
 

@@ -1,35 +1,50 @@
 use std::{
     fs::File,
-    io::{ErrorKind, Result},
+    io::{self},
     path::Path,
 };
 
+use thiserror::Error;
+
 use crate::{
     file::{open_rw, open_rw_create},
-    page::{Page, PageId, Row, RowId, allocate_page, page_count, read_page, write_page},
+    page::{
+        Page, PageError, PageId, PagerError, Row, RowId, allocate_page, page_count, read_page,
+        write_page,
+    },
 };
+
+#[derive(Debug, Error)]
+pub enum HeapTableError {
+    #[error("heap table I/O 오류: {0}")]
+    Io(#[from] io::Error),
+    #[error("page 처리 오류: {0}")]
+    Page(#[from] PageError),
+    #[error("pager 처리 오류: {0}")]
+    Pager(#[from] PagerError),
+}
 
 pub struct HeapTable {
     file: File,
 }
 
 impl HeapTable {
-    pub fn open(path: &Path) -> Result<Self> {
+    pub fn open(path: &Path) -> Result<Self, HeapTableError> {
         let file = open_rw_create(path)?;
         Ok(Self { file })
     }
 
-    pub fn open_existing(path: &Path) -> Result<Self> {
+    pub fn open_existing(path: &Path) -> Result<Self, HeapTableError> {
         let file = open_rw(path)?;
         Ok(Self { file })
     }
 
-    pub fn add_page(&mut self) -> Result<PageId> {
+    pub fn add_page(&mut self) -> Result<PageId, HeapTableError> {
         let page_id = allocate_page(&mut self.file)?;
         Ok(page_id)
     }
 
-    pub fn insert(&mut self, row: &Row) -> Result<RowId> {
+    pub fn insert(&mut self, row: &Row) -> Result<RowId, HeapTableError> {
         for i in 0..page_count(&self.file)? {
             let page_id = PageId::new(i);
             let mut page = read_page(&mut self.file, page_id)?;
@@ -38,8 +53,8 @@ impl HeapTable {
                     write_page(&mut self.file, page_id, &page)?;
                     return Ok(RowId::new(page_id, slot_id));
                 }
-                Err(e) if e.kind() == ErrorKind::StorageFull => continue,
-                Err(e) => return Err(e),
+                Err(PageError::StorageFull) => continue,
+                Err(e) => return Err(HeapTableError::Page(e)),
             };
         }
 
@@ -51,27 +66,27 @@ impl HeapTable {
         Ok(RowId::new(page_id, slot_id))
     }
 
-    pub fn get(&mut self, row_id: RowId) -> Result<Row> {
+    pub fn get(&mut self, row_id: RowId) -> Result<Row, HeapTableError> {
         let page = read_page(&mut self.file, row_id.page_id())?;
         let row = page.read_row(row_id.slot_id())?;
         Ok(row)
     }
 
-    pub fn update(&mut self, row_id: RowId, row: &Row) -> Result<()> {
+    pub fn update(&mut self, row_id: RowId, row: &Row) -> Result<(), HeapTableError> {
         let mut page = read_page(&mut self.file, row_id.page_id())?;
         page.update_row(row_id.slot_id(), row)?;
         write_page(&mut self.file, row_id.page_id(), &page)?;
         Ok(())
     }
 
-    pub fn delete(&mut self, row_id: RowId) -> Result<()> {
+    pub fn delete(&mut self, row_id: RowId) -> Result<(), HeapTableError> {
         let mut page = read_page(&mut self.file, row_id.page_id())?;
         page.delete_row(row_id.slot_id())?;
         write_page(&mut self.file, row_id.page_id(), &page)?;
         Ok(())
     }
 
-    pub fn scan(&mut self) -> Result<Vec<(RowId, Row)>> {
+    pub fn scan(&mut self) -> Result<Vec<(RowId, Row)>, HeapTableError> {
         let mut scans = Vec::new();
         let page_count = page_count(&self.file)?;
         if page_count == 0 {
@@ -99,7 +114,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn open_테스트() -> Result<()> {
+    fn open_테스트() -> Result<(), HeapTableError> {
         let test_file1 = TestFile::new("users1.tbl");
         let test_file2 = TestFile::new("users2.tbl");
         {
@@ -114,7 +129,7 @@ mod tests {
     }
 
     #[test]
-    fn add_page_테스트() -> Result<()> {
+    fn add_page_테스트() -> Result<(), HeapTableError> {
         let test_file = TestFile::new("add-page");
         let mut table = HeapTable::open(test_file.path())?;
         let page_id1 = table.add_page()?;
@@ -125,7 +140,7 @@ mod tests {
     }
 
     #[test]
-    fn insert_테스트() -> Result<()> {
+    fn insert_테스트() -> Result<(), HeapTableError> {
         let test_file = TestFile::new("insert");
         let row = Row::from_bytes(&[1, 2, 3]);
         let row_id;
@@ -143,7 +158,7 @@ mod tests {
     }
 
     #[test]
-    fn insert_storage_full_테스트() -> Result<()> {
+    fn insert_storage_full_테스트() -> Result<(), HeapTableError> {
         let test_file = TestFile::new("insert_storage_full");
         let row1 = Row::from_bytes(&vec![1; 8000]);
         let row2 = Row::from_bytes(&[1; 200]);
@@ -157,7 +172,7 @@ mod tests {
     }
 
     #[test]
-    fn get_테스트() -> Result<()> {
+    fn get_테스트() -> Result<(), HeapTableError> {
         let test_file = TestFile::new("get");
         let row = Row::from_bytes(&[1; 200]);
         let mut table = HeapTable::open(test_file.path())?;
@@ -170,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    fn update_테스트() -> Result<()> {
+    fn update_테스트() -> Result<(), HeapTableError> {
         let test_file = TestFile::new("update");
 
         let row = Row::from_bytes(&[1, 2, 3]);
@@ -187,7 +202,7 @@ mod tests {
     }
 
     #[test]
-    fn delete_테스트() -> Result<()> {
+    fn delete_테스트() -> Result<(), HeapTableError> {
         let test_file = TestFile::new("delete");
         let row = Row::from_bytes(&[1, 2, 3]);
         let mut table = HeapTable::open(test_file.path())?;
@@ -197,12 +212,15 @@ mod tests {
 
         table.delete(row_id)?;
         let error = table.get(row_id).expect_err("not found");
-        assert_eq!(error.kind(), ErrorKind::NotFound);
+        assert!(matches!(
+            error,
+            HeapTableError::Page(PageError::SlotNotFound)
+        ));
         Ok(())
     }
 
     #[test]
-    fn scan_재시작_테스트() -> Result<()> {
+    fn scan_재시작_테스트() -> Result<(), HeapTableError> {
         let test_file = TestFile::new("scan-reopen");
         let row1 = Row::from_bytes(&vec![1; 8000]);
         let row2 = Row::from_bytes(&[2; 200]);

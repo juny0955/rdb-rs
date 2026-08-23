@@ -5,13 +5,15 @@ use crate::parser::{
     },
     token::{Token, TokenKind},
 };
+use thiserror::Error;
 
 pub mod ast;
 pub mod lexer;
 pub mod token;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Error)]
 pub(crate) enum ParseError {
+    #[error("예상하지 않은 토큰입니다 (위치 {0})")]
     UnexpectedToken(usize),
 }
 

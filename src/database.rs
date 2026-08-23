@@ -1,38 +1,21 @@
-use std::{
-    io,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use crate::{
     binder::BoundCreateTable,
     catalog::{Catalog, CatalogError},
     schema::{ColumnId, ColumnMetadata, DatabaseMetadata, SchemaError, TableId, TableMetadata},
-    table::HeapTable,
+    table::{HeapTable, HeapTableError},
 };
+use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum DatabaseError {
-    Catalog(CatalogError),
-    Schema(SchemaError),
-    Io(io::Error),
-}
-
-impl From<CatalogError> for DatabaseError {
-    fn from(value: CatalogError) -> Self {
-        Self::Catalog(value)
-    }
-}
-
-impl From<SchemaError> for DatabaseError {
-    fn from(value: SchemaError) -> Self {
-        Self::Schema(value)
-    }
-}
-
-impl From<io::Error> for DatabaseError {
-    fn from(value: io::Error) -> Self {
-        Self::Io(value)
-    }
+    #[error("database catalog 오류: {0}")]
+    Catalog(#[from] CatalogError),
+    #[error("database schema 오류: {0}")]
+    Schema(#[from] SchemaError),
+    #[error("heap table 처리 오류: {0}")]
+    HeapTable(#[from] HeapTableError),
 }
 
 #[derive(Debug)]
