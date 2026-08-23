@@ -8,25 +8,18 @@ use crate::{
     file::open_rw_create,
     schema::{DatabaseMetadata, SchemaError},
 };
+use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum CatalogError {
-    Io(io::Error),
-    Schema(SchemaError),
+    #[error("catalog I/O 오류: {0}")]
+    Io(#[from] io::Error),
+    #[error("catalog schema 오류: {0}")]
+    Schema(#[from] SchemaError),
+    #[error("catalog이 비어 있습니다")]
     EmptyCatalog,
+    #[error("catalog 끝에 읽히지 않은 바이트가 남아 있습니다")]
     TrailingCatalogBytes,
-}
-
-impl From<io::Error> for CatalogError {
-    fn from(value: io::Error) -> Self {
-        Self::Io(value)
-    }
-}
-
-impl From<SchemaError> for CatalogError {
-    fn from(value: SchemaError) -> Self {
-        Self::Schema(value)
-    }
 }
 
 #[derive(Debug)]

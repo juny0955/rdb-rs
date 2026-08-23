@@ -6,18 +6,26 @@ use crate::{
     },
     schema::{DataType, DatabaseMetadata, TableMetadata},
 };
+use thiserror::Error;
 
 mod bound;
 pub(crate) use bound::*;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum BinderError {
+    #[error("테이블을 찾을 수 없습니다: {0}")]
     TableNotFound(String),
+    #[error("테이블 '{table}'에서 컬럼을 찾을 수 없습니다: {column}")]
     ColumnNotFound { table: String, column: String },
+    #[error("테이블이 이미 존재합니다: {0}")]
     AlreadyExistsTable(String),
+    #[error("값 개수가 컬럼 개수와 일치하지 않습니다 (기대값: {expected}, 실제값: {actual})")]
     ValueCountMismatch { expected: usize, actual: usize },
+    #[error("컬럼 '{column}'의 값 타입이 올바르지 않습니다 (기대 타입: {expected:?})")]
     TypeMismatch { column: String, expected: DataType },
+    #[error("WHERE 조건식이 올바르지 않습니다")]
     InvalidFilterExpression,
+    #[error("SELECT projection이 올바르지 않습니다")]
     InvalidProjectionExpression,
 }
 

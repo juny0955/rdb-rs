@@ -9,30 +9,16 @@ use crate::{
     schema::{ColumnId, ColumnMetadata, DatabaseMetadata, SchemaError, TableId, TableMetadata},
     table::HeapTable,
 };
+use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum DatabaseError {
-    Catalog(CatalogError),
-    Schema(SchemaError),
-    Io(io::Error),
-}
-
-impl From<CatalogError> for DatabaseError {
-    fn from(value: CatalogError) -> Self {
-        Self::Catalog(value)
-    }
-}
-
-impl From<SchemaError> for DatabaseError {
-    fn from(value: SchemaError) -> Self {
-        Self::Schema(value)
-    }
-}
-
-impl From<io::Error> for DatabaseError {
-    fn from(value: io::Error) -> Self {
-        Self::Io(value)
-    }
+    #[error("database catalog 오류: {0}")]
+    Catalog(#[from] CatalogError),
+    #[error("database schema 오류: {0}")]
+    Schema(#[from] SchemaError),
+    #[error("database I/O 오류: {0}")]
+    Io(#[from] io::Error),
 }
 
 #[derive(Debug)]
