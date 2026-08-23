@@ -1,13 +1,10 @@
-use std::{
-    io,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use crate::{
     binder::BoundCreateTable,
     catalog::{Catalog, CatalogError},
     schema::{ColumnId, ColumnMetadata, DatabaseMetadata, SchemaError, TableId, TableMetadata},
-    table::HeapTable,
+    table::{HeapTable, HeapTableError},
 };
 use thiserror::Error;
 
@@ -17,8 +14,8 @@ pub enum DatabaseError {
     Catalog(#[from] CatalogError),
     #[error("database schema 오류: {0}")]
     Schema(#[from] SchemaError),
-    #[error("database I/O 오류: {0}")]
-    Io(#[from] io::Error),
+    #[error("heap table 처리 오류: {0}")]
+    HeapTable(#[from] HeapTableError),
 }
 
 #[derive(Debug)]

@@ -60,7 +60,7 @@ pub(super) fn page_offset(page_id: PageId) -> Result<u64, PagerError> {
     let offset = page_id
         .0
         .checked_mul(PAGE_SIZE as u64)
-        .ok_or_else(|| PagerError::PageOffsetOverflow(page_id))?;
+        .ok_or(PagerError::PageOffsetOverflow(page_id))?;
 
     Ok(offset)
 }

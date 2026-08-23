@@ -160,7 +160,7 @@ impl Page {
                         }
                     },
                 }
-                .ok_or_else(|| PageError::StorageFull)?;
+                .ok_or(PageError::StorageFull)?;
 
                 self.write_row_bytes_at(new_offset, row_bytes)?;
 

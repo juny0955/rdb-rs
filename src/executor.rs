@@ -1,7 +1,4 @@
-use std::{
-    io,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use crate::{
     binder::{
@@ -10,17 +7,17 @@ use crate::{
     page::{Row, RowId},
     parser::ast::Literal,
     schema::{ColumnId, DataType, DatabaseMetadata, TableId, TableMetadata},
-    table::HeapTable,
+    table::{HeapTable, HeapTableError},
     tuple::{TupleError, Value, decode, encode},
 };
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum ExecutorError {
-    #[error("실행 중 I/O 오류: {0}")]
-    Io(#[from] io::Error),
     #[error("tuple 처리 오류: {0}")]
     TupleError(#[from] TupleError),
+    #[error("heap table 처리 오류: {0}")]
+    HeapTableError(#[from] HeapTableError),
     #[error("테이블을 찾을 수 없습니다: {0:?}")]
     TableNotFound(TableId),
     #[error("컬럼을 찾을 수 없습니다: {0:?}")]
@@ -240,9 +237,10 @@ mod tests {
             BoundAssignment, BoundDelete, BoundExpression, BoundInsert, BoundProjection,
             BoundSelect, BoundUpdate,
         },
+        page::PageError,
         parser::ast::Literal,
         schema::{ColumnId, ColumnMetadata, DataType, DatabaseMetadata, TableId, TableMetadata},
-        table::HeapTable,
+        table::{HeapTable, HeapTableError},
         test_supports::TestDirectory,
         tuple::{Value, decode, encode},
     };
@@ -439,7 +437,7 @@ mod tests {
         let mut table = HeapTable::open_existing(&path).expect("테이블 파일을 다시 열어야 함");
         assert!(matches!(
             table.get(kim_id),
-            Err(error) if error.kind() == ErrorKind::NotFound
+            Err(HeapTableError::Page(PageError::SlotNotFound))
         ));
 
         let lee = decode(
@@ -626,9 +624,11 @@ mod tests {
 
         let result = executor.execute_select(&select_all(table_id));
 
-        assert!(
-            matches!(result, Err(ExecutorError::Io(error)) if error.kind() == ErrorKind::NotFound)
-        );
+        assert!(matches!(
+            result,
+            Err(ExecutorError::HeapTableError(HeapTableError::Io(error)))
+                if error.kind() == ErrorKind::NotFound
+        ));
         assert!(!directory.path().join("1.tbl").exists());
     }
 }
