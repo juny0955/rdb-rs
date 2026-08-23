@@ -13,26 +13,20 @@ use crate::{
     table::HeapTable,
     tuple::{TupleError, Value, decode, encode},
 };
+use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum ExecutorError {
-    Io(io::Error),
-    TupleError(TupleError),
+    #[error("실행 중 I/O 오류: {0}")]
+    Io(#[from] io::Error),
+    #[error("tuple 처리 오류: {0}")]
+    TupleError(#[from] TupleError),
+    #[error("테이블을 찾을 수 없습니다: {0:?}")]
     TableNotFound(TableId),
+    #[error("컬럼을 찾을 수 없습니다: {0:?}")]
     ColumnNotFound(ColumnId),
+    #[error("리터럴 타입이 올바르지 않습니다 (기대 타입: {expected:?})")]
     LiteralTypeMismatch { expected: DataType },
-}
-
-impl From<io::Error> for ExecutorError {
-    fn from(value: io::Error) -> Self {
-        Self::Io(value)
-    }
-}
-
-impl From<TupleError> for ExecutorError {
-    fn from(value: TupleError) -> Self {
-        Self::TupleError(value)
-    }
 }
 
 pub struct Executor<'a> {
