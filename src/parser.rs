@@ -12,25 +12,25 @@ pub mod lexer;
 pub mod token;
 
 #[derive(Debug, PartialEq, Eq, Error)]
-pub(crate) enum ParseError {
+pub enum ParseError {
     #[error("예상하지 않은 토큰입니다 (위치 {0})")]
     UnexpectedToken(usize),
 }
 
-pub(crate) struct Parser {
+pub struct Parser {
     tokens: Vec<Token>,
     position: usize,
 }
 
 impl Parser {
-    pub(crate) fn new(tokens: Vec<Token>) -> Self {
+    pub fn new(tokens: Vec<Token>) -> Self {
         Self {
             tokens,
             position: 0,
         }
     }
 
-    pub(crate) fn parse(&mut self) -> Result<Statement, ParseError> {
+    pub fn parse(&mut self) -> Result<Statement, ParseError> {
         let current = self.current();
         let statement = match current.kind {
             TokenKind::Select => Statement::Select(self.parse_select()?),

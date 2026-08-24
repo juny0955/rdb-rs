@@ -1,10 +1,10 @@
-mod binder;
+pub mod binder;
 mod catalog;
-mod database;
-mod executor;
+pub mod database;
+pub mod executor;
 mod file;
 mod page;
-mod parser;
+pub mod parser;
 mod schema;
 mod table;
 mod tuple;

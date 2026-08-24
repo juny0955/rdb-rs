@@ -11,17 +11,17 @@ pub enum LexError {
     UnterminatedString(usize),
 }
 
-pub(crate) struct Lexer<'a> {
+pub struct Lexer<'a> {
     input: &'a str,
     offset: usize,
 }
 
 impl<'a> Lexer<'a> {
-    pub(crate) fn new(input: &'a str) -> Self {
+    pub fn new(input: &'a str) -> Self {
         Self { input, offset: 0 }
     }
 
-    pub(crate) fn tokenize(&mut self) -> Result<Vec<Token>, LexError> {
+    pub fn tokenize(&mut self) -> Result<Vec<Token>, LexError> {
         let mut tokens = Vec::new();
         loop {
             let token = self.next_token()?;
@@ -37,7 +37,7 @@ impl<'a> Lexer<'a> {
         Ok(tokens)
     }
 
-    pub(crate) fn next_token(&mut self) -> Result<Token, LexError> {
+    pub fn next_token(&mut self) -> Result<Token, LexError> {
         self.skip_whitespace();
         let start = self.offset;
 

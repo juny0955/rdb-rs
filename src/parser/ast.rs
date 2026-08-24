@@ -1,5 +1,5 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Statement {
+pub enum Statement {
     Select(SelectStatement),
     CreateTable(CreateTableStatement),
     Insert(InsertStatement),
@@ -20,51 +20,51 @@ impl Statement {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SelectStatement {
-    pub(crate) projections: Vec<Projection>,
-    pub(crate) table: String,
-    pub(crate) filter: Option<Expression>,
+pub struct SelectStatement {
+    pub projections: Vec<Projection>,
+    pub table: String,
+    pub filter: Option<Expression>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct CreateTableStatement {
-    pub(crate) table: String,
-    pub(crate) columns: Vec<ColumnDefinition>,
+pub struct CreateTableStatement {
+    pub table: String,
+    pub columns: Vec<ColumnDefinition>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct InsertStatement {
-    pub(crate) table: String,
-    pub(crate) literals: Vec<Literal>,
+pub struct InsertStatement {
+    pub table: String,
+    pub literals: Vec<Literal>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct UpdateStatement {
-    pub(crate) table: String,
-    pub(crate) assignments: Vec<Assignment>,
-    pub(crate) filter: Option<Expression>,
+pub struct UpdateStatement {
+    pub table: String,
+    pub assignments: Vec<Assignment>,
+    pub filter: Option<Expression>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct DeleteStatement {
-    pub(crate) table: String,
-    pub(crate) filter: Option<Expression>,
+pub struct DeleteStatement {
+    pub table: String,
+    pub filter: Option<Expression>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Assignment {
-    pub(crate) column: String,
-    pub(crate) value: Literal,
+pub struct Assignment {
+    pub column: String,
+    pub value: Literal,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Projection {
+pub enum Projection {
     All,
     Expression(Expression),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Expression {
+pub enum Expression {
     Identifier(String),
     Literal(Literal),
     Equal {
@@ -74,20 +74,20 @@ pub(crate) enum Expression {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Literal {
+pub enum Literal {
     Integer(i64),
     String(String),
     Null,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ColumnDefinition {
-    pub(crate) name: String,
-    pub(crate) data_type: DataType,
+pub struct ColumnDefinition {
+    pub name: String,
+    pub data_type: DataType,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum DataType {
+pub enum DataType {
     Int,
     BigInt,
     Boolean,
