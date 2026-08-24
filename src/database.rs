@@ -1,21 +1,31 @@
 use std::path::{Path, PathBuf};
 
 use crate::{
-    binder::BoundCreateTable,
+    binder::{Binder, BinderError, BoundCreateTable, BoundStatement},
     catalog::{Catalog, CatalogError},
+    parser::ast::Statement,
     schema::{ColumnId, ColumnMetadata, DatabaseMetadata, SchemaError, TableId, TableMetadata},
     table::{HeapTable, HeapTableError},
+    tuple::Value,
 };
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum DatabaseError {
+    #[error("binder 오류: {0}")]
+    Binder(#[from] BinderError),
     #[error("database catalog 오류: {0}")]
     Catalog(#[from] CatalogError),
     #[error("database schema 오류: {0}")]
     Schema(#[from] SchemaError),
     #[error("heap table 처리 오류: {0}")]
     HeapTable(#[from] HeapTableError),
+}
+
+#[derive(Debug)]
+pub enum ExecuteResult {
+    Command { affected_rows: usize },
+    Rows(Vec<Vec<Value>>),
 }
 
 #[derive(Debug)]
@@ -46,7 +56,18 @@ impl Database {
         })
     }
 
-    pub fn create_table(&mut self, bound: &BoundCreateTable) -> Result<TableId, DatabaseError> {
+    pub fn execute(&mut self, statement: &Statement) -> Result<ExecuteResult, DatabaseError> {
+        let bound = Binder::new(&self.metadata).bind(statement)?;
+        match bound {
+            BoundStatement::CreateTable(b) => {
+                let _ = self.create_table(&b)?;
+                Ok(ExecuteResult::Command { affected_rows: 0 })
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn create_table(&mut self, bound: &BoundCreateTable) -> Result<TableId, DatabaseError> {
         if self.metadata.tables().len() >= usize::from(u16::MAX) {
             return Err(DatabaseError::Schema(SchemaError::TooManyTables));
         }

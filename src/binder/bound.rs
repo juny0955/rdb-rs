@@ -4,7 +4,7 @@ use crate::{
 };
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum BoundStatement {
+pub enum BoundStatement {
     CreateTable(BoundCreateTable),
     Insert(BoundInsert),
     Select(BoundSelect),
@@ -13,50 +13,50 @@ pub(crate) enum BoundStatement {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct BoundSelect {
-    pub(crate) table_id: TableId,
-    pub(crate) projections: Vec<BoundProjection>,
-    pub(crate) filter: Option<BoundExpression>,
+pub struct BoundSelect {
+    pub table_id: TableId,
+    pub projections: Vec<BoundProjection>,
+    pub filter: Option<BoundExpression>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct BoundInsert {
-    pub(crate) table_id: TableId,
-    pub(crate) literals: Vec<Literal>,
+pub struct BoundInsert {
+    pub table_id: TableId,
+    pub literals: Vec<Literal>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct BoundUpdate {
-    pub(crate) table_id: TableId,
-    pub(crate) assignments: Vec<BoundAssignment>,
-    pub(crate) filter: Option<BoundExpression>,
+pub struct BoundUpdate {
+    pub table_id: TableId,
+    pub assignments: Vec<BoundAssignment>,
+    pub filter: Option<BoundExpression>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct BoundDelete {
-    pub(crate) table_id: TableId,
-    pub(crate) filter: Option<BoundExpression>,
+pub struct BoundDelete {
+    pub table_id: TableId,
+    pub filter: Option<BoundExpression>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct BoundCreateTable {
-    pub(crate) table: String,
-    pub(crate) columns: Vec<ColumnDefinition>,
+pub struct BoundCreateTable {
+    pub table: String,
+    pub columns: Vec<ColumnDefinition>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum BoundProjection {
+pub enum BoundProjection {
     All,
     Column(ColumnId),
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum BoundExpression {
+pub enum BoundExpression {
     Equal { column_id: ColumnId, value: Literal },
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct BoundAssignment {
-    pub(crate) column_id: ColumnId,
-    pub(crate) value: Literal,
+pub struct BoundAssignment {
+    pub column_id: ColumnId,
+    pub value: Literal,
 }

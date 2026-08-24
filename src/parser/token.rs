@@ -1,17 +1,17 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Token {
+pub struct Token {
     pub(crate) kind: TokenKind,
     pub(crate) offset: usize,
 }
 
 impl Token {
-    pub(crate) fn new(kind: TokenKind, offset: usize) -> Self {
+    pub fn new(kind: TokenKind, offset: usize) -> Self {
         Self { kind, offset }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum TokenKind {
+pub enum TokenKind {
     // keyword
     Create,
     Table,

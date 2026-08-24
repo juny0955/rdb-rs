@@ -376,8 +376,8 @@ WHERE id = 1;
 ### 구현
 
 * [x] `rdb>` 프롬프트
-* [ ] SQL 한 문장 입력
-* [ ] Lexer → Parser → Binder → Executor 연결
+* [x] SQL 한 문장 입력
+* [x] Lexer → Parser → Binder → Executor 연결
 * [ ] CREATE / INSERT / SELECT / UPDATE / DELETE 결과 출력
 * [ ] SQL 오류 출력 후 REPL 계속 실행
 * [x] `\q`로 종료
