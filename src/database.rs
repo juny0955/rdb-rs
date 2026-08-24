@@ -1,12 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::{
-    binder::{Binder, BinderError, BoundCreateTable, BoundStatement},
-    catalog::{Catalog, CatalogError},
-    parser::ast::Statement,
-    schema::{ColumnId, ColumnMetadata, DatabaseMetadata, SchemaError, TableId, TableMetadata},
-    table::{HeapTable, HeapTableError},
-    tuple::Value,
+    binder::{Binder, BinderError, BoundCreateTable, BoundStatement}, catalog::{Catalog, CatalogError}, executor::{Executor, ExecutorError}, parser::ast::Statement, schema::{ColumnId, ColumnMetadata, DatabaseMetadata, SchemaError, TableId, TableMetadata}, table::{HeapTable, HeapTableError}, tuple::Value,
 };
 use thiserror::Error;
 
@@ -14,6 +9,8 @@ use thiserror::Error;
 pub enum DatabaseError {
     #[error("binder 오류: {0}")]
     Binder(#[from] BinderError),
+    #[error("executor 오류: {0}")]
+    Executor(#[from] ExecutorError),
     #[error("database catalog 오류: {0}")]
     Catalog(#[from] CatalogError),
     #[error("database schema 오류: {0}")]
@@ -63,7 +60,26 @@ impl Database {
                 let _ = self.create_table(&b)?;
                 Ok(ExecuteResult::Command { affected_rows: 0 })
             }
-            _ => unreachable!(),
+            BoundStatement::Insert(b) => {
+                let executor = Executor::new(&self.metadata, &self.data_dir);
+                let _ = executor.execute_insert(&b)?;
+                Ok(ExecuteResult::Command { affected_rows: 1 })
+            }
+            BoundStatement::Select(b) => {
+                let executor = Executor::new(&self.metadata, &self.data_dir);
+                let results = executor.execute_select(&b)?;
+                Ok(ExecuteResult::Rows(results))
+            }
+            BoundStatement::Update(b) => {
+                let executor = Executor::new(&self.metadata, &self.data_dir);
+                let affected_rows = executor.execute_update(&b)?;
+                Ok(ExecuteResult::Command { affected_rows })
+            }
+            BoundStatement::Delete(b) => {
+                 let executor = Executor::new(&self.metadata, &self.data_dir);
+                let affected_rows = executor.execute_delete(&b)?;
+                Ok(ExecuteResult::Command { affected_rows })
+            }
         }
     }
 
