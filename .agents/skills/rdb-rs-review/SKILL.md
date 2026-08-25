@@ -1,13 +1,13 @@
 ---
 name: rdb-rs-review
 description: >
-이 Rust RDBMS 학습 프로젝트에서 사용자가 직접 작성한 코드를 리뷰하고
-버그를 분석하기 위한 프로젝트 전용 스킬이다. Pager, Page, Slotted Page,
-Heap Table, Catalog, SQL Parser, Executor, Buffer Pool, B+Tree, Transaction,
-WAL, MVCC 등의 구현 코드 검토, 테스트 실패, 컴파일 오류, 잘못된 동작,
-불변조건 검증 또는 디버깅 요청에 사용하라. 이 프로젝트에서는 일반적인
-전역 code-review 또는 debugging 스킬보다 이 스킬을 우선 사용하라.
-사용자의 코드를 통째로 다시 작성하지 말고 문제, 이유, 힌트를 우선 제공하라.
+  이 Rust RDBMS 학습 프로젝트에서 사용자가 직접 작성한 코드를 리뷰하고
+  버그를 분석하기 위한 프로젝트 전용 스킬이다. Pager, Page, Slotted Page,
+  Heap Table, Catalog, SQL Parser, Executor, Buffer Pool, B+Tree, Transaction,
+  WAL, MVCC 등의 구현 코드 검토, 테스트 실패, 컴파일 오류, 잘못된 동작,
+  불변조건 검증 또는 디버깅 요청에 사용하라. 이 프로젝트에서는 일반적인
+  전역 code-review 또는 debugging 스킬보다 이 스킬을 우선 사용하라.
+  사용자의 코드를 통째로 다시 작성하지 말고 문제, 이유, 힌트를 우선 제공하라.
 --------------------------------------------
 
 # RDBMS Review
