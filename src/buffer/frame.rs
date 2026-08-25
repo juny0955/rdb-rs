@@ -7,6 +7,10 @@ impl FrameId {
     pub(crate) fn new(id: usize) -> Self {
         Self(id)
     }
+
+    pub(crate) fn index(&self) -> usize {
+        self.0
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -14,6 +18,7 @@ pub enum BufferFrameError {
     AlreadyUnpinned,
 }
 
+#[derive(Debug)]
 pub struct BufferFrame {
     page_id: PageId,
     page: Page,
@@ -35,6 +40,10 @@ impl BufferFrame {
         self.pin_count += 1;
     }
 
+    pub(crate) fn pin_count(&self) -> usize {
+        self.pin_count
+    }
+
     pub fn unpin(&mut self) -> Result<(), BufferFrameError> {
         if self.pin_count == 0 {
             return Err(BufferFrameError::AlreadyUnpinned);
@@ -42,6 +51,10 @@ impl BufferFrame {
 
         self.pin_count -= 1;
         Ok(())
+    }
+
+    pub fn page_id(&self) -> PageId {
+        self.page_id
     }
 
     pub fn page(&self) -> &Page {
