@@ -402,7 +402,7 @@ Disk Page를 메모리에 캐싱한다.
 * [x] Dirty Page
 * [x] Flush
 * [x] Page Eviction
-* [ ] Clock Replacement
+* [x] Clock Replacement
 
 ### 구조
 

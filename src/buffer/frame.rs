@@ -24,6 +24,7 @@ pub(super) struct BufferFrame {
     page: Page,
     pin_count: usize,
     is_dirty: bool,
+    referenced: bool,
 }
 
 impl BufferFrame {
@@ -33,19 +34,13 @@ impl BufferFrame {
             page,
             pin_count: 1,
             is_dirty: false,
+            referenced: true,
         }
     }
 
     pub(super) fn pin(&mut self) {
         self.pin_count += 1;
-    }
-
-    pub(super) fn pin_count(&self) -> usize {
-        self.pin_count
-    }
-
-    pub(super) fn is_dirty(&self) -> bool {
-        self.is_dirty
+        self.referenced = true;
     }
 
     pub(super) fn unpin(&mut self) -> Result<(), BufferFrameError> {
@@ -59,6 +54,22 @@ impl BufferFrame {
 
     pub(super) fn mark_clean(&mut self) {
         self.is_dirty = false;
+    }
+
+    pub(super) fn unreference(&mut self) {
+        self.referenced = false;
+    }
+
+    pub(super) fn pin_count(&self) -> usize {
+        self.pin_count
+    }
+
+    pub(super) fn is_dirty(&self) -> bool {
+        self.is_dirty
+    }
+
+    pub(super) fn is_referenced(&self) -> bool {
+        self.referenced
     }
 
     pub(super) fn page_id(&self) -> PageId {
@@ -103,5 +114,28 @@ mod tests {
         let _ = frame.page_mut();
 
         assert!(frame.is_dirty);
+    }
+
+    #[test]
+    fn reference_bit은_pin에서_설정되고_unpin후에도_유지된다() {
+        let mut frame = BufferFrame::new(PageId::new(0), Page::new());
+
+        assert!(frame.is_referenced());
+
+        frame.unreference();
+        assert!(!frame.is_referenced());
+
+        frame
+            .unpin()
+            .expect("초기 pin 상태의 frame은 unpin할 수 있어야 한다");
+        assert!(!frame.is_referenced());
+
+        frame.pin();
+        assert!(frame.is_referenced());
+
+        frame
+            .unpin()
+            .expect("다시 pin한 frame은 unpin할 수 있어야 한다");
+        assert!(frame.is_referenced());
     }
 }
