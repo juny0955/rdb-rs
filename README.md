@@ -401,7 +401,7 @@ Disk Page를 메모리에 캐싱한다.
 * [x] Pin / Unpin
 * [x] Dirty Page
 * [x] Flush
-* [ ] Page Eviction
+* [x] Page Eviction
 * [ ] Clock Replacement
 
 ### 구조
