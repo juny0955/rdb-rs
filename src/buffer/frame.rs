@@ -1,5 +1,15 @@
 use crate::page::{Page, PageId};
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub struct FrameId(usize);
+
+impl FrameId {
+    pub(crate) fn new(id: usize) -> Self {
+        Self(id)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub enum BufferFrameError {
     AlreadyUnpinned,
 }

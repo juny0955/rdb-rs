@@ -23,7 +23,7 @@ pub use slot::SlotId;
 #[cfg(test)]
 use pager::page_offset;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct PageId(u64);
 impl PageId {
     pub fn new(page_id: u64) -> Self {

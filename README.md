@@ -396,7 +396,7 @@ Disk Page를 메모리에 캐싱한다.
 ### 구현
 
 * [x] Buffer Frame
-* [ ] Page Table
+* [x] Page Table
 * [ ] Page Fetch
 * [ ] Pin / Unpin
 * [ ] Dirty Page
