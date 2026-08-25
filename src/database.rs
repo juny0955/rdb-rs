@@ -1,7 +1,13 @@
 use std::path::{Path, PathBuf};
 
 use crate::{
-    binder::{Binder, BinderError, BoundCreateTable, BoundStatement}, catalog::{Catalog, CatalogError}, executor::{Executor, ExecutorError}, parser::ast::Statement, schema::{ColumnId, ColumnMetadata, DatabaseMetadata, SchemaError, TableId, TableMetadata}, table::{HeapTable, HeapTableError}, tuple::Value,
+    binder::{Binder, BinderError, BoundCreateTable, BoundStatement},
+    catalog::{Catalog, CatalogError},
+    executor::{Executor, ExecutorError},
+    parser::ast::Statement,
+    schema::{ColumnId, ColumnMetadata, DatabaseMetadata, SchemaError, TableId, TableMetadata},
+    table::{HeapTable, HeapTableError},
+    tuple::Value,
 };
 use thiserror::Error;
 
@@ -76,7 +82,7 @@ impl Database {
                 Ok(ExecuteResult::Command { affected_rows })
             }
             BoundStatement::Delete(b) => {
-                 let executor = Executor::new(&self.metadata, &self.data_dir);
+                let executor = Executor::new(&self.metadata, &self.data_dir);
                 let affected_rows = executor.execute_delete(&b)?;
                 Ok(ExecuteResult::Command { affected_rows })
             }

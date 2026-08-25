@@ -1,4 +1,5 @@
 pub mod binder;
+mod buffer;
 mod catalog;
 pub mod database;
 pub mod executor;
