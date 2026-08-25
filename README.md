@@ -399,8 +399,8 @@ Disk Page를 메모리에 캐싱한다.
 * [x] Page Table
 * [x] Page Fetch
 * [x] Pin / Unpin
-* [ ] Dirty Page
-* [ ] Flush
+* [x] Dirty Page
+* [x] Flush
 * [ ] Page Eviction
 * [ ] Clock Replacement
 

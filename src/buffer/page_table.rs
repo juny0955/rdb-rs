@@ -3,22 +3,26 @@ use std::collections::HashMap;
 use crate::{buffer::frame::FrameId, page::PageId};
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum PageTableError {
+pub(super) enum PageTableError {
     AlreadyExistsPageId,
 }
 
-pub struct PageTable {
+pub(super) struct PageTable {
     page_to_frame: HashMap<PageId, FrameId>,
 }
 
 impl PageTable {
-    pub fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             page_to_frame: HashMap::new(),
         }
     }
 
-    pub fn insert(&mut self, page_id: PageId, frame_id: FrameId) -> Result<(), PageTableError> {
+    pub(super) fn insert(
+        &mut self,
+        page_id: PageId,
+        frame_id: FrameId,
+    ) -> Result<(), PageTableError> {
         if self.page_to_frame.contains_key(&page_id) {
             return Err(PageTableError::AlreadyExistsPageId);
         }
@@ -27,11 +31,11 @@ impl PageTable {
         Ok(())
     }
 
-    pub fn get(&self, page_id: &PageId) -> Option<FrameId> {
+    pub(super) fn get(&self, page_id: &PageId) -> Option<FrameId> {
         self.page_to_frame.get(page_id).copied()
     }
 
-    pub fn remove(&mut self, page_id: &PageId) -> Option<FrameId> {
+    pub(super) fn remove(&mut self, page_id: &PageId) -> Option<FrameId> {
         self.page_to_frame.remove(page_id)
     }
 }

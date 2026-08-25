@@ -1,3 +1,5 @@
+use std::fs::File;
+
 use thiserror::Error;
 
 use crate::{
@@ -5,11 +7,11 @@ use crate::{
         frame::{BufferFrame, FrameId},
         page_table::PageTable,
     },
-    page::PageId,
+    page::{PageId, PagerError, write_page},
 };
 
 #[derive(Debug, Error)]
-pub enum BufferPoolError {
+pub(crate) enum BufferPoolError {
     #[error("빈 buffer frame이 없습니다")]
     NoFreeFrame,
     #[error("이미 buffer pool에 있는 page입니다")]
@@ -18,15 +20,17 @@ pub enum BufferPoolError {
     AlreadyUnpinned,
     #[error("cache 되지 않은 page 입니다")]
     PageNotCached,
+    #[error(transparent)]
+    Pager(#[from] PagerError),
 }
 
-pub struct BufferPool {
+pub(crate) struct BufferPool {
     frames: Vec<Option<BufferFrame>>,
     page_table: PageTable,
 }
 
 impl BufferPool {
-    pub fn new(capacity: usize) -> Self {
+    pub(crate) fn new(capacity: usize) -> Self {
         let mut frames = Vec::new();
         frames.resize_with(capacity, || None);
         Self {
@@ -35,7 +39,7 @@ impl BufferPool {
         }
     }
 
-    pub fn insert_frame(&mut self, frame: BufferFrame) -> Result<FrameId, BufferPoolError> {
+    pub(super) fn insert_frame(&mut self, frame: BufferFrame) -> Result<FrameId, BufferPoolError> {
         for (index, f) in self.frames.iter().enumerate() {
             if f.is_none() {
                 let frame_id = FrameId::new(index);
@@ -53,19 +57,19 @@ impl BufferPool {
         Err(BufferPoolError::NoFreeFrame)
     }
 
-    pub fn fetch_cached_frame(&mut self, page_id: PageId) -> Option<&mut BufferFrame> {
+    pub(super) fn fetch_cached_frame(&mut self, page_id: PageId) -> Option<&mut BufferFrame> {
         let frame_id = self.page_table.get(&page_id)?;
         let frame = self.frames.get_mut(frame_id.index())?.as_mut()?;
         frame.pin();
         Some(frame)
     }
 
-    pub fn unpin_page(&mut self, page_id: PageId) -> Result<(), BufferPoolError> {
+    pub(crate) fn unpin_page(&mut self, page_id: PageId) -> Result<(), BufferPoolError> {
         let frame_id = self
             .page_table
             .get(&page_id)
             .ok_or(BufferPoolError::PageNotCached)?;
-        
+
         let frame = self
             .frames
             .get_mut(frame_id.index())
@@ -75,12 +79,38 @@ impl BufferPool {
 
         frame.unpin().map_err(|_| BufferPoolError::AlreadyUnpinned)
     }
+
+    pub(crate) fn flush_page(
+        &mut self,
+        file: &mut File,
+        page_id: PageId,
+    ) -> Result<(), BufferPoolError> {
+        let frame_id = self
+            .page_table
+            .get(&page_id)
+            .ok_or(BufferPoolError::PageNotCached)?;
+
+        let frame = self
+            .frames
+            .get_mut(frame_id.index())
+            .ok_or(BufferPoolError::PageNotCached)?
+            .as_mut()
+            .ok_or(BufferPoolError::PageNotCached)?;
+
+        if frame.is_dirty() {
+            write_page(file, page_id, frame.page())?;
+            frame.mark_clean();
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::page::{Page, PageId};
+    use crate::page::{Page, PageId, Row, allocate_page, read_page};
+    use tempfile::NamedTempFile;
 
     fn frame(page_id: u64) -> BufferFrame {
         BufferFrame::new(PageId::new(page_id), Page::new())
@@ -172,7 +202,10 @@ mod tests {
     fn unpin하면_pin_count가_감소한다() {
         let page_id = PageId::new(0);
         let mut pool = BufferPool::new(1);
-        assert!(pool.insert_frame(BufferFrame::new(page_id, Page::new())).is_ok());
+        assert!(
+            pool.insert_frame(BufferFrame::new(page_id, Page::new()))
+                .is_ok()
+        );
 
         assert!(pool.unpin_page(page_id).is_ok());
 
@@ -194,7 +227,10 @@ mod tests {
     fn 이미_unpin된_page를_다시_unpin하면_오류다() {
         let page_id = PageId::new(0);
         let mut pool = BufferPool::new(1);
-        assert!(pool.insert_frame(BufferFrame::new(page_id, Page::new())).is_ok());
+        assert!(
+            pool.insert_frame(BufferFrame::new(page_id, Page::new()))
+                .is_ok()
+        );
         assert!(pool.unpin_page(page_id).is_ok());
 
         assert!(matches!(
@@ -203,6 +239,31 @@ mod tests {
         ));
         let frame = pool.frames[0].as_ref().expect("frame이 있어야 한다");
         assert_eq!(frame.pin_count(), 0);
+    }
+
+    #[test]
+    fn 수정한_frame은_unpin후에도_dirty다() {
+        let page_id = PageId::new(0);
+        let mut pool = BufferPool::new(1);
+        assert!(
+            pool.insert_frame(BufferFrame::new(page_id, Page::new()))
+                .is_ok()
+        );
+        assert!(pool.unpin_page(page_id).is_ok());
+
+        {
+            let frame = pool
+                .fetch_cached_frame(page_id)
+                .expect("삽입한 page는 cache hit여야 한다");
+            assert!(!frame.is_dirty());
+            let _ = frame.page_mut();
+            assert!(frame.is_dirty());
+        }
+
+        assert!(pool.unpin_page(page_id).is_ok());
+        let frame = pool.frames[0].as_ref().expect("frame이 있어야 한다");
+        assert_eq!(frame.pin_count(), 0);
+        assert!(frame.is_dirty());
     }
 
     #[test]
@@ -215,5 +276,53 @@ mod tests {
             Err(BufferPoolError::NoFreeFrame)
         ));
         assert!(pool.frames[0].is_some());
+    }
+
+    #[test]
+    fn dirty_frame을_flush하면_disk에_기록하고_clean으로_표시한다()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let test_file = NamedTempFile::new()?;
+        let mut file = test_file.reopen()?;
+        let page_id = allocate_page(&mut file)?;
+        let mut frame = BufferFrame::new(page_id, Page::new());
+        let row = Row::from_bytes(b"flush");
+        let slot_id = frame.page_mut().insert_row(&row)?;
+        let mut pool = BufferPool::new(1);
+        pool.insert_frame(frame)?;
+
+        pool.flush_page(&mut file, page_id)?;
+
+        let frame = pool.frames[0].as_ref().expect("frame이 있어야 한다");
+        assert!(!frame.is_dirty());
+        assert_eq!(frame.pin_count(), 1);
+
+        drop(file);
+        let mut reopened_file = test_file.reopen()?;
+        let persisted_page = read_page(&mut reopened_file, page_id)?;
+        assert_eq!(persisted_page.read_row(slot_id)?, row);
+
+        Ok(())
+    }
+
+    #[test]
+    fn flush가_실패하면_dirty_상태를_유지한다() {
+        let test_file = NamedTempFile::new().expect("임시 파일을 생성해야 한다");
+        let mut file = test_file.reopen().expect("임시 파일을 열어야 한다");
+        let page_id = PageId::new(0);
+        let mut frame = BufferFrame::new(page_id, Page::new());
+        let _ = frame.page_mut();
+        let mut pool = BufferPool::new(1);
+        assert!(pool.insert_frame(frame).is_ok());
+
+        assert!(matches!(
+            pool.flush_page(&mut file, page_id),
+            Err(BufferPoolError::Pager(PagerError::PageNotAllocated(id))) if id == page_id
+        ));
+        assert!(
+            pool.frames[0]
+                .as_ref()
+                .expect("frame이 있어야 한다")
+                .is_dirty()
+        );
     }
 }

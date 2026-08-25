@@ -1,25 +1,25 @@
 use crate::page::{Page, PageId};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct FrameId(usize);
+pub(super) struct FrameId(usize);
 
 impl FrameId {
-    pub(crate) fn new(id: usize) -> Self {
+    pub(super) fn new(id: usize) -> Self {
         Self(id)
     }
 
-    pub(crate) fn index(&self) -> usize {
+    pub(super) fn index(&self) -> usize {
         self.0
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum BufferFrameError {
+pub(super) enum BufferFrameError {
     AlreadyUnpinned,
 }
 
 #[derive(Debug)]
-pub struct BufferFrame {
+pub(super) struct BufferFrame {
     page_id: PageId,
     page: Page,
     pin_count: usize,
@@ -27,7 +27,7 @@ pub struct BufferFrame {
 }
 
 impl BufferFrame {
-    pub fn new(page_id: PageId, page: Page) -> Self {
+    pub(super) fn new(page_id: PageId, page: Page) -> Self {
         Self {
             page_id,
             page,
@@ -36,15 +36,19 @@ impl BufferFrame {
         }
     }
 
-    pub fn pin(&mut self) {
+    pub(super) fn pin(&mut self) {
         self.pin_count += 1;
     }
 
-    pub(crate) fn pin_count(&self) -> usize {
+    pub(super) fn pin_count(&self) -> usize {
         self.pin_count
     }
 
-    pub fn unpin(&mut self) -> Result<(), BufferFrameError> {
+    pub(super) fn is_dirty(&self) -> bool {
+        self.is_dirty
+    }
+
+    pub(super) fn unpin(&mut self) -> Result<(), BufferFrameError> {
         if self.pin_count == 0 {
             return Err(BufferFrameError::AlreadyUnpinned);
         }
@@ -53,15 +57,19 @@ impl BufferFrame {
         Ok(())
     }
 
-    pub fn page_id(&self) -> PageId {
+    pub(super) fn mark_clean(&mut self) {
+        self.is_dirty = false;
+    }
+
+    pub(super) fn page_id(&self) -> PageId {
         self.page_id
     }
 
-    pub fn page(&self) -> &Page {
+    pub(super) fn page(&self) -> &Page {
         &self.page
     }
 
-    pub fn page_mut(&mut self) -> &mut Page {
+    pub(super) fn page_mut(&mut self) -> &mut Page {
         self.is_dirty = true;
         &mut self.page
     }
