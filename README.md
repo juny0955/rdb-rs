@@ -406,8 +406,8 @@ Disk Page를 메모리에 캐싱한다.
 
 ### 전역 Buffer Pool
 
-* [ ] `Database`가 하나의 `BufferPool`을 소유
-* [ ] `PageKey(TableId, PageId)`로 page를 전역 식별
+* [x] `Database`가 하나의 `BufferPool`을 소유
+* [x] `PageKey(TableId, PageId)`로 page를 전역 식별
 * [ ] `PageKey`로 올바른 table file을 찾아 Page Read / Flush
 * [ ] DB 전체 capacity를 공유하는 Clock Replacement
 * [ ] 서로 다른 table의 같은 `PageId`를 별도 frame으로 관리

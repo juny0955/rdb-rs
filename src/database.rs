@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use crate::{
     binder::{Binder, BinderError, BoundCreateTable, BoundStatement},
@@ -35,6 +38,7 @@ pub enum ExecuteResult {
 pub struct Database {
     metadata: DatabaseMetadata,
     catalog: Catalog,
+    heap_tables: HashMap<TableId, HeapTable>,
     data_dir: PathBuf,
 }
 
@@ -55,6 +59,7 @@ impl Database {
         Ok(Self {
             metadata,
             catalog,
+            heap_tables: HashMap::new(),
             data_dir: data_dir.to_path_buf(),
         })
     }
@@ -112,7 +117,10 @@ impl Database {
             )));
         }
 
-        let _ = HeapTable::open(&self.data_dir.join(format!("{}.tbl", table_id.id())))?;
+        let _ = HeapTable::open(
+            table_id,
+            &self.data_dir.join(format!("{}.tbl", table_id.id())),
+        )?;
         self.metadata.add_table(table)?;
         self.catalog.save(&self.metadata)?;
 

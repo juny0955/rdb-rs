@@ -1,4 +1,4 @@
-use crate::page::{Page, PageId};
+use crate::{buffer::page_key::PageKey, page::Page};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub(super) struct FrameId(usize);
@@ -20,7 +20,7 @@ pub(super) enum BufferFrameError {
 
 #[derive(Debug)]
 pub(super) struct BufferFrame {
-    page_id: PageId,
+    page_key: PageKey,
     page: Page,
     pin_count: usize,
     is_dirty: bool,
@@ -28,9 +28,9 @@ pub(super) struct BufferFrame {
 }
 
 impl BufferFrame {
-    pub(super) fn new(page_id: PageId, page: Page) -> Self {
+    pub(super) fn new(page_key: PageKey, page: Page) -> Self {
         Self {
-            page_id,
+            page_key,
             page,
             pin_count: 1,
             is_dirty: false,
@@ -72,15 +72,15 @@ impl BufferFrame {
         self.referenced
     }
 
-    pub(super) fn page_id(&self) -> PageId {
-        self.page_id
+    pub(super) fn page_key(&self) -> PageKey {
+        self.page_key
     }
 
-    pub(super) fn page(&self) -> &Page {
+    pub(crate) fn page(&self) -> &Page {
         &self.page
     }
 
-    pub(super) fn page_mut(&mut self) -> &mut Page {
+    pub(crate) fn page_mut(&mut self) -> &mut Page {
         self.is_dirty = true;
         &mut self.page
     }
@@ -89,10 +89,15 @@ impl BufferFrame {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{buffer::page_key::PageKey, page::PageId, schema::TableId};
+
+    fn page_key(page_id: u64) -> PageKey {
+        PageKey::new(TableId::new(1), PageId::new(page_id))
+    }
 
     #[test]
     fn pin_unpin_테스트() {
-        let mut frame = BufferFrame::new(PageId::new(0), Page::new());
+        let mut frame = BufferFrame::new(page_key(0), Page::new());
 
         frame.pin();
         assert_eq!(frame.pin_count, 2);
@@ -109,7 +114,7 @@ mod tests {
 
     #[test]
     fn page_mut은_dirty로_표시한다() {
-        let mut frame = BufferFrame::new(PageId::new(0), Page::new());
+        let mut frame = BufferFrame::new(page_key(0), Page::new());
 
         let _ = frame.page_mut();
 
@@ -118,7 +123,7 @@ mod tests {
 
     #[test]
     fn reference_bit은_pin에서_설정되고_unpin후에도_유지된다() {
-        let mut frame = BufferFrame::new(PageId::new(0), Page::new());
+        let mut frame = BufferFrame::new(page_key(0), Page::new());
 
         assert!(frame.is_referenced());
 

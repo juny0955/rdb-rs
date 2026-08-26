@@ -46,7 +46,7 @@ impl<'a> Executor<'a> {
             .table_by_id(table_id)
             .ok_or(ExecutorError::TableNotFound(table_id))?;
 
-        let mut heap_table = HeapTable::open_existing(&self.table_path(table_id))?;
+        let mut heap_table = HeapTable::open_existing(table_id, &self.table_path(table_id))?;
         let rows = heap_table.scan()?;
 
         let projections = &bound.projections;
@@ -72,7 +72,7 @@ impl<'a> Executor<'a> {
         }
         let row = encode(&values, table.columns())?;
 
-        let mut heap_table = HeapTable::open_existing(&self.table_path(table_id))?;
+        let mut heap_table = HeapTable::open_existing(table_id, &self.table_path(table_id))?;
         let row_id = heap_table.insert(&row)?;
 
         Ok(row_id)
@@ -85,7 +85,7 @@ impl<'a> Executor<'a> {
             .table_by_id(table_id)
             .ok_or(ExecutorError::TableNotFound(table_id))?;
 
-        let mut heap_table = HeapTable::open_existing(&self.table_path(table_id))?;
+        let mut heap_table = HeapTable::open_existing(table_id, &self.table_path(table_id))?;
         let rows = heap_table.scan()?;
 
         let rows = {
@@ -123,7 +123,7 @@ impl<'a> Executor<'a> {
             .table_by_id(table_id)
             .ok_or(ExecutorError::TableNotFound(table_id))?;
 
-        let mut heap_table = HeapTable::open_existing(&self.table_path(table_id))?;
+        let mut heap_table = HeapTable::open_existing(table_id, &self.table_path(table_id))?;
         let rows = heap_table.scan()?;
 
         let rows = {
