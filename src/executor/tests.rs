@@ -80,11 +80,14 @@ fn insert는_리터럴을_row로_변환해_테이블에_저장한다() {
     };
 
     HeapTable::open(table_id, &path).expect("테이블 파일을 생성해야 함");
-    let executor = Executor::new(&database, directory.path());
-
-    let row_id = executor
-        .execute_insert(&bound)
-        .expect("INSERT가 성공해야 함");
+    let row_id = {
+        let mut heap_table =
+            HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
+        let executor = Executor::new(&database);
+        executor
+            .execute_insert(&bound, &mut heap_table)
+            .expect("INSERT가 성공해야 함")
+    };
 
     let mut table = HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
     let row = table.get(row_id).expect("삽입한 Row를 읽어야 함");
@@ -133,10 +136,14 @@ fn update는_필터와_일치하는_row만_수정하고_재시작후에도_유�
         }),
     };
 
-    let executor = Executor::new(&database, directory.path());
-    let updated = executor
-        .execute_update(&bound)
-        .expect("UPDATE가 성공해야 함");
+    let updated = {
+        let mut heap_table =
+            HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
+        let executor = Executor::new(&database);
+        executor
+            .execute_update(&bound, &mut heap_table)
+            .expect("UPDATE가 성공해야 함")
+    };
 
     assert_eq!(updated, 1);
 
@@ -196,10 +203,14 @@ fn delete는_필터와_일치하는_row만_삭제하고_재시작후에도_유�
         }),
     };
 
-    let executor = Executor::new(&database, directory.path());
-    let deleted = executor
-        .execute_delete(&bound)
-        .expect("DELETE가 성공해야 함");
+    let deleted = {
+        let mut heap_table =
+            HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
+        let executor = Executor::new(&database);
+        executor
+            .execute_delete(&bound, &mut heap_table)
+            .expect("DELETE가 성공해야 함")
+    };
 
     assert_eq!(deleted, 1);
 
@@ -241,9 +252,11 @@ fn select는_테이블의_모든_row를_반환한다() {
         table.insert(&second_row).expect("둘째 Row를 삽입해야 함");
     }
 
-    let executor = Executor::new(&database, directory.path());
+    let mut heap_table =
+        HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
+    let executor = Executor::new(&database);
     let rows = executor
-        .execute_select(&select_all(table_id))
+        .execute_select(&select_all(table_id), &mut heap_table)
         .expect("SELECT가 성공해야 함");
 
     assert_eq!(rows, vec![first_values, second_values]);
@@ -273,9 +286,11 @@ fn select는_지정한_컬럼만_반환한다() {
         table.insert(&lee).expect("Lee Row를 삽입해야 함");
     }
 
-    let executor = Executor::new(&database, directory.path());
+    let mut heap_table =
+        HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
+    let executor = Executor::new(&database);
     let rows = executor
-        .execute_select(&select_name(table_id))
+        .execute_select(&select_name(table_id), &mut heap_table)
         .expect("SELECT가 성공해야 함");
 
     assert_eq!(
@@ -305,9 +320,11 @@ fn select는_projection_목록_순서대로_값을_반환한다() {
         table.insert(&row).expect("Row를 삽입해야 함");
     }
 
-    let executor = Executor::new(&database, directory.path());
+    let mut heap_table =
+        HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
+    let executor = Executor::new(&database);
     let rows = executor
-        .execute_select(&select_name_then_all(table_id))
+        .execute_select(&select_name_then_all(table_id), &mut heap_table)
         .expect("SELECT가 성공해야 함");
 
     assert_eq!(
@@ -338,12 +355,14 @@ fn select는_equal_filter와_일치하는_row만_반환한다() {
         table.insert(&lee).expect("Lee Row를 삽입해야 함");
     }
 
-    let executor = Executor::new(&database, directory.path());
+    let mut heap_table =
+        HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
+    let executor = Executor::new(&database);
     let rows = executor
-        .execute_select(&select_name_equals(
-            table_id,
-            Literal::String("Kim".to_owned()),
-        ))
+        .execute_select(
+            &select_name_equals(table_id, Literal::String("Kim".to_owned())),
+            &mut heap_table,
+        )
         .expect("SELECT가 성공해야 함");
 
     assert_eq!(rows, vec![kim_values]);
@@ -364,9 +383,14 @@ fn select에서_null_equal_filter는_row를_반환하지_않는다() {
         table.insert(&null_name).expect("NULL Row를 삽입해야 함");
     }
 
-    let executor = Executor::new(&database, directory.path());
+    let mut heap_table =
+        HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
+    let executor = Executor::new(&database);
     let rows = executor
-        .execute_select(&select_name_equals(table_id, Literal::Null))
+        .execute_select(
+            &select_name_equals(table_id, Literal::Null),
+            &mut heap_table,
+        )
         .expect("SELECT가 성공해야 함");
 
     assert!(rows.is_empty());
@@ -378,25 +402,25 @@ fn select는_메타데이터에_없는_테이블을_거부한다() {
     let database = DatabaseMetadata::new("test".to_owned(), vec![])
         .expect("빈 데이터베이스 메타데이터가 유효해야 함");
     let directory = TestDirectory::new("table-not-found");
-    let executor = Executor::new(&database, directory.path());
+    let path = directory.path().join("1.tbl");
+    let mut heap_table = HeapTable::open(table_id, &path).expect("테이블 파일을 생성해야 함");
+    let executor = Executor::new(&database);
 
-    let result = executor.execute_select(&select_all(table_id));
+    let result = executor.execute_select(&select_all(table_id), &mut heap_table);
 
     assert!(matches!(result, Err(ExecutorError::TableNotFound(id)) if id == table_id));
 }
 
 #[test]
-fn select는_없는_테이블_파일을_생성하지_않는다() {
+fn 없는_테이블_파일을_열어도_파일을_생성하지_않는다() {
     let table_id = TableId::new(1);
-    let database = database(table_id);
     let directory = TestDirectory::new("missing-file");
-    let executor = Executor::new(&database, directory.path());
-
-    let result = executor.execute_select(&select_all(table_id));
+    let path = directory.path().join("1.tbl");
+    let result = HeapTable::open_existing(table_id, &path);
 
     assert!(matches!(
         result,
-        Err(ExecutorError::HeapTable(HeapTableError::Io(error)))
+        Err(HeapTableError::Io(error))
             if error.kind() == ErrorKind::NotFound
     ));
     assert!(!directory.path().join("1.tbl").exists());

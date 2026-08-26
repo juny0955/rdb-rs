@@ -28,25 +28,24 @@ pub enum ExecutorError {
 
 pub struct Executor<'a> {
     database: &'a DatabaseMetadata,
-    table_dir: &'a Path,
 }
 
 impl<'a> Executor<'a> {
-    pub fn new(database: &'a DatabaseMetadata, table_dir: &'a Path) -> Self {
-        Self {
-            database,
-            table_dir,
-        }
+    pub fn new(database: &'a DatabaseMetadata) -> Self {
+        Self { database }
     }
 
-    pub fn execute_select(&self, bound: &BoundSelect) -> Result<Vec<Vec<Value>>, ExecutorError> {
+    pub fn execute_select(
+        &self,
+        bound: &BoundSelect,
+        heap_table: &mut HeapTable,
+    ) -> Result<Vec<Vec<Value>>, ExecutorError> {
         let table_id = bound.table_id;
         let table = self
             .database
             .table_by_id(table_id)
             .ok_or(ExecutorError::TableNotFound(table_id))?;
 
-        let mut heap_table = HeapTable::open_existing(table_id, &self.table_path(table_id))?;
         let rows = heap_table.scan()?;
 
         let projections = &bound.projections;
@@ -58,7 +57,11 @@ impl<'a> Executor<'a> {
         Self::project_rows(filtered_rows, table, projections)
     }
 
-    pub fn execute_insert(&self, bound: &BoundInsert) -> Result<RowId, ExecutorError> {
+    pub fn execute_insert(
+        &self,
+        bound: &BoundInsert,
+        heap_table: &mut HeapTable,
+    ) -> Result<RowId, ExecutorError> {
         let table_id = bound.table_id;
         let table = self
             .database
@@ -71,21 +74,22 @@ impl<'a> Executor<'a> {
             values.push(value);
         }
         let row = encode(&values, table.columns())?;
-
-        let mut heap_table = HeapTable::open_existing(table_id, &self.table_path(table_id))?;
         let row_id = heap_table.insert(&row)?;
 
         Ok(row_id)
     }
 
-    pub fn execute_update(&self, bound: &BoundUpdate) -> Result<usize, ExecutorError> {
+    pub fn execute_update(
+        &self,
+        bound: &BoundUpdate,
+        heap_table: &mut HeapTable,
+    ) -> Result<usize, ExecutorError> {
         let table_id = bound.table_id;
         let table = self
             .database
             .table_by_id(table_id)
             .ok_or(ExecutorError::TableNotFound(table_id))?;
 
-        let mut heap_table = HeapTable::open_existing(table_id, &self.table_path(table_id))?;
         let rows = heap_table.scan()?;
 
         let rows = {
@@ -116,14 +120,17 @@ impl<'a> Executor<'a> {
         Ok(updated)
     }
 
-    pub fn execute_delete(&self, bound: &BoundDelete) -> Result<usize, ExecutorError> {
+    pub fn execute_delete(
+        &self,
+        bound: &BoundDelete,
+        heap_table: &mut HeapTable,
+    ) -> Result<usize, ExecutorError> {
         let table_id = bound.table_id;
         let table = self
             .database
             .table_by_id(table_id)
             .ok_or(ExecutorError::TableNotFound(table_id))?;
 
-        let mut heap_table = HeapTable::open_existing(table_id, &self.table_path(table_id))?;
         let rows = heap_table.scan()?;
 
         let rows = {
@@ -221,10 +228,6 @@ impl<'a> Executor<'a> {
                 });
             }
         })
-    }
-
-    fn table_path(&self, table_id: TableId) -> PathBuf {
-        self.table_dir.join(format!("{}.tbl", table_id.id()))
     }
 }
 
