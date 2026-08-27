@@ -19,3 +19,11 @@ impl BTreeKey {
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BTreeKeyType {
+    Int,
+    BigInt,
+    Boolean,
+    Varchar,
+}
