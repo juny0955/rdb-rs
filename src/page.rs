@@ -65,12 +65,12 @@ impl Row {
 }
 
 #[derive(Debug)]
-pub struct Page {
+pub(crate) struct Page {
     data: [u8; PAGE_SIZE],
 }
 
 impl Page {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut page = Self {
             data: [0u8; PAGE_SIZE],
         };
@@ -81,7 +81,13 @@ impl Page {
         page
     }
 
-    pub fn insert_row(&mut self, row: &Row) -> Result<SlotId, PageError> {
+    pub(crate) fn new_raw() -> Self {
+        Self {
+            data: [0u8; PAGE_SIZE],
+        }
+    }
+
+    pub(crate) fn insert_row(&mut self, row: &Row) -> Result<SlotId, PageError> {
         let row_bytes = row.to_bytes();
         let row_len = row_bytes.len();
         let allocate_len = row_allocation_size(row_len);
@@ -104,7 +110,7 @@ impl Page {
         }
     }
 
-    pub fn read_row(&self, slot_id: SlotId) -> Result<Row, PageError> {
+    pub(crate) fn read_row(&self, slot_id: SlotId) -> Result<Row, PageError> {
         let slot = self.read_slot(slot_id)?;
         let row_end = slot.offset as usize + slot.length as usize;
         if row_end > PAGE_SIZE || slot.offset < self.free_end() {
@@ -115,7 +121,7 @@ impl Page {
         Ok(row)
     }
 
-    pub fn update_row(&mut self, slot_id: SlotId, row: &Row) -> Result<(), PageError> {
+    pub(crate) fn update_row(&mut self, slot_id: SlotId, row: &Row) -> Result<(), PageError> {
         let mut slot = self.read_slot(slot_id)?;
         let slot_length = slot.length as usize;
         let slot_offset = slot.offset as usize;
@@ -176,7 +182,7 @@ impl Page {
         Ok(())
     }
 
-    pub fn delete_row(&mut self, slot_id: SlotId) -> Result<(), PageError> {
+    pub(crate) fn delete_row(&mut self, slot_id: SlotId) -> Result<(), PageError> {
         let mut slot = self.read_slot(slot_id)?;
         let row_offset = slot.offset;
         let allocate_len = row_allocation_size(slot.length as usize);
@@ -202,6 +208,14 @@ impl Page {
         }
 
         Ok(scans)
+    }
+
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        &self.data
+    }
+
+    pub(crate) fn as_bytes_mut(&mut self) -> &mut [u8] {
+        &mut self.data
     }
 
     fn try_insert_from_free_block(
