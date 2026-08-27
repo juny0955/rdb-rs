@@ -4,6 +4,7 @@ mod catalog;
 pub mod database;
 pub mod executor;
 mod file;
+mod index;
 mod page;
 pub mod parser;
 mod schema;
