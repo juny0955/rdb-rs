@@ -409,16 +409,16 @@ Disk Page를 메모리에 캐싱한다.
 * [x] `Database`가 하나의 `BufferPool`을 소유
 * [x] `PageKey(TableId, PageId)`로 page를 전역 식별
 * [x] `PageKey`로 올바른 table file을 찾아 Page Read / Flush
-* [ ] DB 전체 capacity를 공유하는 Clock Replacement
-* [ ] 서로 다른 table의 같은 `PageId`를 별도 frame으로 관리
-* [ ] 쿼리 사이에도 cache가 유지됨
-* [ ] 다른 table의 dirty victim도 올바른 file에 flush
+* [x] DB 전체 capacity를 공유하는 Clock Replacement
+* [x] 서로 다른 table의 같은 `PageId`를 별도 frame으로 관리
+* [x] 쿼리 사이에도 cache가 유지됨
+* [x] 다른 table의 dirty victim도 올바른 file에 flush
 
 ### 테스트
 
-* [ ] 같은 page를 두 쿼리에서 조회할 때 두 번째 조회는 cache hit
-* [ ] 서로 다른 table의 같은 `PageId`가 충돌하지 않음
-* [ ] 다른 table의 dirty page eviction 후 데이터가 올바른 file에 유지됨
+* [x] 같은 page를 두 쿼리에서 조회할 때 두 번째 조회는 cache hit
+* [x] 서로 다른 table의 같은 `PageId`가 충돌하지 않음
+* [x] 다른 table의 dirty page eviction 후 데이터가 올바른 file에 유지됨
 
 ### 구조
 

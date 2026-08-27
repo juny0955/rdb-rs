@@ -239,7 +239,7 @@ impl BufferPool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::page::{Page, PageId, PagerError, Row, allocate_page, read_page};
+    use crate::page::{Page, PageId, PagerError, Row, allocate_page, read_page, write_page};
     use crate::schema::TableId;
     use tempfile::NamedTempFile;
 
@@ -376,6 +376,85 @@ mod tests {
             pool.fetch_page(key(0)),
             Err(BufferPoolError::TableNotRegistered(id)) if id == TableId::new(1)
         ));
+    }
+
+    #[test]
+    fn 다른_table의_같은_page_id는_서로_다른_frame에_저장된다()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let first_table_id = TableId::new(1);
+        let second_table_id = TableId::new(2);
+        let first_file = NamedTempFile::new()?;
+        let second_file = NamedTempFile::new()?;
+        let mut first_table_file = first_file.reopen()?;
+        let mut second_table_file = second_file.reopen()?;
+        let page_id = allocate_page(&mut first_table_file)?;
+        assert_eq!(allocate_page(&mut second_table_file)?, page_id);
+
+        let first_row = Row::from_bytes(b"first table");
+        let mut first_page = Page::new();
+        let first_slot_id = first_page.insert_row(&first_row)?;
+        write_page(&mut first_table_file, page_id, &first_page)?;
+
+        let second_row = Row::from_bytes(b"second table");
+        let mut second_page = Page::new();
+        let second_slot_id = second_page.insert_row(&second_row)?;
+        write_page(&mut second_table_file, page_id, &second_page)?;
+
+        let first_key = PageKey::new(first_table_id, page_id);
+        let second_key = PageKey::new(second_table_id, page_id);
+        let mut pool = BufferPool::new(2);
+        pool.register_table(first_table_id, first_file.path().to_path_buf());
+        pool.register_table(second_table_id, second_file.path().to_path_buf());
+
+        {
+            let first_frame = pool.fetch_page(first_key)?;
+            assert_eq!(first_frame.page().read_row(first_slot_id)?, first_row);
+        }
+        {
+            let second_frame = pool.fetch_page(second_key)?;
+            assert_eq!(second_frame.page().read_row(second_slot_id)?, second_row);
+        }
+
+        assert_ne!(
+            pool.get_frame_id(first_key)?,
+            pool.get_frame_id(second_key)?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn 다른_table의_dirty_victim을_evict하면_원래_file에_기록한다()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let first_table_id = TableId::new(1);
+        let second_table_id = TableId::new(2);
+        let first_file = NamedTempFile::new()?;
+        let second_file = NamedTempFile::new()?;
+        let mut first_table_file = first_file.reopen()?;
+        let mut second_table_file = second_file.reopen()?;
+        let page_id = allocate_page(&mut first_table_file)?;
+        assert_eq!(allocate_page(&mut second_table_file)?, page_id);
+
+        let first_key = PageKey::new(first_table_id, page_id);
+        let second_key = PageKey::new(second_table_id, page_id);
+        let mut pool = BufferPool::new(1);
+        pool.register_table(first_table_id, first_file.path().to_path_buf());
+        pool.register_table(second_table_id, second_file.path().to_path_buf());
+
+        let row = Row::from_bytes(b"dirty victim");
+        let slot_id = {
+            let mut first_frame = pool.fetch_page(first_key)?;
+            first_frame.page_mut().insert_row(&row)?
+        };
+
+        {
+            let _second_frame = pool.fetch_page(second_key)?;
+        }
+
+        assert_eq!(pool.page_table.get(&first_key), None);
+        assert!(pool.page_table.get(&second_key).is_some());
+        let persisted_page = read_page(&mut first_table_file, page_id)?;
+        assert_eq!(persisted_page.read_row(slot_id)?, row);
+        Ok(())
     }
 
     #[test]

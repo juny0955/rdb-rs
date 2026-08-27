@@ -303,6 +303,42 @@ mod tests {
             .expect("SQL을 bind해야 함")
     }
 
+    fn parse_sql(sql: &str) -> Statement {
+        let tokens = Lexer::new(sql).tokenize().expect("SQL을 토큰화해야 함");
+        Parser::new(tokens).parse().expect("SQL을 파싱해야 함")
+    }
+
+    #[test]
+    fn 두번째_select는_cache된_page를_사용한다() -> Result<(), DatabaseError> {
+        let directory = TestDirectory::new("database-select-cache-hit");
+        {
+            let mut database = Database::open(directory.path(), "test")?;
+            database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
+            database.execute(&parse_sql("INSERT INTO users VALUES (1, 'Kim');"))?;
+        }
+
+        let mut database = Database::open(directory.path(), "reopened")?;
+        let select = parse_sql("SELECT * FROM users;");
+        let expected = vec![vec![Value::BigInt(1), Value::Varchar("Kim".to_owned())]];
+
+        assert!(matches!(
+            database.execute(&select)?,
+            ExecuteResult::Rows(rows) if rows == expected
+        ));
+
+        std::fs::rename(
+            directory.path().join("1.tbl"),
+            directory.path().join("cached-1.tbl"),
+        )
+        .expect("첫 SELECT 후 table file 이름을 변경해야 함");
+
+        assert!(matches!(
+            database.execute(&select)?,
+            ExecuteResult::Rows(rows) if rows == expected
+        ));
+        Ok(())
+    }
+
     #[test]
     fn sql_crud는_parser부터_file까지_동작한다() -> Result<(), DatabaseError> {
         let directory = TestDirectory::new("sql-crud-integration");
