@@ -1,10 +1,11 @@
-use std::io::ErrorKind;
+use std::{io::ErrorKind, path::Path};
 
 use crate::{
     binder::{
         BoundAssignment, BoundDelete, BoundExpression, BoundInsert, BoundProjection, BoundSelect,
         BoundUpdate,
     },
+    buffer::BufferPool,
     page::PageError,
     parser::ast::Literal,
     schema::{ColumnId, ColumnMetadata, DataType, DatabaseMetadata, TableId, TableMetadata},
@@ -27,6 +28,12 @@ fn database(table_id: TableId) -> DatabaseMetadata {
         .expect("테이블 메타데이터가 유효해야 함");
     DatabaseMetadata::new("test".to_owned(), vec![table])
         .expect("데이터베이스 메타데이터가 유효해야 함")
+}
+
+fn buffer_pool(table_id: TableId, path: &Path) -> BufferPool {
+    let mut buffer_pool = BufferPool::new(16);
+    buffer_pool.register_table(table_id, path.to_path_buf());
+    buffer_pool
 }
 
 fn select_all(table_id: TableId) -> BoundSelect {
@@ -80,17 +87,20 @@ fn insert는_리터럴을_row로_변환해_테이블에_저장한다() {
     };
 
     HeapTable::open(table_id, &path).expect("테이블 파일을 생성해야 함");
+    let mut buffer_pool = buffer_pool(table_id, &path);
     let row_id = {
         let mut heap_table =
             HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
         let executor = Executor::new(&database);
         executor
-            .execute_insert(&bound, &mut heap_table)
+            .execute_insert(&bound, &mut heap_table, &mut buffer_pool)
             .expect("INSERT가 성공해야 함")
     };
 
     let mut table = HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
-    let row = table.get(row_id).expect("삽입한 Row를 읽어야 함");
+    let row = table
+        .get(row_id, &mut buffer_pool)
+        .expect("삽입한 Row를 읽어야 함");
     let values = decode(&row, &columns).expect("Row를 값으로 변환해야 함");
 
     assert_eq!(
@@ -117,10 +127,15 @@ fn update는_필터와_일치하는_row만_수정하고_재시작후에도_유�
     )
     .expect("Lee Row를 변환해야 함");
 
+    let mut buffer_pool = buffer_pool(table_id, &path);
     let (kim_id, lee_id) = {
         let mut table = HeapTable::open(table_id, &path).expect("테이블 파일을 생성해야 함");
-        let kim_id = table.insert(&kim).expect("Kim Row를 삽입해야 함");
-        let lee_id = table.insert(&lee).expect("Lee Row를 삽입해야 함");
+        let kim_id = table
+            .insert(&kim, &mut buffer_pool)
+            .expect("Kim Row를 삽입해야 함");
+        let lee_id = table
+            .insert(&lee, &mut buffer_pool)
+            .expect("Lee Row를 삽입해야 함");
         (kim_id, lee_id)
     };
 
@@ -141,7 +156,7 @@ fn update는_필터와_일치하는_row만_수정하고_재시작후에도_유�
             HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
         let executor = Executor::new(&database);
         executor
-            .execute_update(&bound, &mut heap_table)
+            .execute_update(&bound, &mut heap_table, &mut buffer_pool)
             .expect("UPDATE가 성공해야 함")
     };
 
@@ -150,12 +165,16 @@ fn update는_필터와_일치하는_row만_수정하고_재시작후에도_유�
     let mut table =
         HeapTable::open_existing(table_id, &path).expect("테이블 파일을 다시 열어야 함");
     let kim = decode(
-        &table.get(kim_id).expect("수정한 Kim Row를 읽어야 함"),
+        &table
+            .get(kim_id, &mut buffer_pool)
+            .expect("수정한 Kim Row를 읽어야 함"),
         &columns,
     )
     .expect("Kim Row를 값으로 변환해야 함");
     let lee = decode(
-        &table.get(lee_id).expect("유지된 Lee Row를 읽어야 함"),
+        &table
+            .get(lee_id, &mut buffer_pool)
+            .expect("유지된 Lee Row를 읽어야 함"),
         &columns,
     )
     .expect("Lee Row를 값으로 변환해야 함");
@@ -188,10 +207,15 @@ fn delete는_필터와_일치하는_row만_삭제하고_재시작후에도_유�
     )
     .expect("Lee Row를 변환해야 함");
 
+    let mut buffer_pool = buffer_pool(table_id, &path);
     let (kim_id, lee_id) = {
         let mut table = HeapTable::open(table_id, &path).expect("테이블 파일을 생성해야 함");
-        let kim_id = table.insert(&kim).expect("Kim Row를 삽입해야 함");
-        let lee_id = table.insert(&lee).expect("Lee Row를 삽입해야 함");
+        let kim_id = table
+            .insert(&kim, &mut buffer_pool)
+            .expect("Kim Row를 삽입해야 함");
+        let lee_id = table
+            .insert(&lee, &mut buffer_pool)
+            .expect("Lee Row를 삽입해야 함");
         (kim_id, lee_id)
     };
 
@@ -208,7 +232,7 @@ fn delete는_필터와_일치하는_row만_삭제하고_재시작후에도_유�
             HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
         let executor = Executor::new(&database);
         executor
-            .execute_delete(&bound, &mut heap_table)
+            .execute_delete(&bound, &mut heap_table, &mut buffer_pool)
             .expect("DELETE가 성공해야 함")
     };
 
@@ -217,13 +241,13 @@ fn delete는_필터와_일치하는_row만_삭제하고_재시작후에도_유�
     let mut table =
         HeapTable::open_existing(table_id, &path).expect("테이블 파일을 다시 열어야 함");
     assert!(matches!(
-        table.get(kim_id),
+        table.get(kim_id, &mut buffer_pool),
         Err(HeapTableError::Page(PageError::SlotNotFound))
     ));
 
     let lee = decode(
         &table
-            .get(lee_id)
+            .get(lee_id, &mut buffer_pool)
             .expect("삭제하지 않은 Lee Row를 읽어야 함"),
         &columns,
     )
@@ -245,18 +269,23 @@ fn select는_테이블의_모든_row를_반환한다() {
     let second_values = vec![Value::BigInt(2), Value::Varchar("Lee".to_owned())];
     let first_row = encode(&first_values, &columns).expect("첫 Row를 변환해야 함");
     let second_row = encode(&second_values, &columns).expect("둘째 Row를 변환해야 함");
+    let mut buffer_pool = buffer_pool(table_id, &path);
 
     {
         let mut table = HeapTable::open(table_id, &path).expect("테이블 파일을 생성해야 함");
-        table.insert(&first_row).expect("첫 Row를 삽입해야 함");
-        table.insert(&second_row).expect("둘째 Row를 삽입해야 함");
+        table
+            .insert(&first_row, &mut buffer_pool)
+            .expect("첫 Row를 삽입해야 함");
+        table
+            .insert(&second_row, &mut buffer_pool)
+            .expect("둘째 Row를 삽입해야 함");
     }
 
     let mut heap_table =
         HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
     let executor = Executor::new(&database);
     let rows = executor
-        .execute_select(&select_all(table_id), &mut heap_table)
+        .execute_select(&select_all(table_id), &mut heap_table, &mut buffer_pool)
         .expect("SELECT가 성공해야 함");
 
     assert_eq!(rows, vec![first_values, second_values]);
@@ -279,18 +308,23 @@ fn select는_지정한_컬럼만_반환한다() {
         &columns,
     )
     .expect("Lee Row를 변환해야 함");
+    let mut buffer_pool = buffer_pool(table_id, &path);
 
     {
         let mut table = HeapTable::open(table_id, &path).expect("테이블 파일을 생성해야 함");
-        table.insert(&kim).expect("Kim Row를 삽입해야 함");
-        table.insert(&lee).expect("Lee Row를 삽입해야 함");
+        table
+            .insert(&kim, &mut buffer_pool)
+            .expect("Kim Row를 삽입해야 함");
+        table
+            .insert(&lee, &mut buffer_pool)
+            .expect("Lee Row를 삽입해야 함");
     }
 
     let mut heap_table =
         HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
     let executor = Executor::new(&database);
     let rows = executor
-        .execute_select(&select_name(table_id), &mut heap_table)
+        .execute_select(&select_name(table_id), &mut heap_table, &mut buffer_pool)
         .expect("SELECT가 성공해야 함");
 
     assert_eq!(
@@ -314,17 +348,24 @@ fn select는_projection_목록_순서대로_값을_반환한다() {
         &columns,
     )
     .expect("Row를 변환해야 함");
+    let mut buffer_pool = buffer_pool(table_id, &path);
 
     {
         let mut table = HeapTable::open(table_id, &path).expect("테이블 파일을 생성해야 함");
-        table.insert(&row).expect("Row를 삽입해야 함");
+        table
+            .insert(&row, &mut buffer_pool)
+            .expect("Row를 삽입해야 함");
     }
 
     let mut heap_table =
         HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
     let executor = Executor::new(&database);
     let rows = executor
-        .execute_select(&select_name_then_all(table_id), &mut heap_table)
+        .execute_select(
+            &select_name_then_all(table_id),
+            &mut heap_table,
+            &mut buffer_pool,
+        )
         .expect("SELECT가 성공해야 함");
 
     assert_eq!(
@@ -348,11 +389,16 @@ fn select는_equal_filter와_일치하는_row만_반환한다() {
     let lee_values = vec![Value::BigInt(2), Value::Varchar("Lee".to_owned())];
     let kim = encode(&kim_values, &columns).expect("Kim Row를 변환해야 함");
     let lee = encode(&lee_values, &columns).expect("Lee Row를 변환해야 함");
+    let mut buffer_pool = buffer_pool(table_id, &path);
 
     {
         let mut table = HeapTable::open(table_id, &path).expect("테이블 파일을 생성해야 함");
-        table.insert(&kim).expect("Kim Row를 삽입해야 함");
-        table.insert(&lee).expect("Lee Row를 삽입해야 함");
+        table
+            .insert(&kim, &mut buffer_pool)
+            .expect("Kim Row를 삽입해야 함");
+        table
+            .insert(&lee, &mut buffer_pool)
+            .expect("Lee Row를 삽입해야 함");
     }
 
     let mut heap_table =
@@ -362,6 +408,7 @@ fn select는_equal_filter와_일치하는_row만_반환한다() {
         .execute_select(
             &select_name_equals(table_id, Literal::String("Kim".to_owned())),
             &mut heap_table,
+            &mut buffer_pool,
         )
         .expect("SELECT가 성공해야 함");
 
@@ -377,10 +424,13 @@ fn select에서_null_equal_filter는_row를_반환하지_않는다() {
     let path = directory.path().join("1.tbl");
     let null_name =
         encode(&[Value::BigInt(1), Value::Null], &columns).expect("NULL Row를 변환해야 함");
+    let mut buffer_pool = buffer_pool(table_id, &path);
 
     {
         let mut table = HeapTable::open(table_id, &path).expect("테이블 파일을 생성해야 함");
-        table.insert(&null_name).expect("NULL Row를 삽입해야 함");
+        table
+            .insert(&null_name, &mut buffer_pool)
+            .expect("NULL Row를 삽입해야 함");
     }
 
     let mut heap_table =
@@ -390,6 +440,7 @@ fn select에서_null_equal_filter는_row를_반환하지_않는다() {
         .execute_select(
             &select_name_equals(table_id, Literal::Null),
             &mut heap_table,
+            &mut buffer_pool,
         )
         .expect("SELECT가 성공해야 함");
 
@@ -404,9 +455,10 @@ fn select는_메타데이터에_없는_테이블을_거부한다() {
     let directory = TestDirectory::new("table-not-found");
     let path = directory.path().join("1.tbl");
     let mut heap_table = HeapTable::open(table_id, &path).expect("테이블 파일을 생성해야 함");
+    let mut buffer_pool = buffer_pool(table_id, &path);
     let executor = Executor::new(&database);
 
-    let result = executor.execute_select(&select_all(table_id), &mut heap_table);
+    let result = executor.execute_select(&select_all(table_id), &mut heap_table, &mut buffer_pool);
 
     assert!(matches!(result, Err(ExecutorError::TableNotFound(id)) if id == table_id));
 }

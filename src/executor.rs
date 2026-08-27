@@ -1,9 +1,8 @@
-use std::path::{Path, PathBuf};
-
 use crate::{
     binder::{
         BoundDelete, BoundExpression, BoundInsert, BoundProjection, BoundSelect, BoundUpdate,
     },
+    buffer::BufferPool,
     page::{Row, RowId},
     parser::ast::Literal,
     schema::{ColumnId, DataType, DatabaseMetadata, TableId, TableMetadata},
@@ -39,6 +38,7 @@ impl<'a> Executor<'a> {
         &self,
         bound: &BoundSelect,
         heap_table: &mut HeapTable,
+        buffer_pool: &mut BufferPool,
     ) -> Result<Vec<Vec<Value>>, ExecutorError> {
         let table_id = bound.table_id;
         let table = self
@@ -46,7 +46,7 @@ impl<'a> Executor<'a> {
             .table_by_id(table_id)
             .ok_or(ExecutorError::TableNotFound(table_id))?;
 
-        let rows = heap_table.scan()?;
+        let rows = heap_table.scan(buffer_pool)?;
 
         let projections = &bound.projections;
         let Some(filter) = bound.filter.as_ref() else {
@@ -61,6 +61,7 @@ impl<'a> Executor<'a> {
         &self,
         bound: &BoundInsert,
         heap_table: &mut HeapTable,
+        buffer_pool: &mut BufferPool,
     ) -> Result<RowId, ExecutorError> {
         let table_id = bound.table_id;
         let table = self
@@ -74,7 +75,7 @@ impl<'a> Executor<'a> {
             values.push(value);
         }
         let row = encode(&values, table.columns())?;
-        let row_id = heap_table.insert(&row)?;
+        let row_id = heap_table.insert(&row, buffer_pool)?;
 
         Ok(row_id)
     }
@@ -83,6 +84,7 @@ impl<'a> Executor<'a> {
         &self,
         bound: &BoundUpdate,
         heap_table: &mut HeapTable,
+        buffer_pool: &mut BufferPool,
     ) -> Result<usize, ExecutorError> {
         let table_id = bound.table_id;
         let table = self
@@ -90,7 +92,7 @@ impl<'a> Executor<'a> {
             .table_by_id(table_id)
             .ok_or(ExecutorError::TableNotFound(table_id))?;
 
-        let rows = heap_table.scan()?;
+        let rows = heap_table.scan(buffer_pool)?;
 
         let rows = {
             if let Some(filter) = bound.filter.as_ref() {
@@ -113,7 +115,7 @@ impl<'a> Executor<'a> {
                 values[column_index] = value;
             }
             let row = encode(&values, table.columns())?;
-            heap_table.update(row_id, &row)?;
+            heap_table.update(row_id, &row, buffer_pool)?;
             updated += 1;
         }
 
@@ -124,6 +126,7 @@ impl<'a> Executor<'a> {
         &self,
         bound: &BoundDelete,
         heap_table: &mut HeapTable,
+        buffer_pool: &mut BufferPool,
     ) -> Result<usize, ExecutorError> {
         let table_id = bound.table_id;
         let table = self
@@ -131,7 +134,7 @@ impl<'a> Executor<'a> {
             .table_by_id(table_id)
             .ok_or(ExecutorError::TableNotFound(table_id))?;
 
-        let rows = heap_table.scan()?;
+        let rows = heap_table.scan(buffer_pool)?;
 
         let rows = {
             if let Some(filter) = bound.filter.as_ref() {
@@ -143,7 +146,7 @@ impl<'a> Executor<'a> {
 
         let mut deleted = 0;
         for (row_id, _) in rows {
-            heap_table.delete(row_id)?;
+            heap_table.delete(row_id, buffer_pool)?;
             deleted += 1;
         }
 

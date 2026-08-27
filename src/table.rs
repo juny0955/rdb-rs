@@ -13,8 +13,6 @@ use crate::{
     schema::TableId,
 };
 
-const BUFFER_POOL_CAPACITY: usize = 16;
-
 #[derive(Debug, Error)]
 pub enum HeapTableError {
     #[error("heap table I/O 오류: {0}")]
@@ -31,26 +29,17 @@ pub enum HeapTableError {
 pub struct HeapTable {
     table_id: TableId,
     file: File,
-    buffer_pool: BufferPool,
 }
 
 impl HeapTable {
     pub fn open(table_id: TableId, path: &Path) -> Result<Self, HeapTableError> {
         let file = open_rw_create(path)?;
-        Ok(Self {
-            table_id,
-            file,
-            buffer_pool: BufferPool::new(BUFFER_POOL_CAPACITY),
-        })
+        Ok(Self { table_id, file })
     }
 
     pub fn open_existing(table_id: TableId, path: &Path) -> Result<Self, HeapTableError> {
         let file = open_rw(path)?;
-        Ok(Self {
-            table_id,
-            file,
-            buffer_pool: BufferPool::new(BUFFER_POOL_CAPACITY),
-        })
+        Ok(Self { table_id, file })
     }
 
     pub fn add_page(&mut self) -> Result<PageKey, HeapTableError> {
@@ -58,15 +47,19 @@ impl HeapTable {
         Ok(PageKey::new(self.table_id, page_id))
     }
 
-    pub fn insert(&mut self, row: &Row) -> Result<RowId, HeapTableError> {
+    pub fn insert(
+        &mut self,
+        row: &Row,
+        buffer_pool: &mut BufferPool,
+    ) -> Result<RowId, HeapTableError> {
         for i in 0..page_count(&self.file)? {
             let page_key = PageKey::new(self.table_id, PageId::new(i));
 
-            let mut frame_gurad = self.buffer_pool.fetch_page(&mut self.file, page_key)?;
-            let page = frame_gurad.page_mut();
+            let mut frame_guard = buffer_pool.fetch_page(page_key)?;
+            let page = frame_guard.page_mut();
             match page.insert_row(row) {
                 Ok(slot_id) => {
-                    frame_gurad.flush(&mut self.file)?;
+                    frame_guard.flush(&mut self.file)?;
                     return Ok(RowId::new(page_key.page_id(), slot_id));
                 }
                 Err(PageError::StorageFull) => continue,
@@ -75,7 +68,7 @@ impl HeapTable {
         }
 
         let page_key = self.add_page()?;
-        let mut frame_guard = self.buffer_pool.fetch_page(&mut self.file, page_key)?;
+        let mut frame_guard = buffer_pool.fetch_page(page_key)?;
         let page = frame_guard.page_mut();
         let slot_id = page.insert_row(row)?;
         frame_guard.flush(&mut self.file)?;
@@ -83,40 +76,49 @@ impl HeapTable {
         Ok(RowId::new(page_key.page_id(), slot_id))
     }
 
-    pub fn get(&mut self, row_id: RowId) -> Result<Row, HeapTableError> {
-        let frame_guard = self.buffer_pool.fetch_page(
-            &mut self.file,
-            PageKey::new(self.table_id, row_id.page_id()),
-        )?;
+    pub fn get(
+        &mut self,
+        row_id: RowId,
+        buffer_pool: &mut BufferPool,
+    ) -> Result<Row, HeapTableError> {
+        let frame_guard = buffer_pool.fetch_page(PageKey::new(self.table_id, row_id.page_id()))?;
         let page = frame_guard.page();
         let row = page.read_row(row_id.slot_id())?;
 
         Ok(row)
     }
 
-    pub fn update(&mut self, row_id: RowId, row: &Row) -> Result<(), HeapTableError> {
-        let mut frame_gurad = self.buffer_pool.fetch_page(
-            &mut self.file,
-            PageKey::new(self.table_id, row_id.page_id()),
-        )?;
-        let page = frame_gurad.page_mut();
+    pub fn update(
+        &mut self,
+        row_id: RowId,
+        row: &Row,
+        buffer_pool: &mut BufferPool,
+    ) -> Result<(), HeapTableError> {
+        let mut frame_guard =
+            buffer_pool.fetch_page(PageKey::new(self.table_id, row_id.page_id()))?;
+        let page = frame_guard.page_mut();
         page.update_row(row_id.slot_id(), row)?;
-        frame_gurad.flush(&mut self.file)?;
+        frame_guard.flush(&mut self.file)?;
         Ok(())
     }
 
-    pub fn delete(&mut self, row_id: RowId) -> Result<(), HeapTableError> {
-        let mut frame_gurad = self.buffer_pool.fetch_page(
-            &mut self.file,
-            PageKey::new(self.table_id, row_id.page_id()),
-        )?;
-        let page = frame_gurad.page_mut();
+    pub fn delete(
+        &mut self,
+        row_id: RowId,
+        buffer_pool: &mut BufferPool,
+    ) -> Result<(), HeapTableError> {
+        let mut frame_guard =
+            buffer_pool.fetch_page(PageKey::new(self.table_id, row_id.page_id()))?;
+        let page = frame_guard.page_mut();
         page.delete_row(row_id.slot_id())?;
-        frame_gurad.flush(&mut self.file)?;
+        frame_guard.flush(&mut self.file)?;
         Ok(())
     }
 
-    pub fn scan(&mut self) -> Result<Vec<(RowId, Row)>, HeapTableError> {
+    pub fn scan(
+        &mut self,
+        buffer_pool: &mut BufferPool,
+    ) -> Result<Vec<(RowId, Row)>, HeapTableError> {
         let mut scans = Vec::new();
         let page_count = page_count(&self.file)?;
         if page_count == 0 {
@@ -125,8 +127,8 @@ impl HeapTable {
 
         for i in 0..page_count {
             let page_key = PageKey::new(self.table_id, PageId::new(i));
-            let frame_gurad = self.buffer_pool.fetch_page(&mut self.file, page_key)?;
-            let page = frame_gurad.page();
+            let frame_guard = buffer_pool.fetch_page(page_key)?;
+            let page = frame_guard.page();
 
             let rows = page.scan_rows()?;
             for (slot_id, row) in rows {
@@ -148,6 +150,12 @@ mod tests {
 
     fn table_id() -> TableId {
         TableId::new(1)
+    }
+
+    fn buffer_pool(test_file: &TestFile) -> BufferPool {
+        let mut buffer_pool = BufferPool::new(16);
+        buffer_pool.register_table(table_id(), test_file.path().to_path_buf());
+        buffer_pool
     }
 
     #[test]
@@ -183,7 +191,8 @@ mod tests {
         let row_id;
         {
             let mut table = HeapTable::open(table_id(), test_file.path())?;
-            row_id = table.insert(&row)?;
+            let mut buffer_pool = buffer_pool(&test_file);
+            row_id = table.insert(&row, &mut buffer_pool)?;
         }
         {
             let mut table = HeapTable::open(table_id(), test_file.path())?;
@@ -200,8 +209,9 @@ mod tests {
         let row1 = Row::from_bytes(&vec![1; 8000]);
         let row2 = Row::from_bytes(&[1; 200]);
         let mut table = HeapTable::open(table_id(), test_file.path())?;
-        let row_id1 = table.insert(&row1)?;
-        let row_id2 = table.insert(&row2)?;
+        let mut buffer_pool = buffer_pool(&test_file);
+        let row_id1 = table.insert(&row1, &mut buffer_pool)?;
+        let row_id2 = table.insert(&row2, &mut buffer_pool)?;
 
         assert_ne!(row_id1, row_id2);
         assert_eq!(table.file.metadata()?.len(), 16384);
@@ -213,9 +223,10 @@ mod tests {
         let test_file = TestFile::new("get");
         let row = Row::from_bytes(&[1; 200]);
         let mut table = HeapTable::open(table_id(), test_file.path())?;
-        let row_id = table.insert(&row)?;
+        let mut buffer_pool = buffer_pool(&test_file);
+        let row_id = table.insert(&row, &mut buffer_pool)?;
 
-        let read = table.get(row_id)?;
+        let read = table.get(row_id, &mut buffer_pool)?;
 
         assert_eq!(row, read);
         Ok(())
@@ -227,11 +238,12 @@ mod tests {
 
         let row = Row::from_bytes(&[1, 2, 3]);
         let mut table = HeapTable::open(table_id(), test_file.path())?;
-        let row_id = table.insert(&row)?;
+        let mut buffer_pool = buffer_pool(&test_file);
+        let row_id = table.insert(&row, &mut buffer_pool)?;
 
         let update = Row::from_bytes(&[4, 5, 6]);
-        table.update(row_id, &update)?;
-        let updated_row = table.get(row_id)?;
+        table.update(row_id, &update, &mut buffer_pool)?;
+        let updated_row = table.get(row_id, &mut buffer_pool)?;
 
         assert_ne!(row, updated_row);
         assert_eq!(update, updated_row);
@@ -243,12 +255,13 @@ mod tests {
         let test_file = TestFile::new("delete");
         let row = Row::from_bytes(&[1, 2, 3]);
         let mut table = HeapTable::open(table_id(), test_file.path())?;
-        let row_id = table.insert(&row)?;
-        let get = table.get(row_id)?;
+        let mut buffer_pool = buffer_pool(&test_file);
+        let row_id = table.insert(&row, &mut buffer_pool)?;
+        let get = table.get(row_id, &mut buffer_pool)?;
         assert_eq!(get, row);
 
-        table.delete(row_id)?;
-        let error = table.get(row_id).expect_err("not found");
+        table.delete(row_id, &mut buffer_pool)?;
+        let error = table.get(row_id, &mut buffer_pool).expect_err("not found");
         assert!(matches!(
             error,
             HeapTableError::Page(PageError::SlotNotFound)
@@ -265,15 +278,17 @@ mod tests {
 
         let (row_id1, row_id3) = {
             let mut table = HeapTable::open(table_id(), test_file.path())?;
-            let row_id1 = table.insert(&row1)?;
-            let row_id2 = table.insert(&row2)?;
-            let row_id3 = table.insert(&row3)?;
-            table.delete(row_id2)?;
+            let mut buffer_pool = buffer_pool(&test_file);
+            let row_id1 = table.insert(&row1, &mut buffer_pool)?;
+            let row_id2 = table.insert(&row2, &mut buffer_pool)?;
+            let row_id3 = table.insert(&row3, &mut buffer_pool)?;
+            table.delete(row_id2, &mut buffer_pool)?;
             (row_id1, row_id3)
         };
 
         let mut table = HeapTable::open(table_id(), test_file.path())?;
-        let scans = table.scan()?;
+        let mut buffer_pool = buffer_pool(&test_file);
+        let scans = table.scan(&mut buffer_pool)?;
 
         assert_eq!(scans, vec![(row_id1, row1), (row_id3, row3)]);
         Ok(())

@@ -77,31 +77,49 @@ impl Database {
                 Ok(ExecuteResult::Command { affected_rows: 0 })
             }
             BoundStatement::Insert(b) => {
-                let heap_table =
-                    Self::get_or_open_table(&mut self.heap_tables, &self.data_dir, b.table_id)?;
+                let heap_table = Self::get_or_open_table(
+                    &mut self.heap_tables,
+                    &mut self.buffer_pool,
+                    &self.data_dir,
+                    b.table_id,
+                )?;
                 let executor = Executor::new(&self.metadata);
-                let _ = executor.execute_insert(&b, heap_table)?;
+                let _ = executor.execute_insert(&b, heap_table, &mut self.buffer_pool)?;
                 Ok(ExecuteResult::Command { affected_rows: 1 })
             }
             BoundStatement::Select(b) => {
-                let heap_table =
-                    Self::get_or_open_table(&mut self.heap_tables, &self.data_dir, b.table_id)?;
+                let heap_table = Self::get_or_open_table(
+                    &mut self.heap_tables,
+                    &mut self.buffer_pool,
+                    &self.data_dir,
+                    b.table_id,
+                )?;
                 let executor = Executor::new(&self.metadata);
-                let results = executor.execute_select(&b, heap_table)?;
+                let results = executor.execute_select(&b, heap_table, &mut self.buffer_pool)?;
                 Ok(ExecuteResult::Rows(results))
             }
             BoundStatement::Update(b) => {
-                let heap_table =
-                    Self::get_or_open_table(&mut self.heap_tables, &self.data_dir, b.table_id)?;
+                let heap_table = Self::get_or_open_table(
+                    &mut self.heap_tables,
+                    &mut self.buffer_pool,
+                    &self.data_dir,
+                    b.table_id,
+                )?;
                 let executor = Executor::new(&self.metadata);
-                let affected_rows = executor.execute_update(&b, heap_table)?;
+                let affected_rows =
+                    executor.execute_update(&b, heap_table, &mut self.buffer_pool)?;
                 Ok(ExecuteResult::Command { affected_rows })
             }
             BoundStatement::Delete(b) => {
-                let heap_table =
-                    Self::get_or_open_table(&mut self.heap_tables, &self.data_dir, b.table_id)?;
+                let heap_table = Self::get_or_open_table(
+                    &mut self.heap_tables,
+                    &mut self.buffer_pool,
+                    &self.data_dir,
+                    b.table_id,
+                )?;
                 let executor = Executor::new(&self.metadata);
-                let affected_rows = executor.execute_delete(&b, heap_table)?;
+                let affected_rows =
+                    executor.execute_delete(&b, heap_table, &mut self.buffer_pool)?;
                 Ok(ExecuteResult::Command { affected_rows })
             }
         }
@@ -137,12 +155,17 @@ impl Database {
         self.heap_tables.insert(table_id, heap_table);
         self.metadata.add_table(table)?;
         self.catalog.save(&self.metadata)?;
+        self.buffer_pool.register_table(
+            table_id,
+            self.data_dir.join(format!("{}.tbl", table_id.id())),
+        );
 
         Ok(table_id)
     }
 
     fn get_or_open_table<'a>(
         heap_tables: &'a mut HashMap<TableId, HeapTable>,
+        buffer_pool: &mut BufferPool,
         data_dir: &Path,
         table_id: TableId,
     ) -> Result<&'a mut HeapTable, DatabaseError> {
@@ -153,6 +176,8 @@ impl Database {
                     table_id,
                     &data_dir.join(format!("{}.tbl", table_id.id())),
                 )?;
+                buffer_pool
+                    .register_table(table_id, data_dir.join(format!("{}.tbl", table_id.id())));
                 Ok(entry.insert(table))
             }
         }
@@ -250,6 +275,7 @@ mod tests {
         {
             let _ = Database::get_or_open_table(
                 &mut database.heap_tables,
+                &mut database.buffer_pool,
                 database.data_dir.as_path(),
                 table_id,
             )?;
@@ -259,6 +285,7 @@ mod tests {
         {
             let _ = Database::get_or_open_table(
                 &mut database.heap_tables,
+                &mut database.buffer_pool,
                 database.data_dir.as_path(),
                 table_id,
             )?;
@@ -296,11 +323,12 @@ mod tests {
         };
         let heap_table = Database::get_or_open_table(
             &mut database.heap_tables,
+            &mut database.buffer_pool,
             database.data_dir.as_path(),
             bound.table_id,
         )?;
         Executor::new(&database.metadata)
-            .execute_insert(&bound, heap_table)
+            .execute_insert(&bound, heap_table, &mut database.buffer_pool)
             .expect("INSERT가 실행되어야 함");
 
         let BoundStatement::Select(bound) =
@@ -310,11 +338,12 @@ mod tests {
         };
         let heap_table = Database::get_or_open_table(
             &mut database.heap_tables,
+            &mut database.buffer_pool,
             database.data_dir.as_path(),
             bound.table_id,
         )?;
         let rows = Executor::new(&database.metadata)
-            .execute_select(&bound, heap_table)
+            .execute_select(&bound, heap_table, &mut database.buffer_pool)
             .expect("SELECT가 실행되어야 함");
         assert_eq!(rows, vec![vec![Value::Varchar("Kim".to_owned())]]);
 
@@ -326,11 +355,12 @@ mod tests {
         };
         let heap_table = Database::get_or_open_table(
             &mut database.heap_tables,
+            &mut database.buffer_pool,
             database.data_dir.as_path(),
             bound.table_id,
         )?;
         let updated = Executor::new(&database.metadata)
-            .execute_update(&bound, heap_table)
+            .execute_update(&bound, heap_table, &mut database.buffer_pool)
             .expect("UPDATE가 실행되어야 함");
         assert_eq!(updated, 1);
 
@@ -340,11 +370,12 @@ mod tests {
         };
         let heap_table = Database::get_or_open_table(
             &mut database.heap_tables,
+            &mut database.buffer_pool,
             database.data_dir.as_path(),
             bound.table_id,
         )?;
         let rows = Executor::new(&database.metadata)
-            .execute_select(&bound, heap_table)
+            .execute_select(&bound, heap_table, &mut database.buffer_pool)
             .expect("SELECT가 실행되어야 함");
         assert_eq!(
             rows,
@@ -358,11 +389,12 @@ mod tests {
         };
         let heap_table = Database::get_or_open_table(
             &mut database.heap_tables,
+            &mut database.buffer_pool,
             database.data_dir.as_path(),
             bound.table_id,
         )?;
         let deleted = Executor::new(&database.metadata)
-            .execute_delete(&bound, heap_table)
+            .execute_delete(&bound, heap_table, &mut database.buffer_pool)
             .expect("DELETE가 실행되어야 함");
         assert_eq!(deleted, 1);
 
@@ -372,11 +404,12 @@ mod tests {
         };
         let heap_table = Database::get_or_open_table(
             &mut database.heap_tables,
+            &mut database.buffer_pool,
             database.data_dir.as_path(),
             bound.table_id,
         )?;
         let rows = Executor::new(&database.metadata)
-            .execute_select(&bound, heap_table)
+            .execute_select(&bound, heap_table, &mut database.buffer_pool)
             .expect("SELECT가 실행되어야 함");
         assert!(rows.is_empty());
         Ok(())
