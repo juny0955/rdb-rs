@@ -55,11 +55,15 @@ impl HeapTable {
         for i in 0..page_count(&self.file)? {
             let page_key = PageKey::new(self.table_id, PageId::new(i));
 
-            let mut frame_guard = buffer_pool.fetch_page(page_key)?;
-            let page = frame_guard.page_mut();
-            match page.insert_row(row) {
+            let result = {
+                let mut frame_guard = buffer_pool.fetch_page(page_key)?;
+                let page = frame_guard.page_mut();
+                page.insert_row(row)
+            };
+
+            match result {
                 Ok(slot_id) => {
-                    frame_guard.flush(&mut self.file)?;
+                    buffer_pool.flush_page(page_key)?;
                     return Ok(RowId::new(page_key.page_id(), slot_id));
                 }
                 Err(PageError::StorageFull) => continue,
@@ -68,10 +72,12 @@ impl HeapTable {
         }
 
         let page_key = self.add_page()?;
-        let mut frame_guard = buffer_pool.fetch_page(page_key)?;
-        let page = frame_guard.page_mut();
-        let slot_id = page.insert_row(row)?;
-        frame_guard.flush(&mut self.file)?;
+        let slot_id = {
+            let mut frame_guard = buffer_pool.fetch_page(page_key)?;
+            let page = frame_guard.page_mut();
+            page.insert_row(row)?
+        };
+        buffer_pool.flush_page(page_key)?;
 
         Ok(RowId::new(page_key.page_id(), slot_id))
     }
@@ -94,11 +100,13 @@ impl HeapTable {
         row: &Row,
         buffer_pool: &mut BufferPool,
     ) -> Result<(), HeapTableError> {
-        let mut frame_guard =
-            buffer_pool.fetch_page(PageKey::new(self.table_id, row_id.page_id()))?;
-        let page = frame_guard.page_mut();
-        page.update_row(row_id.slot_id(), row)?;
-        frame_guard.flush(&mut self.file)?;
+        {
+            let mut frame_guard =
+                buffer_pool.fetch_page(PageKey::new(self.table_id, row_id.page_id()))?;
+            let page = frame_guard.page_mut();
+            page.update_row(row_id.slot_id(), row)?;
+        }
+        buffer_pool.flush_page(PageKey::new(self.table_id, row_id.page_id()))?;
         Ok(())
     }
 
@@ -107,11 +115,13 @@ impl HeapTable {
         row_id: RowId,
         buffer_pool: &mut BufferPool,
     ) -> Result<(), HeapTableError> {
-        let mut frame_guard =
-            buffer_pool.fetch_page(PageKey::new(self.table_id, row_id.page_id()))?;
-        let page = frame_guard.page_mut();
-        page.delete_row(row_id.slot_id())?;
-        frame_guard.flush(&mut self.file)?;
+        {
+            let mut frame_guard =
+                buffer_pool.fetch_page(PageKey::new(self.table_id, row_id.page_id()))?;
+            let page = frame_guard.page_mut();
+            page.delete_row(row_id.slot_id())?;
+        }
+        buffer_pool.flush_page(PageKey::new(self.table_id, row_id.page_id()))?;
         Ok(())
     }
 

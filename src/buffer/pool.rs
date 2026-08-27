@@ -42,15 +42,6 @@ impl<'a> FrameGuard<'a> {
         Self { frame }
     }
 
-    pub(crate) fn flush(&mut self, file: &mut File) -> Result<(), BufferPoolError> {
-        if self.frame.is_dirty() {
-            write_page(file, self.frame.page_key().page_id(), self.frame.page())?;
-            self.frame.mark_clean();
-        }
-
-        Ok(())
-    }
-
     pub(crate) fn page(&self) -> &Page {
         self.frame.page()
     }
