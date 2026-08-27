@@ -1,7 +1,7 @@
 use crate::page::Page;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum NodeType {
+enum NodeType {
     Leaf,
     Internal,
 }
