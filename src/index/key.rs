@@ -1,5 +1,13 @@
 use std::cmp::Ordering;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BTreeKeyType {
+    Int,
+    BigInt,
+    Boolean,
+    Varchar,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum BTreeKey {
     Int(i32),
@@ -18,12 +26,13 @@ impl BTreeKey {
             _ => None,
         }
     }
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BTreeKeyType {
-    Int,
-    BigInt,
-    Boolean,
-    Varchar,
+    pub(crate) fn key_type(&self) -> BTreeKeyType {
+        match self {
+            BTreeKey::Int(_) => BTreeKeyType::Int,
+            BTreeKey::BigInt(_) => BTreeKeyType::BigInt,
+            BTreeKey::Boolean(_) => BTreeKeyType::Boolean,
+            BTreeKey::Varchar(_) => BTreeKeyType::Varchar,
+        }
+    }
 }

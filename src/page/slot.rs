@@ -3,11 +3,16 @@ use crate::page::{HEADER_SIZE, PAGE_SIZE, Page, SLOT_SIZE};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct SlotId(pub(super) u16);
+impl SlotId {
+    pub fn new(id: u16) -> Self {
+        Self(id)
+    }
+}
 
 #[derive(Debug, PartialEq, Eq)]
-pub(super) struct Slot {
-    pub(super) offset: u16,
-    pub(super) length: u16,
+pub struct Slot {
+    pub offset: u16,
+    pub length: u16,
 }
 
 impl Slot {

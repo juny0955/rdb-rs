@@ -321,6 +321,30 @@ fn row_id_동등성_테스트() {
 }
 
 #[test]
+fn row_id를_10바이트로_직렬화한다() {
+    // Given
+    let row_id = RowId(PageId(3), SlotId(7));
+
+    // When
+    let bytes = row_id.to_bytes();
+
+    // Then
+    assert_eq!(bytes, [0, 0, 0, 0, 0, 0, 0, 3, 0, 7]);
+}
+
+#[test]
+fn row_id를_10바이트에서_역직렬화한다() {
+    // Given
+    let bytes = [0, 0, 0, 0, 0, 0, 0, 3, 0, 7];
+
+    // When
+    let row_id = RowId::from_bytes(bytes);
+
+    // Then
+    assert_eq!(row_id, RowId(PageId(3), SlotId(7)));
+}
+
+#[test]
 fn insert_row_테스트() {
     let mut page = Page::new();
 
