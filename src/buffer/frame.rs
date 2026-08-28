@@ -76,11 +76,11 @@ impl BufferFrame {
         self.page_key
     }
 
-    pub(crate) fn page(&self) -> &Page {
+    pub fn page(&self) -> &Page {
         &self.page
     }
 
-    pub(crate) fn page_mut(&mut self) -> &mut Page {
+    pub fn page_mut(&mut self) -> &mut Page {
         self.is_dirty = true;
         &mut self.page
     }

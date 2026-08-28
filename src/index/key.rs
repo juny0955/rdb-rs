@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BTreeKeyType {
+pub enum BTreeKeyType {
     Int,
     BigInt,
     Boolean,
@@ -9,7 +9,7 @@ pub(crate) enum BTreeKeyType {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum BTreeKey {
+pub enum BTreeKey {
     Int(i32),
     BigInt(i64),
     Boolean(bool),
@@ -17,7 +17,7 @@ pub(crate) enum BTreeKey {
 }
 
 impl BTreeKey {
-    pub(crate) fn compare(&self, other: &Self) -> Option<Ordering> {
+    pub fn compare(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
             (BTreeKey::Int(a), BTreeKey::Int(b)) => a.partial_cmp(b),
             (BTreeKey::BigInt(a), BTreeKey::BigInt(b)) => a.partial_cmp(b),
@@ -27,7 +27,7 @@ impl BTreeKey {
         }
     }
 
-    pub(crate) fn key_type(&self) -> BTreeKeyType {
+    pub fn key_type(&self) -> BTreeKeyType {
         match self {
             BTreeKey::Int(_) => BTreeKeyType::Int,
             BTreeKey::BigInt(_) => BTreeKeyType::BigInt,

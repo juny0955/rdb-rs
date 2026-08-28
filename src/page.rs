@@ -144,7 +144,7 @@ impl Page {
         Ok(row)
     }
 
-    pub(crate) fn update_row(&mut self, slot_id: SlotId, row: &Row) -> Result<(), PageError> {
+    pub fn update_row(&mut self, slot_id: SlotId, row: &Row) -> Result<(), PageError> {
         let mut slot = self.read_slot(slot_id)?;
         let slot_length = slot.length as usize;
         let slot_offset = slot.offset as usize;

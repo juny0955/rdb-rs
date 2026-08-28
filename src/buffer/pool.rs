@@ -33,7 +33,7 @@ pub enum BufferPoolError {
     Pager(#[from] PagerError),
 }
 
-pub(crate) struct FrameGuard<'a> {
+pub struct FrameGuard<'a> {
     frame: &'a mut BufferFrame,
 }
 
@@ -42,11 +42,11 @@ impl<'a> FrameGuard<'a> {
         Self { frame }
     }
 
-    pub(crate) fn page(&self) -> &Page {
+    pub fn page(&self) -> &Page {
         self.frame.page()
     }
 
-    pub(crate) fn page_mut(&mut self) -> &mut Page {
+    pub fn page_mut(&mut self) -> &mut Page {
         self.frame.page_mut()
     }
 }
@@ -66,7 +66,7 @@ pub struct BufferPool {
 }
 
 impl BufferPool {
-    pub(crate) fn new(capacity: usize) -> Self {
+    pub fn new(capacity: usize) -> Self {
         let mut frames = Vec::new();
         frames.resize_with(capacity, || None);
         Self {
@@ -77,14 +77,11 @@ impl BufferPool {
         }
     }
 
-    pub(crate) fn register_table(&mut self, table_id: TableId, path: PathBuf) {
+    pub fn register_table(&mut self, table_id: TableId, path: PathBuf) {
         self.table_paths.insert(table_id, path);
     }
 
-    pub(crate) fn fetch_page(
-        &mut self,
-        page_key: PageKey,
-    ) -> Result<FrameGuard<'_>, BufferPoolError> {
+    pub fn fetch_page(&mut self, page_key: PageKey) -> Result<FrameGuard<'_>, BufferPoolError> {
         if self.page_table.get(&page_key).is_some() {
             let frame = self
                 .fetch_cached_frame(page_key)
@@ -130,7 +127,7 @@ impl BufferPool {
         Some(frame)
     }
 
-    pub(crate) fn flush_page(&mut self, page_key: PageKey) -> Result<(), BufferPoolError> {
+    pub fn flush_page(&mut self, page_key: PageKey) -> Result<(), BufferPoolError> {
         let mut file = self.open_table_file(page_key.table_id())?;
         let frame_id = self.get_frame_id(page_key)?;
         let frame = self.get_frame_mut(frame_id)?;
@@ -143,7 +140,7 @@ impl BufferPool {
         Ok(())
     }
 
-    pub(crate) fn evict_clock_victim(&mut self) -> Result<Option<PageKey>, BufferPoolError> {
+    pub fn evict_clock_victim(&mut self) -> Result<Option<PageKey>, BufferPoolError> {
         let Some(frame_id) = self.select_clock_victim() else {
             return Ok(None);
         };

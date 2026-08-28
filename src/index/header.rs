@@ -23,14 +23,14 @@ impl NodeType {
     }
 }
 
-pub(crate) struct BTreePageHeader {
+pub struct BTreePageHeader {
     node_type: NodeType,
     entry_count: u16,
     entry_end: u16,
 }
 
 impl BTreePageHeader {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             node_type: NodeType::Leaf,
             entry_count: 0,
@@ -38,7 +38,7 @@ impl BTreePageHeader {
         }
     }
 
-    pub(crate) fn to_bytes(&self) -> [u8; 5] {
+    pub fn to_bytes(&self) -> [u8; 5] {
         let mut bytes = [0u8; 5];
         bytes[0] = self.node_type.to_byte();
         bytes[1..3].copy_from_slice(&self.entry_count.to_be_bytes());
@@ -46,7 +46,7 @@ impl BTreePageHeader {
         bytes
     }
 
-    pub(crate) fn from_bytes(bytes: [u8; 5]) -> Option<Self> {
+    pub fn from_bytes(bytes: [u8; 5]) -> Option<Self> {
         let node_type = NodeType::from_byte(bytes[0])?;
         let entry_count = u16::from_be_bytes([bytes[1], bytes[2]]);
         let entry_end = u16::from_be_bytes([bytes[3], bytes[4]]);
@@ -62,17 +62,17 @@ impl BTreePageHeader {
         })
     }
 
-    pub(crate) fn write_to_page(&self, page: &mut Page) {
+    pub fn write_to_page(&self, page: &mut Page) {
         let page_bytes = page.as_bytes_mut();
         page_bytes[0..5].copy_from_slice(&self.to_bytes());
     }
 
-    pub(crate) fn read_from_page(page: &Page) -> Option<Self> {
+    pub fn read_from_page(page: &Page) -> Option<Self> {
         let page_bytes = page.as_bytes();
         Self::from_bytes(page_bytes[0..5].try_into().ok()?)
     }
 
-    pub(crate) fn append_entry(&mut self, entry_len: u16) -> Option<()> {
+    pub fn append_entry(&mut self, entry_len: u16) -> Option<()> {
         let next_count = self.entry_count.checked_add(1)?;
         let next_end = self.entry_end.checked_add(entry_len)?;
 
@@ -81,18 +81,18 @@ impl BTreePageHeader {
         Some(())
     }
 
-    pub(crate) fn is_leaf(&self) -> bool {
+    pub fn is_leaf(&self) -> bool {
         match &self.node_type {
             NodeType::Leaf => true,
             NodeType::Internal => false,
         }
     }
 
-    pub(crate) fn entry_end(&self) -> u16 {
+    pub fn entry_end(&self) -> u16 {
         self.entry_end
     }
 
-    pub(crate) fn entry_count(&self) -> u16 {
+    pub fn entry_count(&self) -> u16 {
         self.entry_count
     }
 }

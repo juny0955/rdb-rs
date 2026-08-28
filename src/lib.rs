@@ -1,5 +1,5 @@
 pub mod binder;
-pub(crate) mod buffer;
+pub mod buffer;
 mod catalog;
 pub mod database;
 pub mod executor;

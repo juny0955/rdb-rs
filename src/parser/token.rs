@@ -1,7 +1,7 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Token {
-    pub(crate) kind: TokenKind,
-    pub(crate) offset: usize,
+    pub kind: TokenKind,
+    pub offset: usize,
 }
 
 impl Token {

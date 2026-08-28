@@ -9,7 +9,7 @@ use crate::{
 use thiserror::Error;
 
 mod bound;
-pub(crate) use bound::*;
+pub use bound::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum BinderError {
