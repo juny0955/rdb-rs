@@ -14,9 +14,9 @@ mod free_space;
 mod pager;
 mod slot;
 
-pub(crate) use error::{PageError, PagerError};
+pub use error::{PageError, PagerError};
 use free_space::row_allocation_size;
-pub(crate) use pager::{allocate_page, page_count, read_page, write_page};
+pub use pager::{allocate_page, page_count, read_page, write_page};
 use slot::Slot;
 pub use slot::SlotId;
 
@@ -28,6 +28,14 @@ pub struct PageId(u64);
 impl PageId {
     pub fn new(page_id: u64) -> Self {
         PageId(page_id)
+    }
+
+    pub fn to_bytes(&self) -> [u8; 8] {
+        self.0.to_be_bytes()
+    }
+
+    pub fn from_bytes(bytes: [u8; 8]) -> Self {
+        PageId(u64::from_be_bytes(bytes))
     }
 }
 
@@ -80,12 +88,12 @@ impl Row {
 }
 
 #[derive(Debug)]
-pub(crate) struct Page {
+pub struct Page {
     data: [u8; PAGE_SIZE],
 }
 
 impl Page {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         let mut page = Self {
             data: [0u8; PAGE_SIZE],
         };
@@ -96,13 +104,13 @@ impl Page {
         page
     }
 
-    pub(crate) fn new_raw() -> Self {
+    pub fn new_raw() -> Self {
         Self {
             data: [0u8; PAGE_SIZE],
         }
     }
 
-    pub(crate) fn insert_row(&mut self, row: &Row) -> Result<SlotId, PageError> {
+    pub fn insert_row(&mut self, row: &Row) -> Result<SlotId, PageError> {
         let row_bytes = row.to_bytes();
         let row_len = row_bytes.len();
         let allocate_len = row_allocation_size(row_len);
@@ -125,7 +133,7 @@ impl Page {
         }
     }
 
-    pub(crate) fn read_row(&self, slot_id: SlotId) -> Result<Row, PageError> {
+    pub fn read_row(&self, slot_id: SlotId) -> Result<Row, PageError> {
         let slot = self.read_slot(slot_id)?;
         let row_end = slot.offset as usize + slot.length as usize;
         if row_end > PAGE_SIZE || slot.offset < self.free_end() {
@@ -197,7 +205,7 @@ impl Page {
         Ok(())
     }
 
-    pub(crate) fn delete_row(&mut self, slot_id: SlotId) -> Result<(), PageError> {
+    pub fn delete_row(&mut self, slot_id: SlotId) -> Result<(), PageError> {
         let mut slot = self.read_slot(slot_id)?;
         let row_offset = slot.offset;
         let allocate_len = row_allocation_size(slot.length as usize);
@@ -225,11 +233,11 @@ impl Page {
         Ok(scans)
     }
 
-    pub(crate) fn as_bytes(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &[u8] {
         &self.data
     }
 
-    pub(crate) fn as_bytes_mut(&mut self) -> &mut [u8] {
+    pub fn as_bytes_mut(&mut self) -> &mut [u8] {
         &mut self.data
     }
 

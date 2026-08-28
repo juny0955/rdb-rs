@@ -444,7 +444,7 @@ Full Table Scan 없이 데이터를 검색할 수 있도록 B+Tree Index를 구�
 ### 구현
 
 * [x] B+Tree Page Format
-* [ ] Leaf Node
+* [x] Leaf Node
 * [ ] Internal Node
 * [ ] Search
 * [ ] Insert

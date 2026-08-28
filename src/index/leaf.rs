@@ -6,22 +6,81 @@ use crate::{
     page::{Page, RowId},
 };
 
-pub(crate) fn initialize_leaf_page(page: &mut Page) {
+pub fn initialize_leaf_page(page: &mut Page) {
     page.as_bytes_mut().fill(0);
     BTreePageHeader::new().write_to_page(page);
 }
 
-pub(crate) struct LeafEntry {
+pub fn append_leaf_entry(page: &mut Page, entry: &LeafEntry) -> Option<()> {
+    let mut header = BTreePageHeader::read_from_page(page)?;
+    if !header.is_leaf() {
+        return None;
+    }
+
+    let entry_bytes = entry.to_bytes()?;
+    let start = header.entry_end() as usize;
+    let end = start.checked_add(entry_bytes.len())?;
+    if end > page.as_bytes().len() {
+        return None;
+    }
+
+    header.append_entry(u16::try_from(entry_bytes.len()).ok()?)?;
+    page.as_bytes_mut()[start..end].copy_from_slice(&entry_bytes);
+    header.write_to_page(page);
+    Some(())
+}
+
+pub fn read_leaf_entries(page: &Page, key_type: BTreeKeyType) -> Option<Vec<LeafEntry>> {
+    let header = BTreePageHeader::read_from_page(page)?;
+    if !header.is_leaf() {
+        return None;
+    }
+
+    let page_bytes = page.as_bytes();
+    if header.entry_end() as usize > page_bytes.len() {
+        return None;
+    }
+    let mut entries = Vec::new();
+    let mut offset = 5;
+    for _ in 0..header.entry_count() {
+        if offset + 2 > header.entry_end() as usize {
+            return None;
+        }
+
+        let key_len = u16::from_be_bytes([page_bytes[offset], page_bytes[offset + 1]]);
+        let entry_end = offset
+            .checked_add(2)?
+            .checked_add(key_len as usize)?
+            .checked_add(10)?;
+        if entry_end > header.entry_end() as usize {
+            return None;
+        }
+
+        entries.push(LeafEntry::from_bytes(
+            key_type,
+            &page_bytes[offset..entry_end],
+        )?);
+        offset = entry_end;
+    }
+
+    if offset != header.entry_end() as usize {
+        return None;
+    }
+
+    Some(entries)
+}
+
+pub struct LeafEntry {
     key: BTreeKey,
     row_id: RowId,
 }
 
 impl LeafEntry {
-    pub(crate) fn new(key: BTreeKey, row_id: RowId) -> Self {
+    pub fn new(key: BTreeKey, row_id: RowId) -> Self {
         Self { key, row_id }
     }
 
-    pub(crate) fn from_bytes(key_type: BTreeKeyType, bytes: &[u8]) -> Option<Self> {
+    pub fn from_bytes(key_type: BTreeKeyType, bytes: &[u8]) -> Option<Self> {
         if bytes.len() < 2 {
             return None;
         }
@@ -59,7 +118,7 @@ impl LeafEntry {
         Some(Self { key, row_id })
     }
 
-    pub(crate) fn to_bytes(&self) -> Option<Vec<u8>> {
+    pub fn to_bytes(&self) -> Option<Vec<u8>> {
         let mut bytes = Vec::new();
         let key_bytes = match &self.key {
             BTreeKey::Int(v) => v.to_be_bytes().to_vec(),
@@ -82,7 +141,7 @@ impl LeafEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::page::{PageId, SlotId};
+    use crate::page::{Page, PageId, SlotId};
 
     #[test]
     fn int_leaf_entry를_바이트로_직렬화한다() {
@@ -154,5 +213,82 @@ mod tests {
 
         // Then
         assert!(entry.is_none());
+    }
+
+    #[test]
+    fn leaf_page에_첫_entry를_추가한다() {
+        // Given
+        let mut page = Page::new_raw();
+        initialize_leaf_page(&mut page);
+        let entry = LeafEntry::new(
+            BTreeKey::Int(42),
+            RowId::new(PageId::new(3), SlotId::new(7)),
+        );
+
+        // When
+        let result = append_leaf_entry(&mut page, &entry);
+
+        // Then
+        assert_eq!(result, Some(()));
+        assert_eq!(&page.as_bytes()[0..5], &[0, 0, 1, 0, 21]);
+        assert_eq!(
+            &page.as_bytes()[5..21],
+            &[0, 4, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0, 3, 0, 7]
+        );
+    }
+
+    #[test]
+    fn leaf_page에서_entry를_읽는다() {
+        // Given
+        let mut page = Page::new_raw();
+        initialize_leaf_page(&mut page);
+        let entry = LeafEntry::new(
+            BTreeKey::Int(42),
+            RowId::new(PageId::new(3), SlotId::new(7)),
+        );
+        let appended = append_leaf_entry(&mut page, &entry);
+
+        // When
+        let entries = read_leaf_entries(&page, BTreeKeyType::Int);
+
+        // Then
+        assert_eq!(entries.as_ref().map(Vec::len), Some(1));
+        assert_eq!(
+            entries
+                .and_then(|entries| entries.into_iter().next())
+                .and_then(|entry| entry.to_bytes()),
+            Some(vec![0, 4, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0, 3, 0, 7])
+        );
+        assert_eq!(appended, Some(()));
+    }
+
+    #[test]
+    fn 공간이_부족하면_leaf_entry를_추가하지_않는다() {
+        // Given
+        let mut page = Page::new_raw();
+        initialize_leaf_page(&mut page);
+        let full_entry = LeafEntry::new(
+            BTreeKey::Varchar("x".repeat(8175)),
+            RowId::new(PageId::new(3), SlotId::new(7)),
+        );
+        assert_eq!(append_leaf_entry(&mut page, &full_entry), Some(()));
+        let page_before_append = page.as_bytes().to_vec();
+        let entry = LeafEntry::new(
+            BTreeKey::Int(42),
+            RowId::new(PageId::new(4), SlotId::new(8)),
+        );
+
+        // When
+        let result = append_leaf_entry(&mut page, &entry);
+
+        // Then
+        assert_eq!(result, None);
+        assert_eq!(page.as_bytes(), page_before_append);
+        assert_eq!(
+            read_leaf_entries(&page, BTreeKeyType::Varchar)
+                .and_then(|entries| entries.into_iter().next())
+                .and_then(|entry| entry.to_bytes()),
+            full_entry.to_bytes()
+        );
     }
 }
