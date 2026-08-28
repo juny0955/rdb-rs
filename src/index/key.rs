@@ -35,4 +35,38 @@ impl BTreeKey {
             BTreeKey::Varchar(_) => BTreeKeyType::Varchar,
         }
     }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        match self {
+            BTreeKey::Int(v) => v.to_be_bytes().to_vec(),
+            BTreeKey::BigInt(v) => v.to_be_bytes().to_vec(),
+            BTreeKey::Boolean(v) => {
+                if *v {
+                    vec![u8::from_be(1)]
+                } else {
+                    vec![u8::from_be(0)]
+                }
+            }
+            BTreeKey::Varchar(v) => v.as_bytes().to_vec(),
+        }
+    }
+
+    pub fn from_bytes(key_type: BTreeKeyType, bytes: &[u8]) -> Option<Self> {
+        Some(match key_type {
+            BTreeKeyType::Int => BTreeKey::Int(i32::from_be_bytes(bytes.try_into().ok()?)),
+            BTreeKeyType::BigInt => BTreeKey::BigInt(i64::from_be_bytes(bytes.try_into().ok()?)),
+            BTreeKeyType::Boolean => match bytes {
+                [0] => BTreeKey::Boolean(false),
+                [1] => BTreeKey::Boolean(true),
+                _ => return None,
+            },
+            BTreeKeyType::Varchar => {
+                let Ok(value) = String::from_utf8(bytes.to_vec()) else {
+                    return None;
+                };
+
+                BTreeKey::Varchar(value)
+            }
+        })
+    }
 }

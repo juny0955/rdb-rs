@@ -8,7 +8,7 @@ use crate::{
 
 pub fn initialize_leaf_page(page: &mut Page) {
     page.as_bytes_mut().fill(0);
-    BTreePageHeader::new().write_to_page(page);
+    BTreePageHeader::new_leaf().write_to_page(page);
 }
 
 pub fn append_leaf_entry(page: &mut Page, entry: &LeafEntry) -> Option<()> {
@@ -92,24 +92,7 @@ impl LeafEntry {
 
         let key_end = 2 + key_len;
         let key_bytes = &bytes[2..key_end];
-        let key = match key_type {
-            BTreeKeyType::Int => BTreeKey::Int(i32::from_be_bytes(key_bytes.try_into().ok()?)),
-            BTreeKeyType::BigInt => {
-                BTreeKey::BigInt(i64::from_be_bytes(key_bytes.try_into().ok()?))
-            }
-            BTreeKeyType::Boolean => match key_bytes {
-                [0] => BTreeKey::Boolean(false),
-                [1] => BTreeKey::Boolean(true),
-                _ => return None,
-            },
-            BTreeKeyType::Varchar => {
-                let Ok(value) = String::from_utf8(key_bytes.to_vec()) else {
-                    return None;
-                };
-
-                BTreeKey::Varchar(value)
-            }
-        };
+        let key = BTreeKey::from_bytes(key_type, key_bytes)?;
 
         let row_id_start = 2 + key_len;
         let row_id_bytes: [u8; 10] = bytes[row_id_start..].try_into().ok()?;
@@ -120,16 +103,8 @@ impl LeafEntry {
 
     pub fn to_bytes(&self) -> Option<Vec<u8>> {
         let mut bytes = Vec::new();
-        let key_bytes = match &self.key {
-            BTreeKey::Int(v) => v.to_be_bytes().to_vec(),
-            BTreeKey::BigInt(v) => v.to_be_bytes().to_vec(),
-            BTreeKey::Boolean(v) => u8::from(*v).to_be_bytes().to_vec(),
-            BTreeKey::Varchar(v) => v.as_bytes().to_vec(),
-        };
-
-        let Ok(key_len) = u16::try_from(key_bytes.len()) else {
-            return None;
-        };
+        let key_bytes = self.key.to_bytes();
+        let key_len = u16::try_from(key_bytes.len()).ok()?;
 
         bytes.extend_from_slice(key_len.to_be_bytes().as_ref());
         bytes.extend_from_slice(&key_bytes);

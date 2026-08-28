@@ -30,7 +30,7 @@ impl PageId {
         PageId(page_id)
     }
 
-    pub fn to_bytes(&self) -> [u8; 8] {
+    pub fn to_bytes(self) -> [u8; 8] {
         self.0.to_be_bytes()
     }
 
@@ -54,7 +54,7 @@ impl RowId {
         self.1
     }
 
-    pub fn to_bytes(&self) -> [u8; 10] {
+    pub fn to_bytes(self) -> [u8; 10] {
         let mut bytes = [0u8; 10];
         bytes[0..8].copy_from_slice(&self.page_id().0.to_be_bytes());
         bytes[8..10].copy_from_slice(&self.slot_id().0.to_be_bytes());
