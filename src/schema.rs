@@ -32,6 +32,24 @@ impl ColumnId {
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub struct IndexId(u32);
+impl IndexId {
+    pub fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    pub fn id(&self) -> u32 {
+        self.0
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+pub enum RelationId {
+    Heap(TableId),
+    Index(IndexId),
+}
+
 #[derive(Debug, PartialEq, Eq, Error)]
 pub enum SchemaError {
     #[error("컬럼 이름이 중복됩니다: {0}")]

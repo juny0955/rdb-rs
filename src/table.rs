@@ -6,6 +6,7 @@ use std::{
 
 use thiserror::Error;
 
+use crate::schema::RelationId;
 use crate::{
     buffer::{BufferPool, BufferPoolError, page_key::PageKey},
     file::{open_rw, open_rw_create},
@@ -27,24 +28,30 @@ pub enum HeapTableError {
 
 #[derive(Debug)]
 pub struct HeapTable {
-    table_id: TableId,
+    relation_id: RelationId,
     file: File,
 }
 
 impl HeapTable {
     pub fn open(table_id: TableId, path: &Path) -> Result<Self, HeapTableError> {
         let file = open_rw_create(path)?;
-        Ok(Self { table_id, file })
+        Ok(Self {
+            relation_id: RelationId::Heap(table_id),
+            file,
+        })
     }
 
     pub fn open_existing(table_id: TableId, path: &Path) -> Result<Self, HeapTableError> {
         let file = open_rw(path)?;
-        Ok(Self { table_id, file })
+        Ok(Self {
+            relation_id: RelationId::Heap(table_id),
+            file,
+        })
     }
 
     pub fn add_page(&mut self) -> Result<PageKey, HeapTableError> {
         let page_id = allocate_page(&mut self.file)?;
-        Ok(PageKey::new(self.table_id, page_id))
+        Ok(PageKey::new(self.relation_id, page_id))
     }
 
     pub fn insert(
@@ -53,7 +60,7 @@ impl HeapTable {
         buffer_pool: &mut BufferPool,
     ) -> Result<RowId, HeapTableError> {
         for i in 0..page_count(&self.file)? {
-            let page_key = PageKey::new(self.table_id, PageId::new(i));
+            let page_key = PageKey::new(self.relation_id, PageId::new(i));
 
             let result = {
                 let mut frame_guard = buffer_pool.fetch_page(page_key)?;
@@ -87,7 +94,8 @@ impl HeapTable {
         row_id: RowId,
         buffer_pool: &mut BufferPool,
     ) -> Result<Row, HeapTableError> {
-        let frame_guard = buffer_pool.fetch_page(PageKey::new(self.table_id, row_id.page_id()))?;
+        let frame_guard =
+            buffer_pool.fetch_page(PageKey::new(self.relation_id, row_id.page_id()))?;
         let page = frame_guard.page();
         let row = page.read_row(row_id.slot_id())?;
 
@@ -102,11 +110,11 @@ impl HeapTable {
     ) -> Result<(), HeapTableError> {
         {
             let mut frame_guard =
-                buffer_pool.fetch_page(PageKey::new(self.table_id, row_id.page_id()))?;
+                buffer_pool.fetch_page(PageKey::new(self.relation_id, row_id.page_id()))?;
             let page = frame_guard.page_mut();
             page.update_row(row_id.slot_id(), row)?;
         }
-        buffer_pool.flush_page(PageKey::new(self.table_id, row_id.page_id()))?;
+        buffer_pool.flush_page(PageKey::new(self.relation_id, row_id.page_id()))?;
         Ok(())
     }
 
@@ -117,11 +125,11 @@ impl HeapTable {
     ) -> Result<(), HeapTableError> {
         {
             let mut frame_guard =
-                buffer_pool.fetch_page(PageKey::new(self.table_id, row_id.page_id()))?;
+                buffer_pool.fetch_page(PageKey::new(self.relation_id, row_id.page_id()))?;
             let page = frame_guard.page_mut();
             page.delete_row(row_id.slot_id())?;
         }
-        buffer_pool.flush_page(PageKey::new(self.table_id, row_id.page_id()))?;
+        buffer_pool.flush_page(PageKey::new(self.relation_id, row_id.page_id()))?;
         Ok(())
     }
 
@@ -136,7 +144,7 @@ impl HeapTable {
         }
 
         for i in 0..page_count {
-            let page_key = PageKey::new(self.table_id, PageId::new(i));
+            let page_key = PageKey::new(self.relation_id, PageId::new(i));
             let frame_guard = buffer_pool.fetch_page(page_key)?;
             let page = frame_guard.page();
 
@@ -153,7 +161,7 @@ impl HeapTable {
 #[cfg(test)]
 mod tests {
     use crate::page::read_page;
-    use crate::schema::TableId;
+    use crate::schema::{RelationId, TableId};
     use crate::test_supports::TestFile;
 
     use super::*;
@@ -164,7 +172,7 @@ mod tests {
 
     fn buffer_pool(test_file: &TestFile) -> BufferPool {
         let mut buffer_pool = BufferPool::new(16);
-        buffer_pool.register_table(table_id(), test_file.path().to_path_buf());
+        buffer_pool.register_relation(RelationId::Heap(table_id()), test_file.path().to_path_buf());
         buffer_pool
     }
 

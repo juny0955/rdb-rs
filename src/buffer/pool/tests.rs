@@ -1,14 +1,14 @@
 use super::*;
 use crate::page::{Page, PageId, PagerError, Row, allocate_page, read_page, write_page};
-use crate::schema::TableId;
+use crate::schema::{RelationId, TableId};
 use tempfile::NamedTempFile;
 
 fn key(page_id: u64) -> PageKey {
-    PageKey::new(TableId::new(1), PageId::new(page_id))
+    PageKey::new(RelationId::Heap(TableId::new(1)), PageId::new(page_id))
 }
 
 fn page_key(page_id: PageId) -> PageKey {
-    PageKey::new(TableId::new(1), page_id)
+    PageKey::new(RelationId::Heap(TableId::new(1)), page_id)
 }
 
 fn frame(page_id: u64) -> BufferFrame {
@@ -16,7 +16,10 @@ fn frame(page_id: u64) -> BufferFrame {
 }
 
 fn register_test_file(pool: &mut BufferPool, test_file: &NamedTempFile) {
-    pool.register_table(TableId::new(1), test_file.path().to_path_buf());
+    pool.register_relation(
+        RelationId::Heap(TableId::new(1)),
+        test_file.path().to_path_buf(),
+    );
 }
 
 fn unpin_frame(pool: &mut BufferPool, page_key: PageKey) {
@@ -134,7 +137,8 @@ fn 등록되지_않은_table의_page를_fetch하면_오류다() {
 
     assert!(matches!(
         pool.fetch_page(key(0)),
-        Err(BufferPoolError::TableNotRegistered(id)) if id == TableId::new(1)
+        Err(BufferPoolError::RelationNotRegistered(id))
+            if id == RelationId::Heap(TableId::new(1))
     ));
 }
 
@@ -160,11 +164,13 @@ fn 다른_table의_같은_page_id는_서로_다른_frame에_저장된다() -> Re
     let second_slot_id = second_page.insert_row(&second_row)?;
     write_page(&mut second_table_file, page_id, &second_page)?;
 
-    let first_key = PageKey::new(first_table_id, page_id);
-    let second_key = PageKey::new(second_table_id, page_id);
+    let first_relation = RelationId::Heap(first_table_id);
+    let second_relation = RelationId::Heap(second_table_id);
+    let first_key = PageKey::new(first_relation, page_id);
+    let second_key = PageKey::new(second_relation, page_id);
     let mut pool = BufferPool::new(2);
-    pool.register_table(first_table_id, first_file.path().to_path_buf());
-    pool.register_table(second_table_id, second_file.path().to_path_buf());
+    pool.register_relation(first_relation, first_file.path().to_path_buf());
+    pool.register_relation(second_relation, second_file.path().to_path_buf());
 
     {
         let first_frame = pool.fetch_page(first_key)?;
@@ -194,11 +200,13 @@ fn 다른_table의_dirty_victim을_evict하면_원래_file에_기록한다()
     let page_id = allocate_page(&mut first_table_file)?;
     assert_eq!(allocate_page(&mut second_table_file)?, page_id);
 
-    let first_key = PageKey::new(first_table_id, page_id);
-    let second_key = PageKey::new(second_table_id, page_id);
+    let first_relation = RelationId::Heap(first_table_id);
+    let second_relation = RelationId::Heap(second_table_id);
+    let first_key = PageKey::new(first_relation, page_id);
+    let second_key = PageKey::new(second_relation, page_id);
     let mut pool = BufferPool::new(1);
-    pool.register_table(first_table_id, first_file.path().to_path_buf());
-    pool.register_table(second_table_id, second_file.path().to_path_buf());
+    pool.register_relation(first_relation, first_file.path().to_path_buf());
+    pool.register_relation(second_relation, second_file.path().to_path_buf());
 
     let row = Row::from_bytes(b"dirty victim");
     let slot_id = {
@@ -423,7 +431,7 @@ fn clock은_unpinned_reference_false_frame을_선택한다() {
     pool.frames[frame_id.index()]
         .as_mut()
         .expect("frame이 있어야 한다")
-        .unreference();
+        .unreferenced();
 
     assert_eq!(pool.select_clock_victim(), Some(frame_id));
 }
@@ -442,7 +450,7 @@ fn clock은_reference_true_frame에_second_chance를_준다() {
     pool.frames[second_frame_id.index()]
         .as_mut()
         .expect("두 번째 frame이 있어야 한다")
-        .unreference();
+        .unreferenced();
 
     assert_eq!(pool.select_clock_victim(), Some(second_frame_id));
     assert!(
@@ -466,7 +474,7 @@ fn clock은_pinned_frame을_건너뛴다() {
     pool.frames[candidate_frame_id.index()]
         .as_mut()
         .expect("후보 frame이 있어야 한다")
-        .unreference();
+        .unreferenced();
 
     assert_eq!(pool.select_clock_victim(), Some(candidate_frame_id));
     assert!(
@@ -520,7 +528,7 @@ fn clock_victim을_evict하면_page와_frame_매핑을_제거한다() {
     pool.frames[frame_id.index()]
         .as_mut()
         .expect("frame이 있어야 한다")
-        .unreference();
+        .unreferenced();
 
     assert!(matches!(
         pool.evict_clock_victim(),
@@ -546,7 +554,7 @@ fn dirty_clock_victim을_evict하면_disk에_기록한다() -> Result<(), Box<dy
     pool.frames[frame_id.index()]
         .as_mut()
         .expect("frame이 있어야 한다")
-        .unreference();
+        .unreferenced();
 
     assert_eq!(pool.evict_clock_victim()?, Some(page_key));
     assert!(pool.frames[frame_id.index()].is_none());

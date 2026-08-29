@@ -1,13 +1,14 @@
-use crate::{page::PageId, schema::TableId};
+use crate::page::PageId;
+use crate::schema::RelationId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PageKey(TableId, PageId);
+pub struct PageKey(RelationId, PageId);
 impl PageKey {
-    pub fn new(table_id: TableId, page_id: PageId) -> Self {
-        Self(table_id, page_id)
+    pub fn new(relation_id: RelationId, page_id: PageId) -> Self {
+        Self(relation_id, page_id)
     }
 
-    pub fn table_id(&self) -> TableId {
+    pub fn relation_id(&self) -> RelationId {
         self.0
     }
 

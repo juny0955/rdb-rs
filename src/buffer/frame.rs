@@ -56,7 +56,7 @@ impl BufferFrame {
         self.is_dirty = false;
     }
 
-    pub(super) fn unreference(&mut self) {
+    pub(super) fn unreferenced(&mut self) {
         self.referenced = false;
     }
 
@@ -89,10 +89,14 @@ impl BufferFrame {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{buffer::page_key::PageKey, page::PageId, schema::TableId};
+    use crate::{
+        buffer::page_key::PageKey,
+        page::PageId,
+        schema::{RelationId, TableId},
+    };
 
     fn page_key(page_id: u64) -> PageKey {
-        PageKey::new(TableId::new(1), PageId::new(page_id))
+        PageKey::new(RelationId::Heap(TableId::new(1)), PageId::new(page_id))
     }
 
     #[test]
@@ -127,7 +131,7 @@ mod tests {
 
         assert!(frame.is_referenced());
 
-        frame.unreference();
+        frame.unreferenced();
         assert!(!frame.is_referenced());
 
         frame

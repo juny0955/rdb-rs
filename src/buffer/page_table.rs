@@ -44,10 +44,17 @@ impl PageTable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{buffer::page_key::PageKey, page::PageId, schema::TableId};
+    use crate::{
+        buffer::page_key::PageKey,
+        page::PageId,
+        schema::{RelationId, TableId},
+    };
 
     fn page_key(table_id: u32, page_id: u64) -> PageKey {
-        PageKey::new(TableId::new(table_id), PageId::new(page_id))
+        PageKey::new(
+            RelationId::Heap(TableId::new(table_id)),
+            PageId::new(page_id),
+        )
     }
 
     #[test]

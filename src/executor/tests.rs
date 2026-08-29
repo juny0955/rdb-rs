@@ -8,7 +8,9 @@ use crate::{
     buffer::BufferPool,
     page::PageError,
     parser::ast::Literal,
-    schema::{ColumnId, ColumnMetadata, DataType, DatabaseMetadata, TableId, TableMetadata},
+    schema::{
+        ColumnId, ColumnMetadata, DataType, DatabaseMetadata, RelationId, TableId, TableMetadata,
+    },
     table::{HeapTable, HeapTableError},
     test_supports::TestDirectory,
     tuple::{Value, decode, encode},
@@ -32,7 +34,7 @@ fn database(table_id: TableId) -> DatabaseMetadata {
 
 fn buffer_pool(table_id: TableId, path: &Path) -> BufferPool {
     let mut buffer_pool = BufferPool::new(16);
-    buffer_pool.register_table(table_id, path.to_path_buf());
+    buffer_pool.register_relation(RelationId::Heap(table_id), path.to_path_buf());
     buffer_pool
 }
 

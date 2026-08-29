@@ -3,6 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use crate::schema::RelationId;
 use crate::{
     binder::{Binder, BinderError, BoundCreateTable, BoundStatement},
     buffer::BufferPool,
@@ -155,8 +156,8 @@ impl Database {
         self.heap_tables.insert(table_id, heap_table);
         self.metadata.add_table(table)?;
         self.catalog.save(&self.metadata)?;
-        self.buffer_pool.register_table(
-            table_id,
+        self.buffer_pool.register_relation(
+            RelationId::Heap(table_id),
             self.data_dir.join(format!("{}.tbl", table_id.id())),
         );
 
@@ -176,8 +177,10 @@ impl Database {
                     table_id,
                     &data_dir.join(format!("{}.tbl", table_id.id())),
                 )?;
-                buffer_pool
-                    .register_table(table_id, data_dir.join(format!("{}.tbl", table_id.id())));
+                buffer_pool.register_relation(
+                    RelationId::Heap(table_id),
+                    data_dir.join(format!("{}.tbl", table_id.id())),
+                );
                 Ok(entry.insert(table))
             }
         }

@@ -1,3 +1,7 @@
+use std::cmp::Ordering;
+
+use thiserror::Error;
+
 use crate::{
     index::{
         header::BTreePageHeader,
@@ -30,46 +34,74 @@ pub fn append_leaf_entry(page: &mut Page, entry: &LeafEntry) -> Option<()> {
     Some(())
 }
 
-pub fn read_leaf_entries(page: &Page, key_type: BTreeKeyType) -> Option<Vec<LeafEntry>> {
-    let header = BTreePageHeader::read_from_page(page)?;
+pub fn read_leaf_entries(
+    page: &Page,
+    key_type: BTreeKeyType,
+) -> Result<Vec<LeafEntry>, LeafPageError> {
+    let header = BTreePageHeader::read_from_page(page).ok_or(LeafPageError::InvalidPage)?;
     if !header.is_leaf() {
-        return None;
+        return Err(LeafPageError::InvalidPage);
     }
 
     let page_bytes = page.as_bytes();
     if header.entry_end() as usize > page_bytes.len() {
-        return None;
+        return Err(LeafPageError::InvalidPage);
     }
     let mut entries = Vec::new();
     let mut offset = 5;
     for _ in 0..header.entry_count() {
         if offset + 2 > header.entry_end() as usize {
-            return None;
+            return Err(LeafPageError::InvalidPage);
         }
 
         let key_len = u16::from_be_bytes([page_bytes[offset], page_bytes[offset + 1]]);
         let entry_end = offset
-            .checked_add(2)?
-            .checked_add(key_len as usize)?
-            .checked_add(10)?;
+            .checked_add(2)
+            .ok_or(LeafPageError::InvalidPage)?
+            .checked_add(key_len as usize)
+            .ok_or(LeafPageError::InvalidPage)?
+            .checked_add(10)
+            .ok_or(LeafPageError::InvalidPage)?;
         if entry_end > header.entry_end() as usize {
-            return None;
+            return Err(LeafPageError::InvalidPage);
         }
 
-        entries.push(LeafEntry::from_bytes(
-            key_type,
-            &page_bytes[offset..entry_end],
-        )?);
+        entries.push(
+            LeafEntry::from_bytes(key_type, &page_bytes[offset..entry_end])
+                .ok_or(LeafPageError::InvalidPage)?,
+        );
         offset = entry_end;
     }
 
     if offset != header.entry_end() as usize {
-        return None;
+        return Err(LeafPageError::InvalidPage);
     }
 
-    Some(entries)
+    Ok(entries)
 }
 
+pub fn find_leaf_entry(
+    page: &Page,
+    key_type: BTreeKeyType,
+    target: &BTreeKey,
+) -> Result<Option<RowId>, LeafPageError> {
+    let entries = read_leaf_entries(page, key_type)?;
+    for entry in &entries {
+        if let Some(Ordering::Equal) = entry.key.compare(target) {
+            return Ok(Some(entry.row_id));
+        }
+    }
+
+    Ok(None)
+}
+
+#[derive(Debug, Error)]
+pub enum LeafPageError {
+    #[error("leaf page가 손상되었습니다")]
+    InvalidPage,
+}
+
+#[derive(Debug)]
 pub struct LeafEntry {
     key: BTreeKey,
     row_id: RowId,
@@ -224,17 +256,55 @@ mod tests {
         let appended = append_leaf_entry(&mut page, &entry);
 
         // When
-        let entries = read_leaf_entries(&page, BTreeKeyType::Int);
+        let entries = read_leaf_entries(&page, BTreeKeyType::Int)
+            .expect("정상 leaf page의 entry를 읽을 수 있어야 한다");
 
         // Then
-        assert_eq!(entries.as_ref().map(Vec::len), Some(1));
+        assert_eq!(entries.len(), 1);
         assert_eq!(
             entries
-                .and_then(|entries| entries.into_iter().next())
+                .into_iter()
+                .next()
                 .and_then(|entry| entry.to_bytes()),
             Some(vec![0, 4, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0, 3, 0, 7])
         );
         assert_eq!(appended, Some(()));
+    }
+
+    #[test]
+    fn 존재하는_leaf_key를_찾는다() {
+        // Given
+        let mut page = Page::new_raw();
+        initialize_leaf_page(&mut page);
+        let row_id = RowId::new(PageId::new(3), SlotId::new(7));
+        let entry = LeafEntry::new(BTreeKey::Int(42), row_id);
+        assert_eq!(append_leaf_entry(&mut page, &entry), Some(()));
+
+        // When
+        let found = find_leaf_entry(&page, BTreeKeyType::Int, &BTreeKey::Int(42))
+            .expect("정상 leaf page에서 key를 검색할 수 있어야 한다");
+
+        // Then
+        assert_eq!(found, Some(row_id));
+    }
+
+    #[test]
+    fn 존재하지_않는_leaf_key는_찾지_못한다() {
+        // Given
+        let mut page = Page::new_raw();
+        initialize_leaf_page(&mut page);
+        let entry = LeafEntry::new(
+            BTreeKey::Int(42),
+            RowId::new(PageId::new(3), SlotId::new(7)),
+        );
+        assert_eq!(append_leaf_entry(&mut page, &entry), Some(()));
+
+        // When
+        let found = find_leaf_entry(&page, BTreeKeyType::Int, &BTreeKey::Int(7))
+            .expect("정상 leaf page에서 key를 검색할 수 있어야 한다");
+
+        // Then
+        assert_eq!(found, None);
     }
 
     #[test]
@@ -259,9 +329,12 @@ mod tests {
         // Then
         assert_eq!(result, None);
         assert_eq!(page.as_bytes(), page_before_append);
+        let entries = read_leaf_entries(&page, BTreeKeyType::Varchar)
+            .expect("정상 leaf page의 entry를 읽을 수 있어야 한다");
         assert_eq!(
-            read_leaf_entries(&page, BTreeKeyType::Varchar)
-                .and_then(|entries| entries.into_iter().next())
+            entries
+                .into_iter()
+                .next()
                 .and_then(|entry| entry.to_bytes()),
             full_entry.to_bytes()
         );

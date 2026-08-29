@@ -133,6 +133,10 @@ impl BTreePageHeader {
     pub fn entry_count(&self) -> u16 {
         self.entry_count
     }
+
+    pub fn rightmost_child(&self) -> Option<PageId> {
+        self.rightmost_child
+    }
 }
 
 #[cfg(test)]

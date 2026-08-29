@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+
 use crate::{
     index::{
         header::BTreePageHeader,
@@ -10,7 +12,6 @@ pub fn initialize_internal_page(page: &mut Page, rightmost_child: PageId) {
     page.as_bytes_mut().fill(0);
     BTreePageHeader::new_internal(rightmost_child).write_to_page(page);
 }
-
 
 pub fn append_internal_entry(page: &mut Page, entry: &InternalEntry) -> Option<()> {
     let mut header = BTreePageHeader::read_from_page(page)?;
@@ -44,14 +45,12 @@ pub fn read_internal_entries(page: &Page, key_type: BTreeKeyType) -> Option<Vec<
     let mut entries = Vec::new();
     let mut offset = 13;
     for _ in 0..header.entry_count() {
-        if offset + 8 > header.entry_end() as usize {
+        if offset + 10 > header.entry_end() as usize {
             return None;
         }
 
         let key_len = u16::from_be_bytes([page_bytes[offset + 8], page_bytes[offset + 9]]);
-        let entry_end = offset
-            .checked_add(key_len as usize)?
-            .checked_add(10)?;
+        let entry_end = offset.checked_add(key_len as usize)?.checked_add(10)?;
         if entry_end > header.entry_end() as usize {
             return None;
         }
@@ -68,6 +67,28 @@ pub fn read_internal_entries(page: &Page, key_type: BTreeKeyType) -> Option<Vec<
     }
 
     Some(entries)
+}
+
+pub fn find_internal_child(
+    page: &Page,
+    key_type: BTreeKeyType,
+    target: &BTreeKey,
+) -> Option<PageId> {
+    let header = BTreePageHeader::from_bytes(page.as_bytes())?;
+    if header.is_leaf() {
+        return None;
+    }
+
+    let entries = read_internal_entries(page, key_type)?;
+    for entry in &entries {
+        match entry.separator_key.compare(target) {
+            Some(Ordering::Equal) | Some(Ordering::Greater) => return Some(entry.left_child),
+            Some(Ordering::Less) => continue,
+            None => return None,
+        }
+    }
+
+    header.rightmost_child()
 }
 
 pub struct InternalEntry {
@@ -158,6 +179,56 @@ mod tests {
                 .and_then(|entries| entries.into_iter().next())
                 .and_then(|entry| entry.to_bytes()),
             Some(entry_bytes)
+        );
+    }
+
+    #[test]
+    fn 고정_헤더보다_짧은_internal_entry는_읽기를_거부한다() {
+        // Given
+        let mut page = Page::new_raw();
+        initialize_internal_page(&mut page, PageId::new(42));
+        page.as_bytes_mut()[1..3].copy_from_slice(&1_u16.to_be_bytes());
+        page.as_bytes_mut()[3..5].copy_from_slice(&21_u16.to_be_bytes());
+
+        // When
+        let entries = read_internal_entries(&page, BTreeKeyType::Int);
+
+        // Then
+        assert!(entries.is_none());
+    }
+
+    #[test]
+    fn key에_맞는_internal_child를_선택한다() {
+        // Given
+        let mut page = Page::new_raw();
+        initialize_internal_page(&mut page, PageId::new(30));
+        assert_eq!(
+            append_internal_entry(
+                &mut page,
+                &InternalEntry::new(PageId::new(10), BTreeKey::Int(42)),
+            ),
+            Some(())
+        );
+        assert_eq!(
+            append_internal_entry(
+                &mut page,
+                &InternalEntry::new(PageId::new(20), BTreeKey::Int(99)),
+            ),
+            Some(())
+        );
+
+        // When / Then
+        assert_eq!(
+            find_internal_child(&page, BTreeKeyType::Int, &BTreeKey::Int(42)),
+            Some(PageId::new(10))
+        );
+        assert_eq!(
+            find_internal_child(&page, BTreeKeyType::Int, &BTreeKey::Int(50)),
+            Some(PageId::new(20))
+        );
+        assert_eq!(
+            find_internal_child(&page, BTreeKeyType::Int, &BTreeKey::Int(100)),
+            Some(PageId::new(30))
         );
     }
 

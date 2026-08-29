@@ -2,6 +2,7 @@ use std::{collections::HashMap, fs::File, io, path::PathBuf};
 
 use thiserror::Error;
 
+use crate::schema::RelationId;
 use crate::{
     buffer::{
         frame::{BufferFrame, FrameId},
@@ -10,7 +11,6 @@ use crate::{
     },
     file::open_rw,
     page::{Page, PagerError, read_page, write_page},
-    schema::TableId,
 };
 
 #[derive(Debug, Error)]
@@ -25,8 +25,8 @@ pub enum BufferPoolError {
     PageNotCached,
     #[error("pin 상태인 page 입니다")]
     PagePinned,
-    #[error("등록되지 않은 table 입니다: {0:?}")]
-    TableNotRegistered(TableId),
+    #[error("등록되지 않은 relation 입니다: {0:?}")]
+    RelationNotRegistered(RelationId),
     #[error("table file I/O 오류: {0}")]
     Io(#[from] io::Error),
     #[error(transparent)]
@@ -61,7 +61,7 @@ impl<'a> Drop for FrameGuard<'a> {
 pub struct BufferPool {
     frames: Vec<Option<BufferFrame>>,
     page_table: PageTable,
-    table_paths: HashMap<TableId, PathBuf>,
+    relation_paths: HashMap<RelationId, PathBuf>,
     hand_index: usize,
 }
 
@@ -72,13 +72,13 @@ impl BufferPool {
         Self {
             frames,
             page_table: PageTable::new(),
-            table_paths: HashMap::new(),
+            relation_paths: HashMap::new(),
             hand_index: 0,
         }
     }
 
-    pub fn register_table(&mut self, table_id: TableId, path: PathBuf) {
-        self.table_paths.insert(table_id, path);
+    pub fn register_relation(&mut self, relation_id: RelationId, path: PathBuf) {
+        self.relation_paths.insert(relation_id, path);
     }
 
     pub fn fetch_page(&mut self, page_key: PageKey) -> Result<FrameGuard<'_>, BufferPoolError> {
@@ -94,7 +94,7 @@ impl BufferPool {
             return Err(BufferPoolError::NoFreeFrame);
         }
 
-        let mut file = self.open_table_file(page_key.table_id())?;
+        let mut file = self.open_relation_file(page_key.relation_id())?;
         let page = read_page(&mut file, page_key.page_id())?;
         let frame_id = self.insert_frame(BufferFrame::new(page_key, page))?;
 
@@ -128,7 +128,7 @@ impl BufferPool {
     }
 
     pub fn flush_page(&mut self, page_key: PageKey) -> Result<(), BufferPoolError> {
-        let mut file = self.open_table_file(page_key.table_id())?;
+        let mut file = self.open_relation_file(page_key.relation_id())?;
         let frame_id = self.get_frame_id(page_key)?;
         let frame = self.get_frame_mut(frame_id)?;
 
@@ -205,7 +205,7 @@ impl BufferPool {
             }
 
             if frame.is_referenced() {
-                frame.unreference();
+                frame.unreferenced();
                 continue;
             }
 
@@ -215,11 +215,11 @@ impl BufferPool {
         None
     }
 
-    fn open_table_file(&self, table_id: TableId) -> Result<File, BufferPoolError> {
+    fn open_relation_file(&self, relation_id: RelationId) -> Result<File, BufferPoolError> {
         let path = self
-            .table_paths
-            .get(&table_id)
-            .ok_or(BufferPoolError::TableNotRegistered(table_id))?;
+            .relation_paths
+            .get(&relation_id)
+            .ok_or(BufferPoolError::RelationNotRegistered(relation_id))?;
         Ok(open_rw(path)?)
     }
 }
