@@ -15,23 +15,27 @@ pub fn initialize_leaf_page(page: &mut Page) {
     BTreePageHeader::new_leaf().write_to_page(page);
 }
 
-pub fn append_leaf_entry(page: &mut Page, entry: &LeafEntry) -> Option<()> {
-    let mut header = BTreePageHeader::read_from_page(page)?;
+pub fn append_leaf_entry(page: &mut Page, entry: &LeafEntry) -> Result<(), LeafPageError> {
+    let mut header = BTreePageHeader::read_from_page(page).ok_or(LeafPageError::InvalidPage)?;
     if !header.is_leaf() {
-        return None;
+        return Err(LeafPageError::InvalidPage);
     }
 
-    let entry_bytes = entry.to_bytes()?;
+    let entry_bytes = entry.to_bytes().ok_or(LeafPageError::InvalidPage)?;
     let start = header.entry_end() as usize;
-    let end = start.checked_add(entry_bytes.len())?;
+    let end = start
+        .checked_add(entry_bytes.len())
+        .ok_or(LeafPageError::InvalidPage)?;
     if end > page.as_bytes().len() {
-        return None;
+        return Err(LeafPageError::PageFull);
     }
 
-    header.append_entry(u16::try_from(entry_bytes.len()).ok()?)?;
+    header
+        .append_entry(u16::try_from(entry_bytes.len()).map_err(|_| LeafPageError::InvalidPage)?)
+        .ok_or(LeafPageError::PageFull)?;
     page.as_bytes_mut()[start..end].copy_from_slice(&entry_bytes);
     header.write_to_page(page);
-    Some(())
+    Ok(())
 }
 
 pub fn read_leaf_entries(
@@ -99,6 +103,8 @@ pub fn find_leaf_entry(
 pub enum LeafPageError {
     #[error("leaf page가 손상되었습니다")]
     InvalidPage,
+    #[error("page에 공간이 없습니다")]
+    PageFull,
 }
 
 #[derive(Debug)]
@@ -236,7 +242,7 @@ mod tests {
         let result = append_leaf_entry(&mut page, &entry);
 
         // Then
-        assert_eq!(result, Some(()));
+        result.expect("빈 leaf page에 entry를 추가할 수 있어야 한다");
         assert_eq!(&page.as_bytes()[0..5], &[0, 0, 1, 0, 21]);
         assert_eq!(
             &page.as_bytes()[5..21],
@@ -268,7 +274,7 @@ mod tests {
                 .and_then(|entry| entry.to_bytes()),
             Some(vec![0, 4, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0, 3, 0, 7])
         );
-        assert_eq!(appended, Some(()));
+        appended.expect("정상 leaf page에 entry를 추가할 수 있어야 한다");
     }
 
     #[test]
@@ -278,7 +284,8 @@ mod tests {
         initialize_leaf_page(&mut page);
         let row_id = RowId::new(PageId::new(3), SlotId::new(7));
         let entry = LeafEntry::new(BTreeKey::Int(42), row_id);
-        assert_eq!(append_leaf_entry(&mut page, &entry), Some(()));
+        append_leaf_entry(&mut page, &entry)
+            .expect("정상 leaf page에 entry를 추가할 수 있어야 한다");
 
         // When
         let found = find_leaf_entry(&page, BTreeKeyType::Int, &BTreeKey::Int(42))
@@ -297,7 +304,8 @@ mod tests {
             BTreeKey::Int(42),
             RowId::new(PageId::new(3), SlotId::new(7)),
         );
-        assert_eq!(append_leaf_entry(&mut page, &entry), Some(()));
+        append_leaf_entry(&mut page, &entry)
+            .expect("정상 leaf page에 entry를 추가할 수 있어야 한다");
 
         // When
         let found = find_leaf_entry(&page, BTreeKeyType::Int, &BTreeKey::Int(7))
@@ -316,7 +324,8 @@ mod tests {
             BTreeKey::Varchar("x".repeat(8175)),
             RowId::new(PageId::new(3), SlotId::new(7)),
         );
-        assert_eq!(append_leaf_entry(&mut page, &full_entry), Some(()));
+        append_leaf_entry(&mut page, &full_entry)
+            .expect("leaf page에 최대 entry를 추가할 수 있어야 한다");
         let page_before_append = page.as_bytes().to_vec();
         let entry = LeafEntry::new(
             BTreeKey::Int(42),
@@ -327,7 +336,7 @@ mod tests {
         let result = append_leaf_entry(&mut page, &entry);
 
         // Then
-        assert_eq!(result, None);
+        assert!(matches!(result, Err(LeafPageError::PageFull)));
         assert_eq!(page.as_bytes(), page_before_append);
         let entries = read_leaf_entries(&page, BTreeKeyType::Varchar)
             .expect("정상 leaf page의 entry를 읽을 수 있어야 한다");

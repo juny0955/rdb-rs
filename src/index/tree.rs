@@ -5,7 +5,7 @@ use crate::buffer::{BufferPool, BufferPoolError};
 use crate::index::header::BTreePageHeader;
 use crate::index::internal::find_internal_child;
 use crate::index::key::{BTreeKey, BTreeKeyType};
-use crate::index::leaf::{LeafPageError, find_leaf_entry};
+use crate::index::leaf::{LeafEntry, LeafPageError, append_leaf_entry, find_leaf_entry};
 use crate::page::{PageId, RowId};
 use crate::schema::{IndexId, RelationId};
 
@@ -37,6 +37,28 @@ impl BTree {
         }
     }
 
+    pub fn insert(
+        &self,
+        buffer_pool: &mut BufferPool,
+        key: BTreeKey,
+        row_id: RowId,
+    ) -> Result<(), BTreeError> {
+        if !self.accepts_key(&key) {
+            return Err(BTreeError::InvalidKeyType);
+        }
+
+        let page_id = self.find_leaf_page_id(buffer_pool, &key)?;
+        let page_key = PageKey::new(self.relation_id, page_id);
+        {
+            let mut guard = buffer_pool.fetch_page(page_key)?;
+            let page = guard.page_mut();
+            append_leaf_entry(page, &LeafEntry::new(key, row_id))?;
+        }
+        buffer_pool.flush_page(page_key)?;
+
+        Ok(())
+    }
+
     pub fn search(
         &self,
         buffer_pool: &mut BufferPool,
@@ -46,6 +68,17 @@ impl BTree {
             return Err(BTreeError::InvalidKeyType);
         }
 
+        let page_id = self.find_leaf_page_id(buffer_pool, &target)?;
+        let guard = buffer_pool.fetch_page(PageKey::new(self.relation_id, page_id))?;
+        let page = guard.page();
+        Ok(find_leaf_entry(page, self.key_type, &target)?)
+    }
+
+    fn find_leaf_page_id(
+        &self,
+        buffer_pool: &mut BufferPool,
+        target: &BTreeKey,
+    ) -> Result<PageId, BTreeError> {
         let mut current_page_id = self.root_page_id;
         loop {
             let guard = buffer_pool.fetch_page(PageKey::new(self.relation_id, current_page_id))?;
@@ -53,9 +86,9 @@ impl BTree {
             let header = BTreePageHeader::read_from_page(page)
                 .ok_or(BTreeError::InvalidPage(current_page_id))?;
             if header.is_leaf() {
-                return Ok(find_leaf_entry(page, self.key_type, &target)?);
+                return Ok(current_page_id);
             } else {
-                current_page_id = find_internal_child(page, self.key_type, &target)
+                current_page_id = find_internal_child(page, self.key_type, target)
                     .ok_or(BTreeError::InvalidPage(current_page_id))?;
             }
         }
@@ -108,6 +141,95 @@ mod tests {
             tree.search(&mut buffer_pool, BTreeKey::Varchar("42".to_owned())),
             Err(BTreeError::InvalidKeyType)
         ));
+        Ok(())
+    }
+
+    #[test]
+    fn root_leaf에_insert한_후_새_buffer_pool로_검색한다() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let index_file = TestFile::new("btree-insert-root-leaf");
+        let index_id = IndexId::new(1);
+        let root_page_id = PageId::new(0);
+        let row_id = RowId::new(PageId::new(3), SlotId::new(7));
+        let mut root_page = Page::new_raw();
+        initialize_leaf_page(&mut root_page);
+
+        let mut file = open_rw(index_file.path())?;
+        assert_eq!(allocate_page(&mut file)?, root_page_id);
+        write_page(&mut file, root_page_id, &root_page)?;
+        drop(file);
+
+        let tree = BTree::new(index_id, root_page_id, BTreeKeyType::Int);
+        {
+            let mut buffer_pool = BufferPool::new(1);
+            buffer_pool
+                .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+            tree.insert(&mut buffer_pool, BTreeKey::Int(42), row_id)?;
+        }
+
+        let mut reopened_buffer_pool = BufferPool::new(1);
+        reopened_buffer_pool
+            .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+        assert_eq!(
+            tree.search(&mut reopened_buffer_pool, BTreeKey::Int(42))?,
+            Some(row_id)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn root_internal의_양쪽_leaf에_insert한_후_재검색한다() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let index_file = TestFile::new("btree-insert-root-internal");
+        let index_id = IndexId::new(1);
+        let root_page_id = PageId::new(0);
+        let left_page_id = PageId::new(1);
+        let right_page_id = PageId::new(2);
+        let left_row_id = RowId::new(PageId::new(3), SlotId::new(7));
+        let right_row_id = RowId::new(PageId::new(4), SlotId::new(8));
+
+        let mut root_page = Page::new_raw();
+        initialize_internal_page(&mut root_page, right_page_id);
+        append_internal_entry(
+            &mut root_page,
+            &InternalEntry::new(left_page_id, BTreeKey::Int(42)),
+        )
+        .expect("root internal에 child를 추가할 수 있어야 한다");
+
+        let mut left_page = Page::new_raw();
+        initialize_leaf_page(&mut left_page);
+        let mut right_page = Page::new_raw();
+        initialize_leaf_page(&mut right_page);
+
+        let mut file = open_rw(index_file.path())?;
+        assert_eq!(allocate_page(&mut file)?, root_page_id);
+        assert_eq!(allocate_page(&mut file)?, left_page_id);
+        assert_eq!(allocate_page(&mut file)?, right_page_id);
+        write_page(&mut file, root_page_id, &root_page)?;
+        write_page(&mut file, left_page_id, &left_page)?;
+        write_page(&mut file, right_page_id, &right_page)?;
+        drop(file);
+
+        let tree = BTree::new(index_id, root_page_id, BTreeKeyType::Int);
+        {
+            let mut buffer_pool = BufferPool::new(2);
+            buffer_pool
+                .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+            tree.insert(&mut buffer_pool, BTreeKey::Int(10), left_row_id)?;
+            tree.insert(&mut buffer_pool, BTreeKey::Int(50), right_row_id)?;
+        }
+
+        let mut reopened_buffer_pool = BufferPool::new(2);
+        reopened_buffer_pool
+            .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+        assert_eq!(
+            tree.search(&mut reopened_buffer_pool, BTreeKey::Int(10))?,
+            Some(left_row_id)
+        );
+        assert_eq!(
+            tree.search(&mut reopened_buffer_pool, BTreeKey::Int(50))?,
+            Some(right_row_id)
+        );
         Ok(())
     }
 
