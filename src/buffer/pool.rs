@@ -2,6 +2,7 @@ use std::{collections::HashMap, fs::File, io, path::PathBuf};
 
 use thiserror::Error;
 
+use crate::page::{PageId, allocate_page as allocate_file_page};
 use crate::schema::RelationId;
 use crate::{
     buffer::{
@@ -100,6 +101,12 @@ impl BufferPool {
 
         let frame = self.get_frame_mut(frame_id)?;
         Ok(FrameGuard::new(frame))
+    }
+
+    pub fn allocate_page(&mut self, relation_id: RelationId) -> Result<PageId, BufferPoolError> {
+        let mut file = self.open_relation_file(relation_id)?;
+        let page_id = allocate_file_page(&mut file)?;
+        Ok(page_id)
     }
 
     fn insert_frame(&mut self, frame: BufferFrame) -> Result<FrameId, BufferPoolError> {

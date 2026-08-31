@@ -8,7 +8,7 @@ pub enum BTreeKeyType {
     Varchar,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BTreeKey {
     Int(i32),
     BigInt(i64),

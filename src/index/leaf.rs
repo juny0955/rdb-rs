@@ -99,11 +99,50 @@ pub fn find_leaf_entry(
     Ok(None)
 }
 
+pub fn leaf_split(
+    left_page: &mut Page,
+    right_page: &mut Page,
+    key_type: BTreeKeyType,
+    new_entry: LeafEntry,
+) -> Result<BTreeKey, LeafPageError> {
+    let mut entries = read_leaf_entries(left_page, key_type)?;
+    entries.push(new_entry);
+
+    if entries.iter().any(|entry| entry.key.key_type() != key_type) {
+        return Err(LeafPageError::InvalidPage);
+    }
+
+    entries.sort_unstable_by(|left, right| {
+        left.key
+            .compare(&right.key)
+            .expect("검증된 entry는 같은 key type이다")
+    });
+
+    let split_entries = entries.split_off(entries.len() / 2);
+    let separator_key = entries
+        .last()
+        .ok_or(LeafPageError::InvalidPage)?
+        .key
+        .clone();
+
+    initialize_leaf_page(left_page);
+    for entry in &entries {
+        append_leaf_entry(left_page, entry)?;
+    }
+
+    initialize_leaf_page(right_page);
+    for entry in &split_entries {
+        append_leaf_entry(right_page, entry)?;
+    }
+
+    Ok(separator_key)
+}
+
 #[derive(Debug, Error)]
 pub enum LeafPageError {
     #[error("leaf page가 손상되었습니다")]
     InvalidPage,
-    #[error("page에 공간이 없습니다")]
+    #[error("leaf page에 공간이 없습니다")]
     PageFull,
 }
 
@@ -313,6 +352,76 @@ mod tests {
 
         // Then
         assert_eq!(found, None);
+    }
+
+    #[test]
+    fn leaf를_split하고_separator를반환한다() -> Result<(), Box<dyn std::error::Error>> {
+        let mut left_page = Page::new_raw();
+        initialize_leaf_page(&mut left_page);
+        for (key, row_id) in [
+            (
+                BTreeKey::Int(10),
+                RowId::new(PageId::new(1), SlotId::new(1)),
+            ),
+            (
+                BTreeKey::Int(20),
+                RowId::new(PageId::new(1), SlotId::new(2)),
+            ),
+            (
+                BTreeKey::Int(30),
+                RowId::new(PageId::new(1), SlotId::new(3)),
+            ),
+        ] {
+            append_leaf_entry(&mut left_page, &LeafEntry::new(key, row_id))?;
+        }
+        let mut right_page = Page::new_raw();
+
+        let separator = leaf_split(
+            &mut left_page,
+            &mut right_page,
+            BTreeKeyType::Int,
+            LeafEntry::new(
+                BTreeKey::Int(25),
+                RowId::new(PageId::new(1), SlotId::new(4)),
+            ),
+        )?;
+
+        let left_entries = read_leaf_entries(&left_page, BTreeKeyType::Int)?;
+        let right_entries = read_leaf_entries(&right_page, BTreeKeyType::Int)?;
+        assert_eq!(separator, BTreeKey::Int(20));
+        assert_eq!(
+            left_entries
+                .into_iter()
+                .map(|entry| (entry.key, entry.row_id))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    BTreeKey::Int(10),
+                    RowId::new(PageId::new(1), SlotId::new(1)),
+                ),
+                (
+                    BTreeKey::Int(20),
+                    RowId::new(PageId::new(1), SlotId::new(2)),
+                ),
+            ]
+        );
+        assert_eq!(
+            right_entries
+                .into_iter()
+                .map(|entry| (entry.key, entry.row_id))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    BTreeKey::Int(25),
+                    RowId::new(PageId::new(1), SlotId::new(4)),
+                ),
+                (
+                    BTreeKey::Int(30),
+                    RowId::new(PageId::new(1), SlotId::new(3)),
+                ),
+            ]
+        );
+        Ok(())
     }
 
     #[test]
