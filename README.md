@@ -451,7 +451,7 @@ Full Table Scan 없이 데이터를 검색할 수 있도록 B+Tree Index를 구�
 * [x] Leaf Split
 * [x] Internal Split
 * [x] Root Split
-* [ ] Delete
+* [x] Delete
 * [ ] Merge
 * [ ] `CREATE INDEX`
 * [ ] Index Scan

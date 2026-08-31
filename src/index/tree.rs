@@ -11,7 +11,7 @@ use crate::index::internal::{
 };
 use crate::index::key::{BTreeKey, BTreeKeyType};
 use crate::index::leaf::{
-    LeafEntry, LeafPageError, append_leaf_entry, find_leaf_entry, leaf_split,
+    LeafEntry, LeafPageError, append_leaf_entry, delete_leaf_entry, find_leaf_entry, leaf_split,
 };
 use crate::page::{Page, PageId, RowId};
 use crate::schema::{IndexId, RelationId};
@@ -84,6 +84,32 @@ impl BTree {
         }
 
         Ok(())
+    }
+
+    pub fn delete(
+        &self,
+        buffer_pool: &mut BufferPool,
+        key: BTreeKey,
+        row_id: RowId,
+    ) -> Result<bool, BTreeError> {
+        if !self.accepts_key(&key) {
+            return Err(BTreeError::InvalidKeyType);
+        }
+
+        let page_id = self.find_leaf_page_id(buffer_pool, &key)?;
+        let page_key = PageKey::new(self.relation_id, page_id);
+        let deleted = {
+            let mut guard = buffer_pool.fetch_page(page_key)?;
+            let page = guard.page_mut();
+
+            delete_leaf_entry(&mut *page, self.key_type, &key, row_id)?
+        };
+
+        if deleted {
+            buffer_pool.flush_page(page_key)?;
+        }
+
+        Ok(deleted)
     }
 
     pub fn search(
@@ -375,6 +401,53 @@ mod tests {
         assert_eq!(
             tree.search(&mut reopened_buffer_pool, BTreeKey::Int(42))?,
             Some(row_id)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn root_leaf에서_entry를_삭제한_후_재시작해도_결과가_유지된다()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let index_file = TestFile::new("btree-delete-root-leaf");
+        let index_id = IndexId::new(1);
+        let root_page_id = PageId::new(0);
+        let deleted_row_id = RowId::new(PageId::new(3), SlotId::new(7));
+        let remaining_row_id = RowId::new(PageId::new(4), SlotId::new(8));
+        let mut root_page = Page::new_raw();
+        initialize_leaf_page(&mut root_page);
+
+        let mut file = open_rw(index_file.path())?;
+        assert_eq!(allocate_page(&mut file)?, root_page_id);
+        write_page(&mut file, root_page_id, &root_page)?;
+        drop(file);
+
+        let tree = BTree::new(index_id, root_page_id, BTreeKeyType::Int);
+        {
+            let mut buffer_pool = BufferPool::new(1);
+            buffer_pool
+                .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+            tree.insert(&mut buffer_pool, BTreeKey::Int(10), deleted_row_id)?;
+            tree.insert(&mut buffer_pool, BTreeKey::Int(20), remaining_row_id)?;
+
+            assert!(tree.delete(&mut buffer_pool, BTreeKey::Int(10), deleted_row_id)?);
+            assert!(!tree.delete(&mut buffer_pool, BTreeKey::Int(10), deleted_row_id)?);
+            assert_eq!(tree.search(&mut buffer_pool, BTreeKey::Int(10))?, None);
+            assert_eq!(
+                tree.search(&mut buffer_pool, BTreeKey::Int(20))?,
+                Some(remaining_row_id)
+            );
+        }
+
+        let mut reopened_buffer_pool = BufferPool::new(1);
+        reopened_buffer_pool
+            .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+        assert_eq!(
+            tree.search(&mut reopened_buffer_pool, BTreeKey::Int(10))?,
+            None
+        );
+        assert_eq!(
+            tree.search(&mut reopened_buffer_pool, BTreeKey::Int(20))?,
+            Some(remaining_row_id)
         );
         Ok(())
     }

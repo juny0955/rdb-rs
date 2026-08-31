@@ -84,6 +84,31 @@ pub fn read_leaf_entries(
     Ok(entries)
 }
 
+pub fn delete_leaf_entry(
+    page: &mut Page,
+    key_type: BTreeKeyType,
+    target: &BTreeKey,
+    row_id: RowId,
+) -> Result<bool, LeafPageError> {
+    let mut entries = read_leaf_entries(page, key_type)?;
+    let Some(index) = entries
+        .iter()
+        .position(|entry| entry.key == *target && entry.row_id == row_id)
+    else {
+        return Ok(false);
+    };
+    entries.remove(index);
+
+    let mut rewritten = Page::new_raw();
+    initialize_leaf_page(&mut rewritten);
+    for entry in entries {
+        append_leaf_entry(&mut rewritten, &entry)?;
+    }
+
+    *page = rewritten;
+    Ok(true)
+}
+
 pub fn find_leaf_entry(
     page: &Page,
     key_type: BTreeKeyType,
@@ -352,6 +377,56 @@ mod tests {
 
         // Then
         assert_eq!(found, None);
+    }
+
+    #[test]
+    fn leaf_entry_하나를_삭제하고_나머지를_유지한다() -> Result<(), Box<dyn std::error::Error>> {
+        let mut page = Page::new_raw();
+        initialize_leaf_page(&mut page);
+        let deleted_row_id = RowId::new(PageId::new(3), SlotId::new(7));
+        let remaining_row_id = RowId::new(PageId::new(4), SlotId::new(8));
+        append_leaf_entry(
+            &mut page,
+            &LeafEntry::new(BTreeKey::Int(10), deleted_row_id),
+        )?;
+        append_leaf_entry(
+            &mut page,
+            &LeafEntry::new(BTreeKey::Int(20), remaining_row_id),
+        )?;
+
+        assert!(delete_leaf_entry(
+            &mut page,
+            BTreeKeyType::Int,
+            &BTreeKey::Int(10),
+            deleted_row_id,
+        )?);
+        assert_eq!(
+            read_leaf_entries(&page, BTreeKeyType::Int)?
+                .into_iter()
+                .map(|entry| (entry.key, entry.row_id))
+                .collect::<Vec<_>>(),
+            vec![(BTreeKey::Int(20), remaining_row_id)]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn 삭제할_leaf_entry가_없으면_page를_변경하지_않는다() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let mut page = Page::new_raw();
+        initialize_leaf_page(&mut page);
+        let row_id = RowId::new(PageId::new(3), SlotId::new(7));
+        append_leaf_entry(&mut page, &LeafEntry::new(BTreeKey::Int(10), row_id))?;
+        let page_before_delete = page.as_bytes().to_vec();
+
+        assert!(!delete_leaf_entry(
+            &mut page,
+            BTreeKeyType::Int,
+            &BTreeKey::Int(10),
+            RowId::new(PageId::new(3), SlotId::new(8)),
+        )?);
+        assert_eq!(page.as_bytes(), page_before_delete);
+        Ok(())
     }
 
     #[test]
