@@ -163,6 +163,45 @@ pub fn leaf_split(
     Ok(separator_key)
 }
 
+pub fn leaf_merge(
+    left_page: &mut Page,
+    right_page: &mut Page,
+    key_type: BTreeKeyType,
+) -> Result<(), LeafPageError> {
+    let mut left_entries = read_leaf_entries(left_page, key_type)?;
+    let mut right_entries = read_leaf_entries(right_page, key_type)?;
+
+    left_entries.append(&mut right_entries);
+    left_entries.sort_unstable_by(|left, right| {
+        left.key
+            .compare(&right.key)
+            .expect("검증된 entry는 같은 key type이다")
+    });
+
+    let mut temp_page = Page::new();
+    initialize_leaf_page(&mut temp_page);
+    for entry in &left_entries {
+        append_leaf_entry(&mut temp_page, entry)?;
+    }
+    *left_page = temp_page;
+
+    initialize_leaf_page(right_page);
+    Ok(())
+}
+
+pub fn leaf_is_underfull(page: &Page) -> Result<bool, LeafPageError> {
+    let header = BTreePageHeader::read_from_page(page).ok_or(LeafPageError::InvalidPage)?;
+    if !header.is_leaf() {
+        return Err(LeafPageError::InvalidPage);
+    }
+
+    if header.entry_end() as usize <= page.as_bytes().len() / 2 {
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
 #[derive(Debug, Error)]
 pub enum LeafPageError {
     #[error("leaf page가 손상되었습니다")]
@@ -496,6 +535,166 @@ mod tests {
                 ),
             ]
         );
+        Ok(())
+    }
+
+    #[test]
+    fn 두_leaf를_병합하면_left에_정렬된_entry를_저장하고_right를_비운다()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // Given
+        let mut left_page = Page::new_raw();
+        initialize_leaf_page(&mut left_page);
+        append_leaf_entry(
+            &mut left_page,
+            &LeafEntry::new(
+                BTreeKey::Int(20),
+                RowId::new(PageId::new(1), SlotId::new(2)),
+            ),
+        )?;
+        append_leaf_entry(
+            &mut left_page,
+            &LeafEntry::new(
+                BTreeKey::Int(40),
+                RowId::new(PageId::new(1), SlotId::new(4)),
+            ),
+        )?;
+        let mut right_page = Page::new_raw();
+        initialize_leaf_page(&mut right_page);
+        append_leaf_entry(
+            &mut right_page,
+            &LeafEntry::new(
+                BTreeKey::Int(10),
+                RowId::new(PageId::new(1), SlotId::new(1)),
+            ),
+        )?;
+        append_leaf_entry(
+            &mut right_page,
+            &LeafEntry::new(
+                BTreeKey::Int(30),
+                RowId::new(PageId::new(1), SlotId::new(3)),
+            ),
+        )?;
+
+        // When
+        leaf_merge(&mut left_page, &mut right_page, BTreeKeyType::Int)?;
+
+        // Then
+        assert_eq!(
+            read_leaf_entries(&left_page, BTreeKeyType::Int)?
+                .into_iter()
+                .map(|entry| (entry.key, entry.row_id))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    BTreeKey::Int(10),
+                    RowId::new(PageId::new(1), SlotId::new(1))
+                ),
+                (
+                    BTreeKey::Int(20),
+                    RowId::new(PageId::new(1), SlotId::new(2))
+                ),
+                (
+                    BTreeKey::Int(30),
+                    RowId::new(PageId::new(1), SlotId::new(3))
+                ),
+                (
+                    BTreeKey::Int(40),
+                    RowId::new(PageId::new(1), SlotId::new(4))
+                ),
+            ]
+        );
+        assert!(read_leaf_entries(&right_page, BTreeKeyType::Int)?.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn 병합_결과가_page에_안들어가면_두_leaf를_변경하지_않는다()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // Given
+        let mut left_page = Page::new_raw();
+        initialize_leaf_page(&mut left_page);
+        append_leaf_entry(
+            &mut left_page,
+            &LeafEntry::new(
+                BTreeKey::Varchar("x".repeat(8175)),
+                RowId::new(PageId::new(1), SlotId::new(1)),
+            ),
+        )?;
+        let mut right_page = Page::new_raw();
+        initialize_leaf_page(&mut right_page);
+        append_leaf_entry(
+            &mut right_page,
+            &LeafEntry::new(
+                BTreeKey::Varchar("y".to_owned()),
+                RowId::new(PageId::new(1), SlotId::new(2)),
+            ),
+        )?;
+        let left_before_merge = left_page.as_bytes().to_vec();
+        let right_before_merge = right_page.as_bytes().to_vec();
+
+        // When
+        let result = leaf_merge(&mut left_page, &mut right_page, BTreeKeyType::Varchar);
+
+        // Then
+        assert!(matches!(result, Err(LeafPageError::PageFull)));
+        assert_eq!(left_page.as_bytes(), left_before_merge);
+        assert_eq!(right_page.as_bytes(), right_before_merge);
+        Ok(())
+    }
+
+    #[test]
+    fn 빈_leaf는_underfull이다() -> Result<(), Box<dyn std::error::Error>> {
+        // Given
+        let mut page = Page::new_raw();
+        initialize_leaf_page(&mut page);
+
+        // When
+        let underfull = leaf_is_underfull(&page)?;
+
+        // Then
+        assert!(underfull);
+        Ok(())
+    }
+
+    #[test]
+    fn 정확히_절반을_사용한_leaf는_underfull이다() -> Result<(), Box<dyn std::error::Error>> {
+        // Given
+        let mut page = Page::new_raw();
+        initialize_leaf_page(&mut page);
+        append_leaf_entry(
+            &mut page,
+            &LeafEntry::new(
+                BTreeKey::Varchar("x".repeat(4079)),
+                RowId::new(PageId::new(1), SlotId::new(1)),
+            ),
+        )?;
+
+        // When
+        let underfull = leaf_is_underfull(&page)?;
+
+        // Then
+        assert!(underfull);
+        Ok(())
+    }
+
+    #[test]
+    fn 절반보다_큰_leaf는_underfull이_아니다() -> Result<(), Box<dyn std::error::Error>> {
+        // Given
+        let mut page = Page::new_raw();
+        initialize_leaf_page(&mut page);
+        append_leaf_entry(
+            &mut page,
+            &LeafEntry::new(
+                BTreeKey::Varchar("x".repeat(4080)),
+                RowId::new(PageId::new(1), SlotId::new(1)),
+            ),
+        )?;
+
+        // When
+        let underfull = leaf_is_underfull(&page)?;
+
+        // Then
+        assert!(!underfull);
         Ok(())
     }
 

@@ -7,11 +7,13 @@ use crate::buffer::{BufferPool, BufferPoolError};
 use crate::index::header::BTreePageHeader;
 use crate::index::internal::{
     InternalEntry, InternalPageError, append_internal_entry, find_internal_child,
-    initialize_internal_page, internal_split, replace_child_after_leaf_split,
+    find_leaf_merge_pair, initialize_internal_page, internal_split,
+    remove_right_child_after_leaf_merge, replace_child_after_leaf_split,
 };
 use crate::index::key::{BTreeKey, BTreeKeyType};
 use crate::index::leaf::{
-    LeafEntry, LeafPageError, append_leaf_entry, delete_leaf_entry, find_leaf_entry, leaf_split,
+    LeafEntry, LeafPageError, append_leaf_entry, delete_leaf_entry, find_leaf_entry,
+    leaf_is_underfull, leaf_merge, leaf_split,
 };
 use crate::page::{Page, PageId, RowId};
 use crate::schema::{IndexId, RelationId};
@@ -96,17 +98,63 @@ impl BTree {
             return Err(BTreeError::InvalidKeyType);
         }
 
-        let page_id = self.find_leaf_page_id(buffer_pool, &key)?;
+        let (parent, page_id) = self.find_leaf_and_parent_page_ids(buffer_pool, &key)?;
         let page_key = PageKey::new(self.relation_id, page_id);
-        let deleted = {
+        let (deleted, is_underfull) = {
             let mut guard = buffer_pool.fetch_page(page_key)?;
             let page = guard.page_mut();
 
-            delete_leaf_entry(&mut *page, self.key_type, &key, row_id)?
+            let deleted = delete_leaf_entry(&mut *page, self.key_type, &key, row_id)?;
+            let is_underfull = leaf_is_underfull(page)?;
+            (deleted, is_underfull)
         };
 
         if deleted {
             buffer_pool.flush_page(page_key)?;
+
+            if is_underfull && let Some(parent) = parent {
+                let mut parent_page = Page::new_raw();
+                let parent_key = PageKey::new(self.relation_id, parent);
+                {
+                    let guard = buffer_pool.fetch_page(PageKey::new(self.relation_id, parent))?;
+                    parent_page
+                        .as_bytes_mut()
+                        .copy_from_slice(guard.page().as_bytes());
+                }
+
+                if let Some((left, right)) =
+                    find_leaf_merge_pair(&parent_page, self.key_type, page_id)?
+                {
+                    let left_key = PageKey::new(self.relation_id, left);
+                    let right_key = PageKey::new(self.relation_id, right);
+                    let mut left_page = Page::new_raw();
+                    let mut right_page = Page::new_raw();
+                    {
+                        let guard = buffer_pool.fetch_page(left_key)?;
+                        left_page
+                            .as_bytes_mut()
+                            .copy_from_slice(guard.page().as_bytes());
+                    }
+                    {
+                        let guard = buffer_pool.fetch_page(right_key)?;
+                        right_page
+                            .as_bytes_mut()
+                            .copy_from_slice(guard.page().as_bytes());
+                    }
+
+                    leaf_merge(&mut left_page, &mut right_page, self.key_type)?;
+                    remove_right_child_after_leaf_merge(
+                        &mut parent_page,
+                        left,
+                        right,
+                        self.key_type,
+                    )?;
+
+                    Self::fetch_and_flush_page(buffer_pool, left_key, left_page.as_bytes())?;
+                    Self::fetch_and_flush_page(buffer_pool, right_key, right_page.as_bytes())?;
+                    Self::fetch_and_flush_page(buffer_pool, parent_key, parent_page.as_bytes())?;
+                }
+            }
         }
 
         Ok(deleted)
@@ -141,6 +189,28 @@ impl BTree {
             if header.is_leaf() {
                 return Ok(current_page_id);
             } else {
+                current_page_id = find_internal_child(page, self.key_type, target)?;
+            }
+        }
+    }
+
+    fn find_leaf_and_parent_page_ids(
+        &self,
+        buffer_pool: &mut BufferPool,
+        target: &BTreeKey,
+    ) -> Result<(Option<PageId>, PageId), BTreeError> {
+        let mut current_page_id = self.root_page_id;
+        let mut parent = None;
+
+        loop {
+            let guard = buffer_pool.fetch_page(PageKey::new(self.relation_id, current_page_id))?;
+            let page = guard.page();
+            let header = BTreePageHeader::read_from_page(page)
+                .ok_or(BTreeError::InvalidPage(current_page_id))?;
+            if header.is_leaf() {
+                return Ok((parent, current_page_id));
+            } else {
+                parent = Some(current_page_id);
                 current_page_id = find_internal_child(page, self.key_type, target)?;
             }
         }
@@ -337,6 +407,68 @@ mod tests {
         page::{Page, SlotId, allocate_page, write_page},
         test_supports::TestFile,
     };
+
+    #[test]
+    fn root_leaf의_부모는_없다() -> Result<(), Box<dyn std::error::Error>> {
+        // Given
+        let index_file = TestFile::new("btree-find-root-leaf-parent");
+        let index_id = IndexId::new(1);
+        let root_page_id = PageId::new(0);
+        let mut root_page = Page::new_raw();
+        initialize_leaf_page(&mut root_page);
+
+        let mut file = open_rw(index_file.path())?;
+        assert_eq!(allocate_page(&mut file)?, root_page_id);
+        write_page(&mut file, root_page_id, &root_page)?;
+        drop(file);
+
+        let mut buffer_pool = BufferPool::new(1);
+        buffer_pool.register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+        let tree = BTree::new(index_id, root_page_id, BTreeKeyType::Int);
+
+        // When
+        let page_ids = tree.find_leaf_and_parent_page_ids(&mut buffer_pool, &BTreeKey::Int(42))?;
+
+        // Then
+        assert_eq!(page_ids, (None, root_page_id));
+        Ok(())
+    }
+
+    #[test]
+    fn leaf의_직접_부모를_반환한다() -> Result<(), Box<dyn std::error::Error>> {
+        // Given
+        let index_file = TestFile::new("btree-find-direct-leaf-parent");
+        let index_id = IndexId::new(1);
+        let root_page_id = PageId::new(0);
+        let parent_page_id = PageId::new(1);
+        let leaf_page_id = PageId::new(2);
+        let mut root_page = Page::new_raw();
+        initialize_internal_page(&mut root_page, parent_page_id);
+        let mut parent_page = Page::new_raw();
+        initialize_internal_page(&mut parent_page, leaf_page_id);
+        let mut leaf_page = Page::new_raw();
+        initialize_leaf_page(&mut leaf_page);
+
+        let mut file = open_rw(index_file.path())?;
+        assert_eq!(allocate_page(&mut file)?, root_page_id);
+        assert_eq!(allocate_page(&mut file)?, parent_page_id);
+        assert_eq!(allocate_page(&mut file)?, leaf_page_id);
+        write_page(&mut file, root_page_id, &root_page)?;
+        write_page(&mut file, parent_page_id, &parent_page)?;
+        write_page(&mut file, leaf_page_id, &leaf_page)?;
+        drop(file);
+
+        let mut buffer_pool = BufferPool::new(1);
+        buffer_pool.register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+        let tree = BTree::new(index_id, root_page_id, BTreeKeyType::Int);
+
+        // When
+        let page_ids = tree.find_leaf_and_parent_page_ids(&mut buffer_pool, &BTreeKey::Int(42))?;
+
+        // Then
+        assert_eq!(page_ids, (Some(parent_page_id), leaf_page_id));
+        Ok(())
+    }
 
     #[test]
     fn root_leaf에서_key를검색한다() -> Result<(), Box<dyn std::error::Error>> {
@@ -762,6 +894,79 @@ mod tests {
         assert_eq!(
             tree.search(&mut reopened_buffer_pool, BTreeKey::Int(50))?,
             Some(right_row_id)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rightmost_leaf를_삭제하면_left_leaf와_병합되고_재시작후에도_유지된다()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // Given
+        let index_file = TestFile::new("btree-merge-rightmost-leaf");
+        let index_id = IndexId::new(1);
+        let root_page_id = PageId::new(0);
+        let left_page_id = PageId::new(1);
+        let right_page_id = PageId::new(2);
+        let left_row_id = RowId::new(PageId::new(3), SlotId::new(7));
+        let deleted_row_id = RowId::new(PageId::new(4), SlotId::new(8));
+
+        let mut root_page = Page::new_raw();
+        initialize_internal_page(&mut root_page, right_page_id);
+        append_internal_entry(
+            &mut root_page,
+            &InternalEntry::new(left_page_id, BTreeKey::Int(10)),
+        )?;
+
+        let mut left_page = Page::new_raw();
+        initialize_leaf_page(&mut left_page);
+        append_leaf_entry(
+            &mut left_page,
+            &LeafEntry::new(BTreeKey::Int(10), left_row_id),
+        )?;
+
+        let mut right_page = Page::new_raw();
+        initialize_leaf_page(&mut right_page);
+        append_leaf_entry(
+            &mut right_page,
+            &LeafEntry::new(BTreeKey::Int(20), deleted_row_id),
+        )?;
+
+        let mut file = open_rw(index_file.path())?;
+        assert_eq!(allocate_page(&mut file)?, root_page_id);
+        assert_eq!(allocate_page(&mut file)?, left_page_id);
+        assert_eq!(allocate_page(&mut file)?, right_page_id);
+        write_page(&mut file, root_page_id, &root_page)?;
+        write_page(&mut file, left_page_id, &left_page)?;
+        write_page(&mut file, right_page_id, &right_page)?;
+        drop(file);
+
+        let tree = BTree::new(index_id, root_page_id, BTreeKeyType::Int);
+        {
+            let mut buffer_pool = BufferPool::new(1);
+            buffer_pool
+                .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+
+            // When
+            assert!(tree.delete(&mut buffer_pool, BTreeKey::Int(20), deleted_row_id)?);
+
+            // Then
+            assert_eq!(
+                tree.search(&mut buffer_pool, BTreeKey::Int(10))?,
+                Some(left_row_id)
+            );
+            assert_eq!(tree.search(&mut buffer_pool, BTreeKey::Int(20))?, None);
+        }
+
+        let mut reopened_buffer_pool = BufferPool::new(1);
+        reopened_buffer_pool
+            .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+        assert_eq!(
+            tree.search(&mut reopened_buffer_pool, BTreeKey::Int(10))?,
+            Some(left_row_id)
+        );
+        assert_eq!(
+            tree.search(&mut reopened_buffer_pool, BTreeKey::Int(20))?,
+            None
         );
         Ok(())
     }

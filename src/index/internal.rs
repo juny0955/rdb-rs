@@ -185,6 +185,74 @@ pub fn replace_child_after_leaf_split(
     Ok(())
 }
 
+pub fn remove_right_child_after_leaf_merge(
+    parent: &mut Page,
+    left_child: PageId,
+    right_child: PageId,
+    key_type: BTreeKeyType,
+) -> Result<(), InternalPageError> {
+    let mut entries = read_internal_entries(parent, key_type)?;
+    let rightmost = BTreePageHeader::read_from_page(parent)
+        .and_then(|header| header.rightmost_child())
+        .ok_or(InternalPageError::InvalidPage)?;
+
+    let left_index = entries
+        .iter()
+        .position(|entry| entry.left_child == left_child)
+        .ok_or(InternalPageError::InvalidPage)?;
+
+    let new_rightmost = if rightmost == right_child && left_index + 1 == entries.len() {
+        entries.remove(left_index);
+        left_child
+    } else if let Some(entry) = entries.get(left_index + 1)
+        && entry.left_child == right_child
+    {
+        let next = entries.remove(left_index + 1);
+        entries[left_index].separator_key = next.separator_key;
+        rightmost
+    } else {
+        return Err(InternalPageError::InvalidPage);
+    };
+
+    let mut temp_page = Page::new();
+    initialize_internal_page(&mut temp_page, new_rightmost);
+    for entry in &entries {
+        append_internal_entry(&mut temp_page, entry)?;
+    }
+    *parent = temp_page;
+
+    Ok(())
+}
+
+pub fn find_leaf_merge_pair(
+    parent: &Page,
+    key_type: BTreeKeyType,
+    target: PageId,
+) -> Result<Option<(PageId, PageId)>, InternalPageError> {
+    let entries = read_internal_entries(parent, key_type)?;
+    let rightmost = BTreePageHeader::read_from_page(parent)
+        .and_then(|header| header.rightmost_child())
+        .ok_or(InternalPageError::InvalidPage)?;
+
+    let target_index = entries.iter().position(|entry| entry.left_child == target);
+
+    if let Some(index) = target_index {
+        if entries.len() > index + 1 {
+            Ok(Some((target, entries[index + 1].left_child)))
+        } else {
+            Ok(Some((target, rightmost)))
+        }
+    } else if target == rightmost {
+        if let Some(last) = entries.last() {
+            Ok(Some((last.left_child, target)))
+        } else {
+            Ok(None)
+        }
+    } else {
+        Err(InternalPageError::InvalidPage)
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum InternalPageError {
     #[error("internal page가 손상되었습니다")]
@@ -433,6 +501,200 @@ mod tests {
                 (PageId::new(31), BTreeKey::Int(60)),
             ]
         );
+        Ok(())
+    }
+
+    #[test]
+    fn 중간_right_child를_제거하면_left_separator를_갱신한다()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // Given
+        let mut parent = Page::new_raw();
+        initialize_internal_page(&mut parent, PageId::new(40));
+        for (child, separator) in [
+            (PageId::new(10), BTreeKey::Int(10)),
+            (PageId::new(20), BTreeKey::Int(20)),
+            (PageId::new(30), BTreeKey::Int(30)),
+        ] {
+            append_internal_entry(&mut parent, &InternalEntry::new(child, separator))?;
+        }
+
+        // When
+        remove_right_child_after_leaf_merge(
+            &mut parent,
+            PageId::new(10),
+            PageId::new(20),
+            BTreeKeyType::Int,
+        )?;
+
+        // Then
+        assert_eq!(
+            read_internal_entries(&parent, BTreeKeyType::Int)?
+                .into_iter()
+                .map(|entry| (entry.left_child, entry.separator_key))
+                .collect::<Vec<_>>(),
+            vec![
+                (PageId::new(10), BTreeKey::Int(20)),
+                (PageId::new(30), BTreeKey::Int(30)),
+            ]
+        );
+        assert_eq!(
+            find_internal_child(&parent, BTreeKeyType::Int, &BTreeKey::Int(20))?,
+            PageId::new(10)
+        );
+        assert_eq!(
+            find_internal_child(&parent, BTreeKeyType::Int, &BTreeKey::Int(21))?,
+            PageId::new(30)
+        );
+        assert_eq!(
+            find_internal_child(&parent, BTreeKeyType::Int, &BTreeKey::Int(31))?,
+            PageId::new(40)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn rightmost_child를_제거하면_left_child가_새_rightmost가_된다()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // Given
+        let mut parent = Page::new_raw();
+        initialize_internal_page(&mut parent, PageId::new(30));
+        append_internal_entry(
+            &mut parent,
+            &InternalEntry::new(PageId::new(10), BTreeKey::Int(10)),
+        )?;
+        append_internal_entry(
+            &mut parent,
+            &InternalEntry::new(PageId::new(20), BTreeKey::Int(20)),
+        )?;
+
+        // When
+        remove_right_child_after_leaf_merge(
+            &mut parent,
+            PageId::new(20),
+            PageId::new(30),
+            BTreeKeyType::Int,
+        )?;
+
+        // Then
+        let header =
+            BTreePageHeader::read_from_page(&parent).ok_or(InternalPageError::InvalidPage)?;
+        assert_eq!(header.rightmost_child(), Some(PageId::new(20)));
+        assert_eq!(
+            find_internal_child(&parent, BTreeKeyType::Int, &BTreeKey::Int(10))?,
+            PageId::new(10)
+        );
+        assert_eq!(
+            find_internal_child(&parent, BTreeKeyType::Int, &BTreeKey::Int(11))?,
+            PageId::new(20)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn 인접하지_않은_child는_병합하지_않고_parent를_유지한다()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // Given
+        let mut parent = Page::new_raw();
+        initialize_internal_page(&mut parent, PageId::new(30));
+        append_internal_entry(
+            &mut parent,
+            &InternalEntry::new(PageId::new(10), BTreeKey::Int(10)),
+        )?;
+        append_internal_entry(
+            &mut parent,
+            &InternalEntry::new(PageId::new(20), BTreeKey::Int(20)),
+        )?;
+        let parent_before_merge = parent.as_bytes().to_vec();
+
+        // When
+        let result = remove_right_child_after_leaf_merge(
+            &mut parent,
+            PageId::new(10),
+            PageId::new(30),
+            BTreeKeyType::Int,
+        );
+
+        // Then
+        assert!(matches!(result, Err(InternalPageError::InvalidPage)));
+        assert_eq!(parent.as_bytes(), parent_before_merge);
+        Ok(())
+    }
+
+    #[test]
+    fn 첫_child의_병합_pair는_오른쪽_sibling을_포함한다() -> Result<(), Box<dyn std::error::Error>>
+    {
+        // Given
+        let mut parent = Page::new_raw();
+        initialize_internal_page(&mut parent, PageId::new(30));
+        append_internal_entry(
+            &mut parent,
+            &InternalEntry::new(PageId::new(10), BTreeKey::Int(10)),
+        )?;
+        append_internal_entry(
+            &mut parent,
+            &InternalEntry::new(PageId::new(20), BTreeKey::Int(20)),
+        )?;
+
+        // When
+        let pair = find_leaf_merge_pair(&mut parent, BTreeKeyType::Int, PageId::new(10))?;
+
+        // Then
+        assert_eq!(pair, Some((PageId::new(10), PageId::new(20))));
+        Ok(())
+    }
+
+    #[test]
+    fn rightmost_child의_병합_pair는_왼쪽_sibling을_포함한다()
+    -> Result<(), Box<dyn std::error::Error>> {
+        // Given
+        let mut parent = Page::new_raw();
+        initialize_internal_page(&mut parent, PageId::new(30));
+        append_internal_entry(
+            &mut parent,
+            &InternalEntry::new(PageId::new(10), BTreeKey::Int(10)),
+        )?;
+        append_internal_entry(
+            &mut parent,
+            &InternalEntry::new(PageId::new(20), BTreeKey::Int(20)),
+        )?;
+
+        // When
+        let pair = find_leaf_merge_pair(&mut parent, BTreeKeyType::Int, PageId::new(30))?;
+
+        // Then
+        assert_eq!(pair, Some((PageId::new(20), PageId::new(30))));
+        Ok(())
+    }
+
+    #[test]
+    fn child가_하나인_parent는_병합_pair가_없다() -> Result<(), Box<dyn std::error::Error>> {
+        // Given
+        let mut parent = Page::new_raw();
+        initialize_internal_page(&mut parent, PageId::new(10));
+
+        // When
+        let pair = find_leaf_merge_pair(&mut parent, BTreeKeyType::Int, PageId::new(10))?;
+
+        // Then
+        assert_eq!(pair, None);
+        Ok(())
+    }
+
+    #[test]
+    fn parent에_없는_child는_병합_pair를_찾을수_없다() -> Result<(), Box<dyn std::error::Error>> {
+        // Given
+        let mut parent = Page::new_raw();
+        initialize_internal_page(&mut parent, PageId::new(20));
+        append_internal_entry(
+            &mut parent,
+            &InternalEntry::new(PageId::new(10), BTreeKey::Int(10)),
+        )?;
+
+        // When
+        let result = find_leaf_merge_pair(&mut parent, BTreeKeyType::Int, PageId::new(30));
+
+        // Then
+        assert!(matches!(result, Err(InternalPageError::InvalidPage)));
         Ok(())
     }
 
