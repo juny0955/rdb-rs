@@ -25,6 +25,25 @@ pub enum ExecutorError {
     LiteralTypeMismatch { expected: DataType },
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub struct InsertResult {
+    pub row_id: RowId,
+    pub values: Vec<Value>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct UpdateResult {
+    pub row_id: RowId,
+    pub old_values: Vec<Value>,
+    pub new_values: Vec<Value>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct DeleteResult {
+    pub row_id: RowId,
+    pub values: Vec<Value>,
+}
+
 pub struct Executor<'a> {
     database: &'a DatabaseMetadata,
 }
@@ -62,7 +81,7 @@ impl<'a> Executor<'a> {
         bound: &BoundInsert,
         heap_table: &mut HeapTable,
         buffer_pool: &mut BufferPool,
-    ) -> Result<RowId, ExecutorError> {
+    ) -> Result<InsertResult, ExecutorError> {
         let table_id = bound.table_id;
         let table = self
             .database
@@ -77,7 +96,7 @@ impl<'a> Executor<'a> {
         let row = encode(&values, table.columns())?;
         let row_id = heap_table.insert(&row, buffer_pool)?;
 
-        Ok(row_id)
+        Ok(InsertResult { row_id, values })
     }
 
     pub fn execute_update(
@@ -85,7 +104,7 @@ impl<'a> Executor<'a> {
         bound: &BoundUpdate,
         heap_table: &mut HeapTable,
         buffer_pool: &mut BufferPool,
-    ) -> Result<usize, ExecutorError> {
+    ) -> Result<Vec<UpdateResult>, ExecutorError> {
         let table_id = bound.table_id;
         let table = self
             .database
@@ -102,9 +121,10 @@ impl<'a> Executor<'a> {
             }
         };
 
-        let mut updated = 0;
+        let mut results = Vec::new();
         for (row_id, row) in rows {
             let mut values = decode(&row, table.columns())?;
+            let old_values = values.clone();
             for assignment in &bound.assignments {
                 let column_index = table
                     .column_index(assignment.column_id)
@@ -114,12 +134,17 @@ impl<'a> Executor<'a> {
                 let value = Self::literal_to_value(&assignment.value, column.data_type())?;
                 values[column_index] = value;
             }
+            let new_values = values.clone();
             let row = encode(&values, table.columns())?;
             heap_table.update(row_id, &row, buffer_pool)?;
-            updated += 1;
+            results.push(UpdateResult {
+                row_id,
+                old_values,
+                new_values,
+            });
         }
 
-        Ok(updated)
+        Ok(results)
     }
 
     pub fn execute_delete(
@@ -127,7 +152,7 @@ impl<'a> Executor<'a> {
         bound: &BoundDelete,
         heap_table: &mut HeapTable,
         buffer_pool: &mut BufferPool,
-    ) -> Result<usize, ExecutorError> {
+    ) -> Result<Vec<DeleteResult>, ExecutorError> {
         let table_id = bound.table_id;
         let table = self
             .database
@@ -144,13 +169,14 @@ impl<'a> Executor<'a> {
             }
         };
 
-        let mut deleted = 0;
-        for (row_id, _) in rows {
+        let mut results = Vec::new();
+        for (row_id, row) in rows {
+            let values = decode(&row, table.columns())?;
             heap_table.delete(row_id, buffer_pool)?;
-            deleted += 1;
+            results.push(DeleteResult { row_id, values });
         }
 
-        Ok(deleted)
+        Ok(results)
     }
 
     fn filter_rows(

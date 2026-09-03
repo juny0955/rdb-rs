@@ -90,7 +90,7 @@ fn insert는_리터럴을_row로_변환해_테이블에_저장한다() {
 
     HeapTable::open(table_id, &path).expect("테이블 파일을 생성해야 함");
     let mut buffer_pool = buffer_pool(table_id, &path);
-    let row_id = {
+    let insert_result = {
         let mut heap_table =
             HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
         let executor = Executor::new(&database);
@@ -101,7 +101,7 @@ fn insert는_리터럴을_row로_변환해_테이블에_저장한다() {
 
     let mut table = HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
     let row = table
-        .get(row_id, &mut buffer_pool)
+        .get(insert_result.row_id, &mut buffer_pool)
         .expect("삽입한 Row를 읽어야 함");
     let values = decode(&row, &columns).expect("Row를 값으로 변환해야 함");
 
@@ -162,7 +162,7 @@ fn update는_필터와_일치하는_row만_수정하고_재시작후에도_유�
             .expect("UPDATE가 성공해야 함")
     };
 
-    assert_eq!(updated, 1);
+    assert_eq!(updated.len(), 1);
 
     let mut table =
         HeapTable::open_existing(table_id, &path).expect("테이블 파일을 다시 열어야 함");
@@ -238,7 +238,7 @@ fn delete는_필터와_일치하는_row만_삭제하고_재시작후에도_유�
             .expect("DELETE가 성공해야 함")
     };
 
-    assert_eq!(deleted, 1);
+    assert_eq!(deleted.len(), 1);
 
     let mut table =
         HeapTable::open_existing(table_id, &path).expect("테이블 파일을 다시 열어야 함");

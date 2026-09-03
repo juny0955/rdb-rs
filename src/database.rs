@@ -11,6 +11,7 @@ use crate::{
         BTreeKey, BTreeKeyType,
         tree::{BTree, BTreeError},
     },
+    page::RowId,
     schema::{IndexId, IndexMetadata, RelationId},
     tuple::{self, TupleError},
 };
@@ -46,6 +47,8 @@ pub enum DatabaseError {
     Tuple(#[from] TupleError),
     #[error(transparent)]
     Io(#[from] io::Error),
+    #[error("인덱스 엔트리를 찾을 수 없습니다: index={index_id:?}, row={row_id:?}")]
+    IndexEntryNotFound { index_id: IndexId, row_id: RowId },
 }
 
 #[derive(Debug)]
@@ -106,7 +109,8 @@ impl Database {
                     b.table_id,
                 )?;
                 let executor = Executor::new(&self.metadata);
-                let _ = executor.execute_insert(&b, heap_table, &mut self.buffer_pool)?;
+                let result = executor.execute_insert(&b, heap_table, &mut self.buffer_pool)?;
+                self.insert_row_into_indexes(b.table_id, result.row_id, result.values)?;
                 Ok(ExecuteResult::Command { affected_rows: 1 })
             }
             BoundStatement::Select(b) => {
@@ -128,8 +132,13 @@ impl Database {
                     b.table_id,
                 )?;
                 let executor = Executor::new(&self.metadata);
-                let affected_rows =
-                    executor.execute_update(&b, heap_table, &mut self.buffer_pool)?;
+                let results = executor.execute_update(&b, heap_table, &mut self.buffer_pool)?;
+                let affected_rows = results.len();
+
+                for result in results {
+                    self.delete_row_from_indexes(b.table_id, result.row_id, result.old_values)?;
+                    self.insert_row_into_indexes(b.table_id, result.row_id, result.new_values)?;
+                }
                 Ok(ExecuteResult::Command { affected_rows })
             }
             BoundStatement::Delete(b) => {
@@ -140,8 +149,13 @@ impl Database {
                     b.table_id,
                 )?;
                 let executor = Executor::new(&self.metadata);
-                let affected_rows =
-                    executor.execute_delete(&b, heap_table, &mut self.buffer_pool)?;
+                let results = executor.execute_delete(&b, heap_table, &mut self.buffer_pool)?;
+                let affected_rows = results.len();
+
+                for result in results {
+                    self.delete_row_from_indexes(b.table_id, result.row_id, result.values)?;
+                }
+
                 Ok(ExecuteResult::Command { affected_rows })
             }
         }
@@ -251,6 +265,106 @@ impl Database {
         );
 
         Ok(table_id)
+    }
+
+    fn insert_row_into_indexes(
+        &mut self,
+        table_id: TableId,
+        row_id: RowId,
+        values: Vec<Value>,
+    ) -> Result<(), DatabaseError> {
+        let indexes = self
+            .metadata
+            .indexes()
+            .iter()
+            .filter(|index| index.table_id() == table_id)
+            .collect::<Vec<_>>();
+
+        let table = self
+            .metadata
+            .table_by_id(table_id)
+            .ok_or(DatabaseError::Schema(SchemaError::IndexTableNotFound(
+                table_id,
+            )))?;
+
+        for index in indexes {
+            let column = table
+                .column_by_id(index.column_id())
+                .ok_or(DatabaseError::Schema(SchemaError::IndexColumnNotFound {
+                    table_id,
+                    column_id: index.column_id(),
+                }))?;
+            let column_index = table
+                .column_index(column.id())
+                .ok_or(DatabaseError::Schema(SchemaError::IndexColumnNotFound {
+                    table_id,
+                    column_id: index.column_id(),
+                }))?;
+            if let Some(key) = Self::value_to_btree_key(values[column_index].clone()) {
+                let index_id = index.id();
+                self.buffer_pool.register_relation(
+                    RelationId::Index(index_id),
+                    self.data_dir.join(format!("{}.idx", index_id.id())),
+                );
+                let btree = BTree::open(index_id, index.root_page_id(), key.key_type());
+                btree.insert(&mut self.buffer_pool, key, row_id)?;
+            } else {
+                continue;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn delete_row_from_indexes(
+        &mut self,
+        table_id: TableId,
+        row_id: RowId,
+        values: Vec<Value>,
+    ) -> Result<(), DatabaseError> {
+        let indexes = self
+            .metadata
+            .indexes()
+            .iter()
+            .filter(|index| index.table_id() == table_id)
+            .collect::<Vec<_>>();
+
+        let table = self
+            .metadata
+            .table_by_id(table_id)
+            .ok_or(DatabaseError::Schema(SchemaError::IndexTableNotFound(
+                table_id,
+            )))?;
+
+        for index in indexes {
+            let column = table
+                .column_by_id(index.column_id())
+                .ok_or(DatabaseError::Schema(SchemaError::IndexColumnNotFound {
+                    table_id,
+                    column_id: index.column_id(),
+                }))?;
+            let column_index = table
+                .column_index(column.id())
+                .ok_or(DatabaseError::Schema(SchemaError::IndexColumnNotFound {
+                    table_id,
+                    column_id: index.column_id(),
+                }))?;
+            if let Some(key) = Self::value_to_btree_key(values[column_index].clone()) {
+                let index_id = index.id();
+                self.buffer_pool.register_relation(
+                    RelationId::Index(index_id),
+                    self.data_dir.join(format!("{}.idx", index_id.id())),
+                );
+                let btree = BTree::open(index_id, index.root_page_id(), key.key_type());
+                if !btree.delete(&mut self.buffer_pool, key, row_id)? {
+                    return Err(DatabaseError::IndexEntryNotFound { index_id, row_id });
+                }
+            } else {
+                continue;
+            }
+        }
+
+        Ok(())
     }
 
     fn get_or_open_table<'a>(
@@ -435,6 +549,124 @@ mod tests {
     }
 
     #[test]
+    fn insert는_생성된_index에_반영하고_재시작후_검색된다() -> Result<(), DatabaseError> {
+        let directory = TestDirectory::new("database-insert-index-maintenance");
+        let inserted_row_id = {
+            let mut database = Database::open(directory.path(), "test")?;
+            database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
+            database.execute(&parse_sql("CREATE INDEX idx_users_id ON users(id);"))?;
+            database.execute(&parse_sql("INSERT INTO users VALUES (42, 'Kim');"))?;
+
+            let heap_table = Database::get_or_open_table(
+                &mut database.heap_tables,
+                &mut database.buffer_pool,
+                database.data_dir.as_path(),
+                TableId::new(1),
+            )?;
+            heap_table
+                .scan(&mut database.buffer_pool)?
+                .into_iter()
+                .next()
+                .expect("삽입한 행이 있어야 함")
+                .0
+        };
+
+        let mut database = Database::open(directory.path(), "reopened")?;
+        let index = database
+            .metadata
+            .index("idx_users_id")
+            .expect("index metadata가 있어야 함");
+        database.buffer_pool.register_relation(
+            RelationId::Index(index.id()),
+            directory.path().join(format!("{}.idx", index.id().id())),
+        );
+        let btree = BTree::open(index.id(), index.root_page_id(), BTreeKeyType::BigInt);
+
+        assert_eq!(
+            btree.search(&mut database.buffer_pool, BTreeKey::BigInt(42))?,
+            Some(inserted_row_id)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn delete는_index_entry를_제거하고_재시작후_검색되지_않는다() -> Result<(), DatabaseError> {
+        let directory = TestDirectory::new("database-delete-index-maintenance");
+        {
+            let mut database = Database::open(directory.path(), "test")?;
+            database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
+            database.execute(&parse_sql("CREATE INDEX idx_users_id ON users(id);"))?;
+            database.execute(&parse_sql("INSERT INTO users VALUES (42, 'Kim');"))?;
+            database.execute(&parse_sql("DELETE FROM users WHERE id = 42;"))?;
+        }
+
+        let mut database = Database::open(directory.path(), "reopened")?;
+        let index = database
+            .metadata
+            .index("idx_users_id")
+            .expect("index metadata가 있어야 함");
+        database.buffer_pool.register_relation(
+            RelationId::Index(index.id()),
+            directory.path().join(format!("{}.idx", index.id().id())),
+        );
+        let btree = BTree::open(index.id(), index.root_page_id(), BTreeKeyType::BigInt);
+
+        assert_eq!(
+            btree.search(&mut database.buffer_pool, BTreeKey::BigInt(42))?,
+            None
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn update는_index_entry를_교체하고_재시작후_검색된다() -> Result<(), DatabaseError> {
+        let directory = TestDirectory::new("database-update-index-maintenance");
+        let row_id = {
+            let mut database = Database::open(directory.path(), "test")?;
+            database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
+            database.execute(&parse_sql("CREATE INDEX idx_users_id ON users(id);"))?;
+            database.execute(&parse_sql("INSERT INTO users VALUES (42, 'Kim');"))?;
+
+            let heap_table = Database::get_or_open_table(
+                &mut database.heap_tables,
+                &mut database.buffer_pool,
+                database.data_dir.as_path(),
+                TableId::new(1),
+            )?;
+            let row_id = heap_table
+                .scan(&mut database.buffer_pool)?
+                .into_iter()
+                .next()
+                .expect("수정할 행이 있어야 함")
+                .0;
+
+            database.execute(&parse_sql("UPDATE users SET id = 100 WHERE id = 42;"))?;
+            row_id
+        };
+
+        let mut database = Database::open(directory.path(), "reopened")?;
+        let index = database
+            .metadata
+            .index("idx_users_id")
+            .expect("index metadata가 있어야 함");
+        database.buffer_pool.register_relation(
+            RelationId::Index(index.id()),
+            directory.path().join(format!("{}.idx", index.id().id())),
+        );
+        let btree = BTree::open(index.id(), index.root_page_id(), BTreeKeyType::BigInt);
+
+        assert_eq!(
+            btree.search(&mut database.buffer_pool, BTreeKey::BigInt(42))?,
+            None
+        );
+        assert_eq!(
+            btree.search(&mut database.buffer_pool, BTreeKey::BigInt(100))?,
+            Some(row_id)
+        );
+        Ok(())
+    }
+
+    #[test]
     fn value_to_btree_key는_null을_건너뛴다() {
         assert_eq!(Database::value_to_btree_key(Value::Null), None);
     }
@@ -574,7 +806,7 @@ mod tests {
         let updated = Executor::new(&database.metadata)
             .execute_update(&bound, heap_table, &mut database.buffer_pool)
             .expect("UPDATE가 실행되어야 함");
-        assert_eq!(updated, 1);
+        assert_eq!(updated.len(), 1);
 
         let BoundStatement::Select(bound) = bind_sql("SELECT * FROM users;", &database.metadata)
         else {
@@ -608,7 +840,7 @@ mod tests {
         let deleted = Executor::new(&database.metadata)
             .execute_delete(&bound, heap_table, &mut database.buffer_pool)
             .expect("DELETE가 실행되어야 함");
-        assert_eq!(deleted, 1);
+        assert_eq!(deleted.len(), 1);
 
         let BoundStatement::Select(bound) = bind_sql("SELECT * FROM users;", &database.metadata)
         else {
