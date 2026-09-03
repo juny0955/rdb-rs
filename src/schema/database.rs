@@ -1,30 +1,38 @@
-use std::{collections::HashSet, str::from_utf8};
+use std::str::from_utf8;
 
-use crate::schema::{DATABASE_NAME_LENGTH_PREFIX_BYTES, SchemaError, TableId, TableMetadata};
+use crate::schema::{
+    DATABASE_NAME_LENGTH_PREFIX_BYTES, IndexId, SchemaError, TableId, TableMetadata,
+    index::IndexMetadata,
+};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct DatabaseMetadata {
     name: String,
     tables: Vec<TableMetadata>,
+    indexes: Vec<IndexMetadata>,
 }
 
 impl DatabaseMetadata {
-    pub fn new(name: String, tables: Vec<TableMetadata>) -> Result<Self, SchemaError> {
-        let mut table_ids = HashSet::new();
-        for table in &tables {
-            if !table_ids.insert(table.id()) {
-                return Err(SchemaError::DuplicateTableId(table.id()));
-            }
+    pub fn new(
+        name: String,
+        tables: Vec<TableMetadata>,
+        indexes: Vec<IndexMetadata>,
+    ) -> Result<Self, SchemaError> {
+        let mut database_metadata = Self {
+            name,
+            tables: vec![],
+            indexes: vec![],
+        };
+
+        for table in tables {
+            database_metadata.add_table(table)?;
         }
 
-        let mut table_names = HashSet::new();
-        for table in &tables {
-            if !table_names.insert(table.name()) {
-                return Err(SchemaError::DuplicateTableName(table.name().to_owned()));
-            }
+        for index in indexes {
+            database_metadata.add_index(index)?;
         }
 
-        Ok(Self { name, tables })
+        Ok(database_metadata)
     }
 
     pub fn add_table(&mut self, table: TableMetadata) -> Result<(), SchemaError> {
@@ -37,6 +45,30 @@ impl DatabaseMetadata {
         }
 
         self.tables.push(table);
+        Ok(())
+    }
+
+    pub fn add_index(&mut self, index: IndexMetadata) -> Result<(), SchemaError> {
+        if self.index_by_id(index.id()).is_some() {
+            return Err(SchemaError::DuplicateIndexId(index.id()));
+        }
+
+        if self.index(index.name()).is_some() {
+            return Err(SchemaError::DuplicateIndexName(index.name().to_owned()));
+        }
+
+        if let Some(table) = self.table_by_id(index.table_id()) {
+            if table.column_index(index.column_id()).is_none() {
+                return Err(SchemaError::IndexColumnNotFound {
+                    table_id: index.table_id(),
+                    column_id: index.column_id(),
+                });
+            }
+        } else {
+            return Err(SchemaError::IndexTableNotFound(index.table_id()));
+        }
+
+        self.indexes.push(index);
         Ok(())
     }
 
@@ -68,13 +100,35 @@ impl DatabaseMetadata {
             offset += used;
         }
 
-        Ok((Self::new(name, tables)?, offset))
+        if bytes.len() == offset {
+            return Ok((Self::new(name, tables, vec![])?, offset));
+        }
+
+        if bytes.len() < offset + 2 {
+            return Err(SchemaError::TruncatedDatabaseMetadata);
+        }
+
+        let index_count = u16::from_be_bytes(
+            bytes[offset..offset + 2]
+                .try_into()
+                .map_err(|_| SchemaError::TruncatedDatabaseMetadata)?,
+        ) as usize;
+        offset += 2;
+        let mut indexes = Vec::new();
+        for _ in 0..index_count {
+            let (index, used) = IndexMetadata::from_bytes(&bytes[offset..])?;
+            indexes.push(index);
+            offset += used;
+        }
+
+        Ok((Self::new(name, tables, indexes)?, offset))
     }
 
     pub fn to_bytes(&self) -> Result<Vec<u8>, SchemaError> {
         let name_bytes = self.name.as_bytes();
         let name_len = u16::try_from(name_bytes.len())
             .map_err(|_| SchemaError::DatabaseNameTooLong(name_bytes.len()))?;
+
         let table_count =
             u16::try_from(self.tables.len()).map_err(|_| SchemaError::TooManyTables)?;
         let mut table_bytes = Vec::new();
@@ -82,11 +136,20 @@ impl DatabaseMetadata {
             table_bytes.extend_from_slice(&table.to_bytes()?);
         }
 
+        let index_count =
+            u16::try_from(self.indexes.len()).map_err(|_| SchemaError::TooManyIndexes)?;
+        let mut index_bytes = Vec::new();
+        for index in &self.indexes {
+            index_bytes.extend_from_slice(&index.to_bytes()?);
+        }
+
         let mut bytes = Vec::new();
         bytes.extend_from_slice(&name_len.to_be_bytes());
         bytes.extend_from_slice(name_bytes);
         bytes.extend_from_slice(&table_count.to_be_bytes());
         bytes.extend_from_slice(&table_bytes);
+        bytes.extend_from_slice(&index_count.to_be_bytes());
+        bytes.extend_from_slice(&index_bytes);
 
         Ok(bytes)
     }
@@ -99,6 +162,14 @@ impl DatabaseMetadata {
         self.tables.iter().find(|table| table.name() == name)
     }
 
+    pub fn index_by_id(&self, index_id: IndexId) -> Option<&IndexMetadata> {
+        self.indexes.iter().find(|index| index.id() == index_id)
+    }
+
+    pub fn index(&self, name: &str) -> Option<&IndexMetadata> {
+        self.indexes.iter().find(|index| index.name() == name)
+    }
+
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -106,11 +177,18 @@ impl DatabaseMetadata {
     pub fn tables(&self) -> &[TableMetadata] {
         &self.tables
     }
+
+    pub fn indexes(&self) -> &[IndexMetadata] {
+        &self.indexes
+    }
 }
 
 #[cfg(test)]
 mod database_metadata {
-    use crate::schema::{ColumnId, ColumnMetadata, DataType};
+    use crate::{
+        page::PageId,
+        schema::{ColumnId, ColumnMetadata, DataType, IndexId, index::IndexMetadata},
+    };
 
     use super::*;
 
@@ -141,7 +219,8 @@ mod database_metadata {
             TableMetadata::new(TableId::new(1), "users".to_string(), columns1)?,
             TableMetadata::new(TableId::new(2), "users".to_string(), columns2)?,
         ];
-        let error = DatabaseMetadata::new("mydb".to_string(), tables).expect_err("에러 발생해야함");
+        let error =
+            DatabaseMetadata::new("mydb".to_string(), tables, vec![]).expect_err("에러 발생해야함");
         assert_eq!(error, SchemaError::DuplicateTableName("users".to_string()));
 
         Ok(())
@@ -168,7 +247,7 @@ mod database_metadata {
             )],
         )?;
 
-        let error = DatabaseMetadata::new("mydb".to_string(), vec![users, orders])
+        let error = DatabaseMetadata::new("mydb".to_string(), vec![users, orders], vec![])
             .expect_err("에러 발생해야함");
 
         assert_eq!(error, SchemaError::DuplicateTableId(TableId::new(1)));
@@ -177,7 +256,7 @@ mod database_metadata {
 
     #[test]
     fn add_table은_새_테이블을_추가한다() -> Result<(), SchemaError> {
-        let mut database = DatabaseMetadata::new("mydb".to_owned(), vec![])?;
+        let mut database = DatabaseMetadata::new("mydb".to_owned(), vec![], vec![])?;
 
         database.add_table(table(1, "users")?)?;
 
@@ -191,7 +270,8 @@ mod database_metadata {
 
     #[test]
     fn add_table은_중복_id를_거부하고_변경하지_않는다() -> Result<(), SchemaError> {
-        let mut database = DatabaseMetadata::new("mydb".to_owned(), vec![table(1, "users")?])?;
+        let mut database =
+            DatabaseMetadata::new("mydb".to_owned(), vec![table(1, "users")?], vec![])?;
 
         let error = database
             .add_table(table(1, "orders")?)
@@ -205,7 +285,8 @@ mod database_metadata {
 
     #[test]
     fn add_table은_중복_이름을_거부하고_변경하지_않는다() -> Result<(), SchemaError> {
-        let mut database = DatabaseMetadata::new("mydb".to_owned(), vec![table(1, "users")?])?;
+        let mut database =
+            DatabaseMetadata::new("mydb".to_owned(), vec![table(1, "users")?], vec![])?;
 
         let error = database
             .add_table(table(2, "users")?)
@@ -218,10 +299,71 @@ mod database_metadata {
     }
 
     #[test]
+    fn new는_없는_테이블을_참조하는_index를_거부한다() -> Result<(), SchemaError> {
+        let index = IndexMetadata::new(
+            IndexId::new(1),
+            "idx_users_id".to_owned(),
+            TableId::new(999),
+            ColumnId::new(1),
+            PageId::new(0),
+        );
+
+        let error = DatabaseMetadata::new("mydb".to_owned(), vec![table(1, "users")?], vec![index])
+            .expect_err("존재하지 않는 인덱스 대상 테이블은 거부해야 함");
+
+        assert_eq!(error, SchemaError::IndexTableNotFound(TableId::new(999)));
+        Ok(())
+    }
+
+    #[test]
+    fn new는_없는_컬럼을_참조하는_index를_거부한다() -> Result<(), SchemaError> {
+        let index = IndexMetadata::new(
+            IndexId::new(1),
+            "idx_users_unknown".to_owned(),
+            TableId::new(1),
+            ColumnId::new(999),
+            PageId::new(0),
+        );
+
+        let error = DatabaseMetadata::new("mydb".to_owned(), vec![table(1, "users")?], vec![index])
+            .expect_err("존재하지 않는 인덱스 대상 컬럼은 거부해야 함");
+
+        assert_eq!(
+            error,
+            SchemaError::IndexColumnNotFound {
+                table_id: TableId::new(1),
+                column_id: ColumnId::new(999),
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn add_index는_없는_테이블을_거부하고_추가하지_않는다() -> Result<(), SchemaError> {
+        let mut database =
+            DatabaseMetadata::new("mydb".to_owned(), vec![table(1, "users")?], vec![])?;
+        let index = IndexMetadata::new(
+            IndexId::new(1),
+            "idx_missing_table".to_owned(),
+            TableId::new(999),
+            ColumnId::new(1),
+            PageId::new(0),
+        );
+
+        let error = database
+            .add_index(index)
+            .expect_err("존재하지 않는 인덱스 대상 테이블은 거부해야 함");
+
+        assert_eq!(error, SchemaError::IndexTableNotFound(TableId::new(999)));
+        assert!(database.index_by_id(IndexId::new(1)).is_none());
+        Ok(())
+    }
+
+    #[test]
     fn 직렬화_역직렬화_테스트() -> Result<(), SchemaError> {
         let column = ColumnMetadata::new(ColumnId::new(1), "name".to_string(), DataType::Varchar);
         let table = TableMetadata::new(TableId::new(1), "users".to_string(), vec![column])?;
-        let database = DatabaseMetadata::new("mydb".to_string(), vec![table])?;
+        let database = DatabaseMetadata::new("mydb".to_string(), vec![table], vec![])?;
         let bytes = database.to_bytes()?;
         assert_eq!(database, DatabaseMetadata::from_bytes(&bytes)?.0);
         Ok(())

@@ -1,11 +1,27 @@
 use std::cmp::Ordering;
 
+use crate::schema::{DataType, SchemaError};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BTreeKeyType {
     Int,
     BigInt,
     Boolean,
     Varchar,
+}
+
+impl TryFrom<DataType> for BTreeKeyType {
+    type Error = SchemaError;
+
+    fn try_from(value: DataType) -> Result<Self, Self::Error> {
+        match value {
+            DataType::Int => Ok(Self::Int),
+            DataType::BigInt => Ok(Self::BigInt),
+            DataType::Boolean => Ok(Self::Boolean),
+            DataType::Varchar => Ok(Self::Varchar),
+            DataType::Null => Err(SchemaError::UnsupportedIndexDataType(value)),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

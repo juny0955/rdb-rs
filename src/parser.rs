@@ -1,7 +1,8 @@
 use crate::parser::{
     ast::{
-        Assignment, ColumnDefinition, CreateTableStatement, DataType, DeleteStatement, Expression,
-        InsertStatement, Literal, Projection, SelectStatement, Statement, UpdateStatement,
+        Assignment, ColumnDefinition, CreateIndexStatement, CreateTableStatement, DataType,
+        DeleteStatement, Expression, InsertStatement, Literal, Projection, SelectStatement,
+        Statement, UpdateStatement,
     },
     token::{Token, TokenKind},
 };
@@ -34,7 +35,15 @@ impl Parser {
         let current = self.current();
         let statement = match current.kind {
             TokenKind::Select => Statement::Select(self.parse_select()?),
-            TokenKind::Create => Statement::CreateTable(self.parse_create_table()?),
+            TokenKind::Create => {
+                let offset = current.offset;
+                self.expect(TokenKind::Create)?;
+                match self.current().kind {
+                    TokenKind::Table => Statement::CreateTable(self.parse_create_table()?),
+                    TokenKind::Index => Statement::CreateIndex(self.parse_create_index()?),
+                    _ => return Err(ParseError::UnexpectedToken(offset)),
+                }
+            }
             TokenKind::Insert => Statement::Insert(self.parse_insert()?),
             TokenKind::Update => Statement::Update(self.parse_update()?),
             TokenKind::Delete => Statement::Delete(self.parse_delete()?),
@@ -179,12 +188,27 @@ impl Parser {
     }
 
     fn parse_create_table(&mut self) -> Result<CreateTableStatement, ParseError> {
-        self.expect(TokenKind::Create)?;
         self.expect(TokenKind::Table)?;
         let table = self.expect_identifier()?;
         let columns = self.parse_column_definitions()?;
 
         Ok(CreateTableStatement { table, columns })
+    }
+
+    fn parse_create_index(&mut self) -> Result<CreateIndexStatement, ParseError> {
+        self.expect(TokenKind::Index)?;
+        let index_name = self.expect_identifier()?;
+        self.expect(TokenKind::On)?;
+        let table = self.expect_identifier()?;
+        self.expect(TokenKind::LeftParen)?;
+        let column_name = self.expect_identifier()?;
+        self.expect(TokenKind::RightParen)?;
+
+        Ok(CreateIndexStatement {
+            index_name,
+            table,
+            column_name,
+        })
     }
 
     fn parse_column_definitions(&mut self) -> Result<Vec<ColumnDefinition>, ParseError> {
@@ -326,6 +350,24 @@ mod tests {
                         data_type: DataType::Varchar,
                     },
                 ],
+            })
+        );
+    }
+
+    #[test]
+    fn create_index_문을_ast로_파싱한다() {
+        let mut lexer = Lexer::new("CREATE INDEX idx_users_id ON users(id);");
+        let tokens = lexer.tokenize().unwrap();
+        let mut parser = Parser::new(tokens);
+
+        let statement = parser.parse().unwrap();
+
+        assert_eq!(
+            statement,
+            Statement::CreateIndex(CreateIndexStatement {
+                index_name: "idx_users_id".to_owned(),
+                table: "users".to_owned(),
+                column_name: "id".to_owned(),
             })
         );
     }

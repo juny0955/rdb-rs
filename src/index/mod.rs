@@ -2,4 +2,6 @@ mod header;
 mod internal;
 mod key;
 mod leaf;
-mod tree;
+pub mod tree;
+
+pub use key::{BTreeKey, BTreeKeyType};

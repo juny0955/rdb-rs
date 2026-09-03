@@ -13,7 +13,7 @@ use crate::index::internal::{
 use crate::index::key::{BTreeKey, BTreeKeyType};
 use crate::index::leaf::{
     LeafEntry, LeafPageError, append_leaf_entry, delete_leaf_entry, find_leaf_entry,
-    leaf_is_underfull, leaf_merge, leaf_split,
+    initialize_leaf_page, leaf_is_underfull, leaf_merge, leaf_split,
 };
 use crate::page::{Page, PageId, RowId};
 use crate::schema::{IndexId, RelationId};
@@ -40,7 +40,25 @@ pub struct BTree {
 }
 
 impl BTree {
-    pub fn new(index_id: IndexId, root_page_id: PageId, key_type: BTreeKeyType) -> Self {
+    pub fn create(
+        index_id: IndexId,
+        key_type: BTreeKeyType,
+        buffer_pool: &mut BufferPool,
+    ) -> Result<Self, BTreeError> {
+        let page_id = buffer_pool.allocate_page(RelationId::Index(index_id))?;
+
+        let btree = Self::open(index_id, page_id, key_type);
+        let page_key = PageKey::new(btree.relation_id, page_id);
+        {
+            let mut guard = buffer_pool.fetch_page(page_key)?;
+            initialize_leaf_page(guard.page_mut());
+        }
+
+        buffer_pool.flush_page(page_key)?;
+        Ok(btree)
+    }
+
+    pub fn open(index_id: IndexId, root_page_id: PageId, key_type: BTreeKeyType) -> Self {
         Self {
             relation_id: RelationId::Index(index_id),
             root_page_id,
@@ -173,6 +191,10 @@ impl BTree {
         let guard = buffer_pool.fetch_page(PageKey::new(self.relation_id, page_id))?;
         let page = guard.page();
         Ok(find_leaf_entry(page, self.key_type, &target)?)
+    }
+
+    pub fn root_page_id(&self) -> PageId {
+        self.root_page_id
     }
 
     fn find_leaf_page_id(
@@ -409,6 +431,33 @@ mod tests {
     };
 
     #[test]
+    fn create는_disk에_빈_root_leaf를_생성한다() -> Result<(), Box<dyn std::error::Error>> {
+        let index_file = TestFile::new("btree-create");
+        let index_id = IndexId::new(1);
+        let root_page_id = {
+            let mut buffer_pool = BufferPool::new(1);
+            buffer_pool
+                .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+
+            let tree = BTree::create(index_id, BTreeKeyType::Int, &mut buffer_pool)?;
+            tree.root_page_id()
+        };
+
+        let mut reopened_buffer_pool = BufferPool::new(1);
+        reopened_buffer_pool
+            .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+        let root_page = reopened_buffer_pool
+            .fetch_page(PageKey::new(RelationId::Index(index_id), root_page_id))?;
+        let header = BTreePageHeader::read_from_page(root_page.page())
+            .expect("create가 초기화한 root page는 유효해야 함");
+
+        assert_eq!(root_page_id, PageId::new(0));
+        assert!(header.is_leaf());
+        assert_eq!(header.entry_count(), 0);
+        Ok(())
+    }
+
+    #[test]
     fn root_leaf의_부모는_없다() -> Result<(), Box<dyn std::error::Error>> {
         // Given
         let index_file = TestFile::new("btree-find-root-leaf-parent");
@@ -424,7 +473,7 @@ mod tests {
 
         let mut buffer_pool = BufferPool::new(1);
         buffer_pool.register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
-        let tree = BTree::new(index_id, root_page_id, BTreeKeyType::Int);
+        let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
 
         // When
         let page_ids = tree.find_leaf_and_parent_page_ids(&mut buffer_pool, &BTreeKey::Int(42))?;
@@ -460,7 +509,7 @@ mod tests {
 
         let mut buffer_pool = BufferPool::new(1);
         buffer_pool.register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
-        let tree = BTree::new(index_id, root_page_id, BTreeKeyType::Int);
+        let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
 
         // When
         let page_ids = tree.find_leaf_and_parent_page_ids(&mut buffer_pool, &BTreeKey::Int(42))?;
@@ -489,7 +538,7 @@ mod tests {
 
         let mut buffer_pool = BufferPool::new(1);
         buffer_pool.register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
-        let tree = BTree::new(index_id, root_page_id, BTreeKeyType::Int);
+        let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
 
         // When / Then
         assert_eq!(
@@ -519,7 +568,7 @@ mod tests {
         write_page(&mut file, root_page_id, &root_page)?;
         drop(file);
 
-        let tree = BTree::new(index_id, root_page_id, BTreeKeyType::Int);
+        let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
         {
             let mut buffer_pool = BufferPool::new(1);
             buffer_pool
@@ -553,7 +602,7 @@ mod tests {
         write_page(&mut file, root_page_id, &root_page)?;
         drop(file);
 
-        let tree = BTree::new(index_id, root_page_id, BTreeKeyType::Int);
+        let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
         {
             let mut buffer_pool = BufferPool::new(1);
             buffer_pool
@@ -612,7 +661,7 @@ mod tests {
         write_page(&mut file, root_page_id, &root_page)?;
         drop(file);
 
-        let tree = BTree::new(index_id, root_page_id, BTreeKeyType::Varchar);
+        let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Varchar);
         {
             let mut buffer_pool = BufferPool::new(1);
             buffer_pool
@@ -693,7 +742,7 @@ mod tests {
         write_page(&mut file, right_page_id, &right_page)?;
         drop(file);
 
-        let tree = BTree::new(index_id, root_page_id, BTreeKeyType::Varchar);
+        let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Varchar);
         {
             let mut buffer_pool = BufferPool::new(1);
             buffer_pool
@@ -799,7 +848,7 @@ mod tests {
         )?;
         drop(file);
 
-        let tree = BTree::new(index_id, root_page_id, BTreeKeyType::Varchar);
+        let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Varchar);
         {
             let mut buffer_pool = BufferPool::new(1);
             buffer_pool
@@ -875,7 +924,7 @@ mod tests {
         write_page(&mut file, right_page_id, &right_page)?;
         drop(file);
 
-        let tree = BTree::new(index_id, root_page_id, BTreeKeyType::Int);
+        let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
         {
             let mut buffer_pool = BufferPool::new(2);
             buffer_pool
@@ -940,7 +989,7 @@ mod tests {
         write_page(&mut file, right_page_id, &right_page)?;
         drop(file);
 
-        let tree = BTree::new(index_id, root_page_id, BTreeKeyType::Int);
+        let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
         {
             let mut buffer_pool = BufferPool::new(1);
             buffer_pool
@@ -1016,7 +1065,7 @@ mod tests {
 
         let mut buffer_pool = BufferPool::new(2);
         buffer_pool.register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
-        let tree = BTree::new(index_id, root_page_id, BTreeKeyType::Int);
+        let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
 
         assert_eq!(
             tree.search(&mut buffer_pool, BTreeKey::Int(10))?,

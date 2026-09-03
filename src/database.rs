@@ -1,9 +1,19 @@
 use std::{
     collections::{HashMap, hash_map::Entry},
+    io,
     path::{Path, PathBuf},
 };
 
-use crate::schema::RelationId;
+use crate::{
+    binder::BoundCreateIndex,
+    file::open_rw_create,
+    index::{
+        BTreeKey, BTreeKeyType,
+        tree::{BTree, BTreeError},
+    },
+    schema::{IndexId, IndexMetadata, RelationId},
+    tuple::{self, TupleError},
+};
 use crate::{
     binder::{Binder, BinderError, BoundCreateTable, BoundStatement},
     buffer::BufferPool,
@@ -20,20 +30,27 @@ const BUFFER_POOL_CAPACITY: usize = 16;
 
 #[derive(Debug, Error)]
 pub enum DatabaseError {
-    #[error("binder 오류: {0}")]
+    #[error(transparent)]
     Binder(#[from] BinderError),
-    #[error("executor 오류: {0}")]
+    #[error(transparent)]
     Executor(#[from] ExecutorError),
-    #[error("database catalog 오류: {0}")]
+    #[error(transparent)]
     Catalog(#[from] CatalogError),
-    #[error("database schema 오류: {0}")]
+    #[error(transparent)]
     Schema(#[from] SchemaError),
-    #[error("heap table 처리 오류: {0}")]
+    #[error(transparent)]
     HeapTable(#[from] HeapTableError),
+    #[error(transparent)]
+    BTree(#[from] BTreeError),
+    #[error(transparent)]
+    Tuple(#[from] TupleError),
+    #[error(transparent)]
+    Io(#[from] io::Error),
 }
 
 #[derive(Debug)]
 pub enum ExecuteResult {
+    Success,
     Command { affected_rows: usize },
     Rows(Vec<Vec<Value>>),
 }
@@ -54,7 +71,7 @@ impl Database {
         let metadata = match catalog.load() {
             Ok(metadata) => metadata,
             Err(CatalogError::EmptyCatalog) => {
-                let metadata = DatabaseMetadata::new(name.to_owned(), vec![])?;
+                let metadata = DatabaseMetadata::new(name.to_owned(), vec![], vec![])?;
                 catalog.save(&metadata)?;
                 metadata
             }
@@ -75,7 +92,11 @@ impl Database {
         match bound {
             BoundStatement::CreateTable(b) => {
                 let _ = self.create_table(&b)?;
-                Ok(ExecuteResult::Command { affected_rows: 0 })
+                Ok(ExecuteResult::Success)
+            }
+            BoundStatement::CreateIndex(b) => {
+                self.create_index(&b)?;
+                Ok(ExecuteResult::Success)
             }
             BoundStatement::Insert(b) => {
                 let heap_table = Self::get_or_open_table(
@@ -124,6 +145,74 @@ impl Database {
                 Ok(ExecuteResult::Command { affected_rows })
             }
         }
+    }
+
+    fn create_index(&mut self, bound: &BoundCreateIndex) -> Result<(), DatabaseError> {
+        if self.metadata.index(&bound.index_name).is_some() {
+            return Err(DatabaseError::Schema(SchemaError::DuplicateIndexName(
+                bound.index_name.to_owned(),
+            )));
+        }
+
+        if self.metadata.indexes().len() >= usize::from(u16::MAX) {
+            return Err(DatabaseError::Schema(SchemaError::TooManyIndexes));
+        }
+
+        let index_id = IndexId::new(self.metadata.indexes().len() as u32 + 1);
+        let table = self
+            .metadata
+            .table_by_id(bound.table_id)
+            .ok_or(DatabaseError::Schema(SchemaError::IndexTableNotFound(
+                bound.table_id,
+            )))?;
+        let column = table
+            .column_by_id(bound.column_id)
+            .ok_or(DatabaseError::Schema(SchemaError::IndexColumnNotFound {
+                table_id: bound.table_id,
+                column_id: bound.column_id,
+            }))?;
+
+        let key_type = BTreeKeyType::try_from(column.data_type())?;
+
+        let index_path = self.data_dir.join(format!("{}.idx", index_id.id()));
+        open_rw_create(&index_path)?;
+        self.buffer_pool
+            .register_relation(RelationId::Index(index_id), index_path);
+
+        let btree = BTree::create(index_id, key_type, &mut self.buffer_pool)?;
+        let index_metadata = IndexMetadata::new(
+            index_id,
+            bound.index_name.clone(),
+            table.id(),
+            column.id(),
+            btree.root_page_id(),
+        );
+
+        let heap_table = Self::get_or_open_table(
+            &mut self.heap_tables,
+            &mut self.buffer_pool,
+            &self.data_dir,
+            table.id(),
+        )?;
+        let rows = heap_table.scan(&mut self.buffer_pool)?;
+
+        let index = table
+            .column_index(column.id())
+            .ok_or(DatabaseError::Schema(SchemaError::IndexColumnNotFound {
+                table_id: table.id(),
+                column_id: column.id(),
+            }))?;
+        for (row_id, row) in rows {
+            let values = tuple::decode(&row, table.columns())?;
+            if let Some(key) = Self::value_to_btree_key(values[index].clone()) {
+                btree.insert(&mut self.buffer_pool, key, row_id)?;
+            }
+        }
+
+        self.metadata.add_index(index_metadata)?;
+        self.catalog.save(&self.metadata)?;
+
+        Ok(())
     }
 
     fn create_table(&mut self, bound: &BoundCreateTable) -> Result<TableId, DatabaseError> {
@@ -185,6 +274,16 @@ impl Database {
             }
         }
     }
+
+    fn value_to_btree_key(value: Value) -> Option<BTreeKey> {
+        match value {
+            Value::Int(v) => Some(BTreeKey::Int(v)),
+            Value::BigInt(v) => Some(BTreeKey::BigInt(v)),
+            Value::Boolean(v) => Some(BTreeKey::Boolean(v)),
+            Value::Varchar(v) => Some(BTreeKey::Varchar(v)),
+            Value::Null => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -192,6 +291,7 @@ mod tests {
     use crate::{
         binder::{Binder, BoundCreateTable, BoundStatement},
         executor::Executor,
+        page::PageId,
         parser::{
             Parser,
             ast::{ColumnDefinition, DataType as AstDataType},
@@ -264,6 +364,79 @@ mod tests {
         ));
         assert!(!directory.path().join("2.tbl").exists());
         Ok(())
+    }
+
+    #[test]
+    fn create_index는_index_file과_metadata를_생성하고_재시작후에도_유지한다()
+    -> Result<(), DatabaseError> {
+        let directory = TestDirectory::new("database-create-index");
+        {
+            let mut database = Database::open(directory.path(), "test")?;
+            database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
+            database.execute(&parse_sql("CREATE INDEX idx_users_id ON users(id);"))?;
+
+            assert!(directory.path().join("1.idx").exists());
+        }
+
+        let database = Database::open(directory.path(), "reopened")?;
+        let index = database
+            .metadata
+            .index("idx_users_id")
+            .expect("재시작 후 index metadata가 있어야 함");
+
+        assert_eq!(index.root_page_id(), PageId::new(0));
+        Ok(())
+    }
+
+    #[test]
+    fn create_index는_재시작후_기존_행을_backfill한다() -> Result<(), DatabaseError> {
+        let directory = TestDirectory::new("database-create-index-backfill");
+        let indexed_row_id = {
+            let mut database = Database::open(directory.path(), "test")?;
+            database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
+            database.execute(&parse_sql("INSERT INTO users VALUES (42, 'Kim');"))?;
+            database.execute(&parse_sql("INSERT INTO users VALUES (NULL, 'Null');"))?;
+
+            let heap_table = Database::get_or_open_table(
+                &mut database.heap_tables,
+                &mut database.buffer_pool,
+                database.data_dir.as_path(),
+                TableId::new(1),
+            )?;
+            heap_table
+                .scan(&mut database.buffer_pool)?
+                .into_iter()
+                .next()
+                .expect("인덱싱할 행이 있어야 함")
+                .0
+        };
+
+        {
+            let mut database = Database::open(directory.path(), "reopened")?;
+            database.execute(&parse_sql("CREATE INDEX idx_users_id ON users(id);"))?;
+        }
+
+        let mut database = Database::open(directory.path(), "reopened-again")?;
+        let index = database
+            .metadata
+            .index("idx_users_id")
+            .expect("index metadata가 있어야 함");
+        database.buffer_pool.register_relation(
+            RelationId::Index(index.id()),
+            directory.path().join(format!("{}.idx", index.id().id())),
+        );
+        let btree = BTree::open(index.id(), index.root_page_id(), BTreeKeyType::BigInt);
+
+        assert_eq!(
+            btree.search(&mut database.buffer_pool, BTreeKey::BigInt(42))?,
+            Some(indexed_row_id)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn value_to_btree_key는_null을_건너뛴다() {
+        assert_eq!(Database::value_to_btree_key(Value::Null), None);
     }
 
     #[test]

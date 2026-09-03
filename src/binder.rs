@@ -1,6 +1,6 @@
 use crate::{
     parser::ast::{
-        DeleteStatement,
+        CreateIndexStatement, DeleteStatement,
         Expression::{self, Identifier},
         InsertStatement, Literal, Projection, SelectStatement, Statement, UpdateStatement,
     },
@@ -52,6 +52,9 @@ impl<'a> Binder<'a> {
                     table: s.table.clone(),
                     columns: s.columns.clone(),
                 }))
+            }
+            Statement::CreateIndex(s) => {
+                Ok(BoundStatement::CreateIndex(self.bind_create_index(s)?))
             }
             Statement::Select(s) => Ok(BoundStatement::Select(self.bind_select(s)?)),
             Statement::Insert(s) => Ok(BoundStatement::Insert(self.bind_insert(s)?)),
@@ -171,6 +174,25 @@ impl<'a> Binder<'a> {
             table_id,
             assignments,
             filter,
+        })
+    }
+
+    fn bind_create_index(
+        &self,
+        statement: &CreateIndexStatement,
+    ) -> Result<BoundCreateIndex, BinderError> {
+        let table = self.require_table(&statement.table)?;
+        let column = table
+            .column(&statement.column_name)
+            .ok_or(BinderError::ColumnNotFound {
+                table: statement.table.to_owned(),
+                column: statement.column_name.to_owned(),
+            })?;
+
+        Ok(BoundCreateIndex {
+            index_name: statement.index_name.to_owned(),
+            table_id: table.id(),
+            column_id: column.id(),
         })
     }
 

@@ -28,7 +28,7 @@ fn users_columns() -> Vec<ColumnMetadata> {
 fn database(table_id: TableId) -> DatabaseMetadata {
     let table = TableMetadata::new(table_id, "users".to_owned(), users_columns())
         .expect("테이블 메타데이터가 유효해야 함");
-    DatabaseMetadata::new("test".to_owned(), vec![table])
+    DatabaseMetadata::new("test".to_owned(), vec![table], vec![])
         .expect("데이터베이스 메타데이터가 유효해야 함")
 }
 
@@ -452,7 +452,7 @@ fn select에서_null_equal_filter는_row를_반환하지_않는다() {
 #[test]
 fn select는_메타데이터에_없는_테이블을_거부한다() {
     let table_id = TableId::new(1);
-    let database = DatabaseMetadata::new("test".to_owned(), vec![])
+    let database = DatabaseMetadata::new("test".to_owned(), vec![], vec![])
         .expect("빈 데이터베이스 메타데이터가 유효해야 함");
     let directory = TestDirectory::new("table-not-found");
     let path = directory.path().join("1.tbl");

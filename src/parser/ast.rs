@@ -2,6 +2,7 @@
 pub enum Statement {
     Select(SelectStatement),
     CreateTable(CreateTableStatement),
+    CreateIndex(CreateIndexStatement),
     Insert(InsertStatement),
     Update(UpdateStatement),
     Delete(DeleteStatement),
@@ -12,6 +13,7 @@ impl Statement {
         match self {
             Self::Select(s) => &s.table,
             Self::CreateTable(s) => &s.table,
+            Self::CreateIndex(s) => &s.table,
             Self::Insert(s) => &s.table,
             Self::Update(s) => &s.table,
             Self::Delete(s) => &s.table,
@@ -30,6 +32,13 @@ pub struct SelectStatement {
 pub struct CreateTableStatement {
     pub table: String,
     pub columns: Vec<ColumnDefinition>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreateIndexStatement {
+    pub index_name: String,
+    pub table: String,
+    pub column_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -73,7 +73,7 @@ mod catalogs {
     fn 저장_재로딩_테스트() -> Result<(), CatalogError> {
         let column = ColumnMetadata::new(ColumnId::new(1), "name".to_string(), DataType::Varchar);
         let table = TableMetadata::new(TableId::new(1), "users".to_string(), vec![column]).unwrap();
-        let database = DatabaseMetadata::new("mydb".to_string(), vec![table])?;
+        let database = DatabaseMetadata::new("mydb".to_string(), vec![table], vec![])?;
 
         let test_file = TestFile::new("catalog-reload");
         {

@@ -6,6 +6,7 @@ use crate::{
 #[derive(Debug, PartialEq, Eq)]
 pub enum BoundStatement {
     CreateTable(BoundCreateTable),
+    CreateIndex(BoundCreateIndex),
     Insert(BoundInsert),
     Select(BoundSelect),
     Update(BoundUpdate),
@@ -42,6 +43,13 @@ pub struct BoundDelete {
 pub struct BoundCreateTable {
     pub table: String,
     pub columns: Vec<ColumnDefinition>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct BoundCreateIndex {
+    pub index_name: String,
+    pub table_id: TableId,
+    pub column_id: ColumnId,
 }
 
 #[derive(Debug, PartialEq, Eq)]

@@ -92,6 +92,10 @@ impl TableMetadata {
         self.columns.iter().find(|column| column.name() == name)
     }
 
+    pub fn column_by_id(&self, column_id: ColumnId) -> Option<&ColumnMetadata> {
+        self.columns.iter().find(|column| column.id() == column_id)
+    }
+
     pub fn column_index(&self, column_id: ColumnId) -> Option<usize> {
         self.columns
             .iter()
