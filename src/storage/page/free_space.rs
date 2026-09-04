@@ -1,5 +1,5 @@
 use crate::storage::page::error::PageError;
-use crate::storage::page::{FREE_BLOCK_SIZE, PAGE_SIZE, Page};
+use crate::storage::page::{FREE_BLOCK_SIZE, PAGE_SIZE, Page, Slot, SlotId};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct FreeBlock {
@@ -137,6 +137,45 @@ impl Page {
         }
 
         Ok(None)
+    }
+
+    pub(super) fn compact(&mut self) -> Result<(), PageError> {
+        let mut live_slots = Vec::new();
+        for i in 0..self.slot_count() {
+            let slot_id = SlotId(i);
+            let row = match self.read_row(slot_id) {
+                Ok(r) => r,
+                Err(PageError::SlotNotFound) => continue,
+                Err(e) => return Err(e),
+            };
+
+            live_slots.push((slot_id, row.to_bytes().to_vec()));
+        }
+
+        self.set_free_list_head(u16::MAX);
+        self.set_free_end(PAGE_SIZE as u16);
+
+        for (slot_id, row_bytes) in live_slots {
+            let allocation_len = row_allocation_size(row_bytes.len());
+
+            let new_offset = self.free_end() as usize - allocation_len;
+            self.data[new_offset..new_offset + row_bytes.len()].copy_from_slice(&row_bytes);
+
+            let new_offset = new_offset as u16;
+            let slot = Slot::new(new_offset, row_bytes.len() as u16);
+            self.write_slot(slot_id, &slot)?;
+            self.set_free_end(new_offset);
+        }
+
+        Ok(())
+    }
+
+    pub(super) fn free_space(&self) -> Result<usize, PageError> {
+        if self.free_start() > self.free_end() {
+            return Err(PageError::InvalidFreeSpaceBounds);
+        }
+
+        Ok((self.free_end() - self.free_start()) as usize)
     }
 }
 
