@@ -170,10 +170,6 @@ impl DatabaseMetadata {
         self.indexes.iter().find(|index| index.name() == name)
     }
 
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
     pub fn tables(&self) -> &[TableMetadata] {
         &self.tables
     }
