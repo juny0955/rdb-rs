@@ -3,14 +3,14 @@ use std::cmp::Ordering;
 use thiserror::Error;
 
 use crate::catalog::metadata::{IndexId, RelationId};
-use crate::index::header::BTreePageHeader;
-use crate::index::internal::{
+use crate::index::btree::header::BTreePageHeader;
+use crate::index::btree::internal::{
     InternalEntry, InternalPageError, append_internal_entry, find_internal_child,
     find_leaf_merge_pair, initialize_internal_page, internal_split,
     remove_right_child_after_leaf_merge, replace_child_after_leaf_split,
 };
-use crate::index::key::{BTreeKey, BTreeKeyType};
-use crate::index::leaf::{
+use crate::index::btree::key::{BTreeKey, BTreeKeyType};
+use crate::index::btree::leaf::{
     LeafEntry, LeafPageError, append_leaf_entry, delete_leaf_entry, find_leaf_entry,
     find_leaf_row_ids, initialize_leaf_page, leaf_is_underfull, leaf_merge, leaf_split,
 };
@@ -463,8 +463,8 @@ impl BTree {
 mod tests {
     use super::*;
     use crate::{
-        index::internal::{InternalEntry, append_internal_entry, initialize_internal_page},
-        index::leaf::{LeafEntry, append_leaf_entry, initialize_leaf_page},
+        index::btree::internal::{InternalEntry, append_internal_entry, initialize_internal_page},
+        index::btree::leaf::{LeafEntry, append_leaf_entry, initialize_leaf_page},
         storage::file::open_rw,
         storage::page::{Page, SlotId, allocate_page, write_page},
         test_supports::TestFile,

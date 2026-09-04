@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use thiserror::Error;
 
 use crate::{
-    index::{
+    index::btree::{
         header::{BTreePageHeader, LEAF_HEADER_SIZE},
         key::{BTreeKey, BTreeKeyType},
     },

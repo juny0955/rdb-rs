@@ -19,7 +19,7 @@ use crate::{
 use crate::{
     binder::{BoundCreateIndex, BoundExpression},
     catalog::metadata::{IndexId, IndexMetadata, RelationId},
-    index::{
+    index::btree::{
         BTreeKey, BTreeKeyType,
         tree::{BTree, BTreeError},
     },

@@ -185,7 +185,10 @@ impl DatabaseMetadata {
 
 #[cfg(test)]
 mod database_metadata {
-    use crate::{catalog::metadata::{ColumnId, ColumnMetadata, DataType}, storage::page::PageId};
+    use crate::{
+        catalog::metadata::{ColumnId, ColumnMetadata, DataType},
+        storage::page::PageId,
+    };
 
     use super::*;
 
