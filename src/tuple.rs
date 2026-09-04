@@ -1,6 +1,6 @@
 use crate::{
-    page::Row,
     schema::{ColumnMetadata, DataType},
+    storage::page::Row,
 };
 use std::str::from_utf8;
 use thiserror::Error;
@@ -158,8 +158,8 @@ fn take<'a>(bytes: &'a [u8], cursor: &mut usize, length: usize) -> Result<&'a [u
 #[cfg(test)]
 mod tests {
     use crate::{
-        page::Row,
         schema::{ColumnId, ColumnMetadata, DataType},
+        storage::page::Row,
     };
 
     use super::{NOT_NULL_MARKER, NULL_MARKER, TupleError, Value, decode, encode};

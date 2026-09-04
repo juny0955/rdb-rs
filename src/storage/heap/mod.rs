@@ -8,10 +8,10 @@ use thiserror::Error;
 
 use crate::schema::RelationId;
 use crate::{
-    buffer::{BufferPool, BufferPoolError, page_key::PageKey},
-    file::{open_rw, open_rw_create},
-    page::{PageError, PageId, PagerError, Row, RowId, allocate_page, page_count},
     schema::TableId,
+    storage::buffer::{BufferPool, BufferPoolError, page_key::PageKey},
+    storage::file::{open_rw, open_rw_create},
+    storage::page::{PageError, PageId, PagerError, Row, RowId, allocate_page, page_count},
 };
 
 #[derive(Debug, Error)]
@@ -160,8 +160,8 @@ impl HeapTable {
 
 #[cfg(test)]
 mod tests {
-    use crate::page::read_page;
     use crate::schema::{RelationId, TableId};
+    use crate::storage::page::read_page;
     use crate::test_supports::TestFile;
 
     use super::*;

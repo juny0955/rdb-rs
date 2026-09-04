@@ -1,8 +1,8 @@
 use std::str::from_utf8;
 
 use crate::{
-    page::PageId,
     schema::{ColumnId, INDEX_NAME_LENGTH_PREFIX_BYTES, IndexId, SchemaError, TableId},
+    storage::page::PageId,
 };
 
 #[derive(Debug, PartialEq, Eq)]

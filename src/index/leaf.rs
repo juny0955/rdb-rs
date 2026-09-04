@@ -7,7 +7,7 @@ use crate::{
         header::{BTreePageHeader, LEAF_HEADER_SIZE},
         key::{BTreeKey, BTreeKeyType},
     },
-    page::{Page, PageId, RowId},
+    storage::page::{Page, PageId, RowId},
 };
 
 pub fn initialize_leaf_page(page: &mut Page) {
@@ -295,7 +295,7 @@ impl LeafEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::page::{Page, PageId, SlotId};
+    use crate::storage::page::{Page, PageId, SlotId};
 
     #[test]
     fn int_leaf_entry를_바이트로_직렬화한다() {

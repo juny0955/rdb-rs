@@ -2,11 +2,11 @@ use crate::{
     binder::{
         BoundDelete, BoundExpression, BoundInsert, BoundProjection, BoundSelect, BoundUpdate,
     },
-    buffer::BufferPool,
-    page::{Row, RowId},
     schema::{ColumnId, DataType, DatabaseMetadata, TableId, TableMetadata},
     sql::ast::Literal,
-    table::{HeapTable, HeapTableError},
+    storage::buffer::BufferPool,
+    storage::heap::{HeapTable, HeapTableError},
+    storage::page::{Row, RowId},
     tuple::{TupleError, Value, decode, encode},
 };
 use thiserror::Error;

@@ -2,8 +2,6 @@ use std::cmp::Ordering;
 
 use thiserror::Error;
 
-use crate::buffer::page_key::PageKey;
-use crate::buffer::{BufferPool, BufferPoolError};
 use crate::index::header::BTreePageHeader;
 use crate::index::internal::{
     InternalEntry, InternalPageError, append_internal_entry, find_internal_child,
@@ -15,8 +13,10 @@ use crate::index::leaf::{
     LeafEntry, LeafPageError, append_leaf_entry, delete_leaf_entry, find_leaf_entry,
     find_leaf_row_ids, initialize_leaf_page, leaf_is_underfull, leaf_merge, leaf_split,
 };
-use crate::page::{Page, PageId, RowId};
 use crate::schema::{IndexId, RelationId};
+use crate::storage::buffer::page_key::PageKey;
+use crate::storage::buffer::{BufferPool, BufferPoolError};
+use crate::storage::page::{Page, PageId, RowId};
 
 #[derive(Debug, Error)]
 pub enum BTreeError {
@@ -463,10 +463,10 @@ impl BTree {
 mod tests {
     use super::*;
     use crate::{
-        file::open_rw,
         index::internal::{InternalEntry, append_internal_entry, initialize_internal_page},
         index::leaf::{LeafEntry, append_leaf_entry, initialize_leaf_page},
-        page::{Page, SlotId, allocate_page, write_page},
+        storage::file::open_rw,
+        storage::page::{Page, SlotId, allocate_page, write_page},
         test_supports::TestFile,
     };
 

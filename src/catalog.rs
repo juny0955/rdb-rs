@@ -5,8 +5,8 @@ use std::{
 };
 
 use crate::{
-    file::open_rw_create,
     schema::{DatabaseMetadata, SchemaError},
+    storage::file::open_rw_create,
 };
 use thiserror::Error;
 

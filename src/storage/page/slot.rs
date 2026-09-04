@@ -1,5 +1,5 @@
-use crate::page::error::PageError;
-use crate::page::{HEADER_SIZE, PAGE_SIZE, Page, SLOT_SIZE};
+use crate::storage::page::error::PageError;
+use crate::storage::page::{HEADER_SIZE, PAGE_SIZE, Page, SLOT_SIZE};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct SlotId(pub(super) u16);
@@ -10,7 +10,7 @@ impl SlotId {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct Slot {
+pub(super) struct Slot {
     pub offset: u16,
     pub length: u16,
 }

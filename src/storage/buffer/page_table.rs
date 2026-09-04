@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::buffer::{frame::FrameId, page_key::PageKey};
+use crate::storage::buffer::{frame::FrameId, page_key::PageKey};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum PageTableError {
@@ -45,9 +45,9 @@ impl PageTable {
 mod tests {
     use super::*;
     use crate::{
-        buffer::page_key::PageKey,
-        page::PageId,
         schema::{RelationId, TableId},
+        storage::buffer::page_key::PageKey,
+        storage::page::PageId,
     };
 
     fn page_key(table_id: u32, page_id: u64) -> PageKey {

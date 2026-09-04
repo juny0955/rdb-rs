@@ -3,7 +3,7 @@ use std::{
     io::{Read, Seek, SeekFrom, Write},
 };
 
-use crate::page::error::PagerError;
+use crate::storage::page::error::PagerError;
 
 use super::{PAGE_SIZE, Page, PageId};
 

@@ -1,4 +1,4 @@
-use crate::page::{Page, PageId};
+use crate::storage::page::{Page, PageId};
 
 pub const LEAF_HEADER_SIZE: u16 = 14;
 pub const INTERNAL_HEADER_SIZE: u16 = 13;

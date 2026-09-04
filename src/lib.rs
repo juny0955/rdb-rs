@@ -1,14 +1,11 @@
 pub mod binder;
-pub mod buffer;
 mod catalog;
 pub mod database;
 pub mod executor;
-mod file;
 mod index;
-mod page;
 mod schema;
 pub mod sql;
-mod table;
+mod storage;
 mod tuple;
 
 #[cfg(test)]

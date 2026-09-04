@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    page::{free_space::FreeBlock, slot::slot_offset},
+    storage::page::{free_space::FreeBlock, slot::slot_offset},
     test_supports::TestFile,
 };
 

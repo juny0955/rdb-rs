@@ -1,5 +1,5 @@
-use crate::page::error::PageError;
-use crate::page::{FREE_BLOCK_SIZE, PAGE_SIZE, Page};
+use crate::storage::page::error::PageError;
+use crate::storage::page::{FREE_BLOCK_SIZE, PAGE_SIZE, Page};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct FreeBlock {

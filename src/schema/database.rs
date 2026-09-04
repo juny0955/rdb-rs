@@ -186,8 +186,8 @@ impl DatabaseMetadata {
 #[cfg(test)]
 mod database_metadata {
     use crate::{
-        page::PageId,
         schema::{ColumnId, ColumnMetadata, DataType, IndexId, index::IndexMetadata},
+        storage::page::PageId,
     };
 
     use super::*;

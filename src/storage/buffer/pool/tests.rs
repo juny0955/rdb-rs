@@ -1,6 +1,6 @@
 use super::*;
-use crate::page::{Page, PageId, PagerError, Row, allocate_page, read_page, write_page};
 use crate::schema::{RelationId, TableId};
+use crate::storage::page::{Page, PageId, PagerError, Row, allocate_page, read_page, write_page};
 use tempfile::NamedTempFile;
 
 fn key(page_id: u64) -> PageKey {

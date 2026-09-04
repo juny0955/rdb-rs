@@ -5,13 +5,13 @@ use crate::{
         BoundAssignment, BoundDelete, BoundExpression, BoundInsert, BoundProjection, BoundSelect,
         BoundUpdate,
     },
-    buffer::BufferPool,
-    page::{PageError, PageId, RowId, SlotId},
     schema::{
         ColumnId, ColumnMetadata, DataType, DatabaseMetadata, RelationId, TableId, TableMetadata,
     },
     sql::ast::Literal,
-    table::{HeapTable, HeapTableError},
+    storage::buffer::BufferPool,
+    storage::heap::{HeapTable, HeapTableError},
+    storage::page::{PageError, PageId, RowId, SlotId},
     test_supports::TestDirectory,
     tuple::{Value, decode, encode},
 };

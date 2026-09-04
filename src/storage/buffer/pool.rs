@@ -2,16 +2,16 @@ use std::{collections::HashMap, fs::File, io, path::PathBuf};
 
 use thiserror::Error;
 
-use crate::page::{PageId, allocate_page as allocate_file_page};
 use crate::schema::RelationId;
+use crate::storage::page::{PageId, allocate_page as allocate_file_page};
 use crate::{
-    buffer::{
+    storage::buffer::{
         frame::{BufferFrame, FrameId},
         page_key::PageKey,
         page_table::PageTable,
     },
-    file::open_rw,
-    page::{Page, PagerError, read_page, write_page},
+    storage::file::open_rw,
+    storage::page::{Page, PagerError, read_page, write_page},
 };
 
 #[derive(Debug, Error)]

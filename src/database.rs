@@ -6,23 +6,23 @@ use std::{
 
 use crate::{
     binder::{Binder, BinderError, BoundCreateTable, BoundStatement},
-    buffer::BufferPool,
     catalog::{Catalog, CatalogError},
     executor::{Executor, ExecutorError},
     schema::{ColumnId, ColumnMetadata, DatabaseMetadata, SchemaError, TableId, TableMetadata},
     sql::ast::{Literal, Statement},
-    table::{HeapTable, HeapTableError},
+    storage::buffer::BufferPool,
+    storage::heap::{HeapTable, HeapTableError},
     tuple::Value,
 };
 use crate::{
     binder::{BoundCreateIndex, BoundExpression},
-    file::open_rw_create,
     index::{
         BTreeKey, BTreeKeyType,
         tree::{BTree, BTreeError},
     },
-    page::RowId,
     schema::{IndexId, IndexMetadata, RelationId},
+    storage::file::open_rw_create,
+    storage::page::RowId,
     tuple::{self, TupleError},
 };
 use thiserror::Error;
@@ -482,13 +482,13 @@ mod tests {
     use crate::{
         binder::{Binder, BoundCreateTable, BoundStatement},
         executor::Executor,
-        page::PageId,
         schema::DataType,
         sql::{
             Parser,
             ast::{ColumnDefinition, DataType as AstDataType},
             lexer::Lexer,
         },
+        storage::page::PageId,
         test_supports::TestDirectory,
         tuple::Value,
     };

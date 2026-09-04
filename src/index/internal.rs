@@ -7,7 +7,7 @@ use crate::{
         header::{BTreePageHeader, INTERNAL_HEADER_SIZE},
         key::{BTreeKey, BTreeKeyType},
     },
-    page::{Page, PageId},
+    storage::page::{Page, PageId},
 };
 
 pub fn initialize_internal_page(page: &mut Page, rightmost_child: PageId) {
@@ -308,7 +308,7 @@ impl InternalEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::page::Page;
+    use crate::storage::page::Page;
 
     #[test]
     fn internal_page를_초기화한다() {

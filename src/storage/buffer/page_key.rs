@@ -1,5 +1,5 @@
-use crate::page::PageId;
 use crate::schema::RelationId;
+use crate::storage::page::PageId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PageKey(RelationId, PageId);

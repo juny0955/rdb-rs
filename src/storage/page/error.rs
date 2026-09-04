@@ -2,7 +2,7 @@ use std::io;
 
 use thiserror::Error;
 
-use crate::page::PageId;
+use crate::storage::page::PageId;
 
 #[derive(Debug, PartialEq, Eq, Error)]
 pub enum PageError {

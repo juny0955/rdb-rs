@@ -1,4 +1,4 @@
-use crate::{buffer::page_key::PageKey, page::Page};
+use crate::{storage::buffer::page_key::PageKey, storage::page::Page};
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub(super) struct FrameId(usize);
@@ -90,9 +90,9 @@ impl BufferFrame {
 mod tests {
     use super::*;
     use crate::{
-        buffer::page_key::PageKey,
-        page::PageId,
         schema::{RelationId, TableId},
+        storage::buffer::page_key::PageKey,
+        storage::page::PageId,
     };
 
     fn page_key(page_id: u64) -> PageKey {
