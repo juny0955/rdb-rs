@@ -1,7 +1,7 @@
-pub mod binder;
+mod binder;
 mod catalog;
 pub mod database;
-pub mod executor;
+mod executor;
 mod index;
 pub mod sql;
 mod storage;
