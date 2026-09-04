@@ -249,7 +249,7 @@ pub(super) fn search_index_row_ids(
                     );
 
                     if let Some(key) = literal_to_btree_key(value, key_type)? {
-                        return Ok(Some(btree.search_all(buffer_pool, key)?));
+                        return Ok(Some(btree.search(buffer_pool, key)?));
                     } else {
                         return Ok(Some(vec![]));
                     };

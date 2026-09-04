@@ -100,7 +100,7 @@ fn create_index는_재시작후_기존_행을_backfill한다() -> Result<(), Dat
 
     assert_eq!(
         btree.search(&mut database.buffer_pool, BTreeKey::BigInt(42))?,
-        Some(indexed_row_id)
+        vec![indexed_row_id]
     );
     Ok(())
 }
@@ -140,7 +140,7 @@ fn insert는_생성된_index에_반영하고_재시작후_검색된다() -> Resu
 
     assert_eq!(
         btree.search(&mut database.buffer_pool, BTreeKey::BigInt(42))?,
-        Some(inserted_row_id)
+        vec![inserted_row_id]
     );
     Ok(())
 }
@@ -169,7 +169,7 @@ fn delete는_index_entry를_제거하고_재시작후_검색되지_않는다() -
 
     assert_eq!(
         btree.search(&mut database.buffer_pool, BTreeKey::BigInt(42))?,
-        None
+        vec![]
     );
     Ok(())
 }
@@ -212,11 +212,11 @@ fn update는_index_entry를_교체하고_재시작후_검색된다() -> Result<(
 
     assert_eq!(
         btree.search(&mut database.buffer_pool, BTreeKey::BigInt(42))?,
-        None
+        vec![]
     );
     assert_eq!(
         btree.search(&mut database.buffer_pool, BTreeKey::BigInt(100))?,
-        Some(row_id)
+        vec![row_id]
     );
     Ok(())
 }
