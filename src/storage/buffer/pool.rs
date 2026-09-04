@@ -2,7 +2,7 @@ use std::{collections::HashMap, fs::File, io, path::PathBuf};
 
 use thiserror::Error;
 
-use crate::schema::RelationId;
+use crate::catalog::metadata::RelationId;
 use crate::storage::page::{PageId, allocate_page as allocate_file_page};
 use crate::{
     storage::buffer::{

@@ -1,5 +1,5 @@
 use super::*;
-use crate::schema::{RelationId, TableId};
+use crate::catalog::metadata::{RelationId, TableId};
 use crate::storage::page::{Page, PageId, PagerError, Row, allocate_page, read_page, write_page};
 use tempfile::NamedTempFile;
 

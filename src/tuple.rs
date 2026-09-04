@@ -1,5 +1,5 @@
 use crate::{
-    schema::{ColumnMetadata, DataType},
+    catalog::metadata::{ColumnMetadata, DataType},
     storage::page::Row,
 };
 use std::str::from_utf8;
@@ -158,7 +158,7 @@ fn take<'a>(bytes: &'a [u8], cursor: &mut usize, length: usize) -> Result<&'a [u
 #[cfg(test)]
 mod tests {
     use crate::{
-        schema::{ColumnId, ColumnMetadata, DataType},
+        catalog::metadata::{ColumnId, ColumnMetadata, DataType},
         storage::page::Row,
     };
 

@@ -1,4 +1,4 @@
-use crate::schema::RelationId;
+use crate::catalog::metadata::RelationId;
 use crate::storage::page::PageId;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

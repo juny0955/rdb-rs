@@ -5,10 +5,12 @@ use std::{
 };
 
 use crate::{
-    schema::{DatabaseMetadata, SchemaError},
+    catalog::metadata::{DatabaseMetadata, SchemaError},
     storage::file::open_rw_create,
 };
 use thiserror::Error;
+
+pub mod metadata;
 
 #[derive(Debug, Error)]
 pub enum CatalogError {
@@ -63,7 +65,7 @@ impl Catalog {
 #[cfg(test)]
 mod catalogs {
     use crate::{
-        schema::{ColumnId, ColumnMetadata, DataType, TableId, TableMetadata},
+        catalog::metadata::{ColumnId, ColumnMetadata, DataType, TableId, TableMetadata},
         test_supports::TestFile,
     };
 

@@ -45,7 +45,7 @@ impl PageTable {
 mod tests {
     use super::*;
     use crate::{
-        schema::{RelationId, TableId},
+        catalog::metadata::{RelationId, TableId},
         storage::buffer::page_key::PageKey,
         storage::page::PageId,
     };

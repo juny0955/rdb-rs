@@ -1,5 +1,5 @@
 use crate::{
-    schema::{ColumnId, ColumnMetadata, DataType, TableId, TableMetadata},
+    catalog::metadata::{ColumnId, ColumnMetadata, DataType, TableId, TableMetadata},
     sql::ast::{
         Assignment, ColumnDefinition, CreateIndexStatement, CreateTableStatement,
         DataType as AstDataType, DeleteStatement, Expression, InsertStatement, Projection,

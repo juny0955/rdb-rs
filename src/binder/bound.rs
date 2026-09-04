@@ -1,5 +1,5 @@
 use crate::{
-    schema::{ColumnId, TableId},
+    catalog::metadata::{ColumnId, TableId},
     sql::ast::{ColumnDefinition, Literal},
 };
 

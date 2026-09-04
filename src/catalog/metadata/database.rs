@@ -1,6 +1,6 @@
 use std::str::from_utf8;
 
-use crate::schema::{
+use super::{
     DATABASE_NAME_LENGTH_PREFIX_BYTES, IndexId, SchemaError, TableId, TableMetadata,
     index::IndexMetadata,
 };
@@ -185,10 +185,7 @@ impl DatabaseMetadata {
 
 #[cfg(test)]
 mod database_metadata {
-    use crate::{
-        schema::{ColumnId, ColumnMetadata, DataType, IndexId, index::IndexMetadata},
-        storage::page::PageId,
-    };
+    use crate::{catalog::metadata::{ColumnId, ColumnMetadata, DataType}, storage::page::PageId};
 
     use super::*;
 

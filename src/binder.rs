@@ -1,5 +1,5 @@
 use crate::{
-    schema::{DataType, DatabaseMetadata, TableMetadata},
+    catalog::metadata::{DataType, DatabaseMetadata, TableMetadata},
     sql::ast::{
         CreateIndexStatement, DeleteStatement,
         Expression::{self, Identifier},

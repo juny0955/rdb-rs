@@ -6,9 +6,9 @@ use std::{
 
 use thiserror::Error;
 
-use crate::schema::RelationId;
+use crate::catalog::metadata::RelationId;
 use crate::{
-    schema::TableId,
+    catalog::metadata::TableId,
     storage::buffer::{BufferPool, BufferPoolError, page_key::PageKey},
     storage::file::{open_rw, open_rw_create},
     storage::page::{PageError, PageId, PagerError, Row, RowId, allocate_page, page_count},
@@ -160,7 +160,7 @@ impl HeapTable {
 
 #[cfg(test)]
 mod tests {
-    use crate::schema::{RelationId, TableId};
+    use crate::catalog::metadata::{RelationId, TableId};
     use crate::storage::page::read_page;
     use crate::test_supports::TestFile;
 

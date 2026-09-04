@@ -1,6 +1,6 @@
 use std::str::from_utf8;
 
-use crate::schema::{COLUMN_NAME_LENGTH_PREFIX_BYTES, ColumnId, DataType, SchemaError};
+use super::{COLUMN_NAME_LENGTH_PREFIX_BYTES, ColumnId, DataType, SchemaError};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ColumnMetadata {

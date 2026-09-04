@@ -2,7 +2,7 @@ use crate::{
     binder::{
         BoundDelete, BoundExpression, BoundInsert, BoundProjection, BoundSelect, BoundUpdate,
     },
-    schema::{ColumnId, DataType, DatabaseMetadata, TableId, TableMetadata},
+    catalog::metadata::{ColumnId, DataType, DatabaseMetadata, TableId, TableMetadata},
     sql::ast::Literal,
     storage::buffer::BufferPool,
     storage::heap::{HeapTable, HeapTableError},

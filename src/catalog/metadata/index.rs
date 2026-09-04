@@ -1,9 +1,7 @@
 use std::str::from_utf8;
 
-use crate::{
-    schema::{ColumnId, INDEX_NAME_LENGTH_PREFIX_BYTES, IndexId, SchemaError, TableId},
-    storage::page::PageId,
-};
+use super::{ColumnId, INDEX_NAME_LENGTH_PREFIX_BYTES, IndexId, SchemaError, TableId};
+use crate::storage::page::PageId;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct IndexMetadata {

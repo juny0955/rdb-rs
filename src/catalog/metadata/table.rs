@@ -1,8 +1,6 @@
 use std::{collections::HashSet, str::from_utf8};
 
-use crate::schema::{
-    ColumnId, ColumnMetadata, SchemaError, TABLE_NAME_LENGTH_PREFIX_BYTES, TableId,
-};
+use super::{ColumnId, ColumnMetadata, SchemaError, TABLE_NAME_LENGTH_PREFIX_BYTES, TableId};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct TableMetadata {
@@ -117,7 +115,8 @@ impl TableMetadata {
 
 #[cfg(test)]
 mod table_metadata {
-    use crate::schema::DataType;
+
+    use crate::catalog::metadata::DataType;
 
     use super::*;
 

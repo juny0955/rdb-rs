@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 
 use thiserror::Error;
 
+use crate::catalog::metadata::{IndexId, RelationId};
 use crate::index::header::BTreePageHeader;
 use crate::index::internal::{
     InternalEntry, InternalPageError, append_internal_entry, find_internal_child,
@@ -13,7 +14,6 @@ use crate::index::leaf::{
     LeafEntry, LeafPageError, append_leaf_entry, delete_leaf_entry, find_leaf_entry,
     find_leaf_row_ids, initialize_leaf_page, leaf_is_underfull, leaf_merge, leaf_split,
 };
-use crate::schema::{IndexId, RelationId};
 use crate::storage::buffer::page_key::PageKey;
 use crate::storage::buffer::{BufferPool, BufferPoolError};
 use crate::storage::page::{Page, PageId, RowId};

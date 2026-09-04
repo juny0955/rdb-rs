@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use crate::schema::{DataType, SchemaError};
+use crate::catalog::metadata::{DataType, SchemaError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BTreeKeyType {

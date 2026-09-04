@@ -5,7 +5,7 @@ use crate::{
         BoundAssignment, BoundDelete, BoundExpression, BoundInsert, BoundProjection, BoundSelect,
         BoundUpdate,
     },
-    schema::{
+    catalog::metadata::{
         ColumnId, ColumnMetadata, DataType, DatabaseMetadata, RelationId, TableId, TableMetadata,
     },
     sql::ast::Literal,

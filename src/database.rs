@@ -6,9 +6,11 @@ use std::{
 
 use crate::{
     binder::{Binder, BinderError, BoundCreateTable, BoundStatement},
+    catalog::metadata::{
+        ColumnId, ColumnMetadata, DatabaseMetadata, SchemaError, TableId, TableMetadata,
+    },
     catalog::{Catalog, CatalogError},
     executor::{Executor, ExecutorError},
-    schema::{ColumnId, ColumnMetadata, DatabaseMetadata, SchemaError, TableId, TableMetadata},
     sql::ast::{Literal, Statement},
     storage::buffer::BufferPool,
     storage::heap::{HeapTable, HeapTableError},
@@ -16,11 +18,11 @@ use crate::{
 };
 use crate::{
     binder::{BoundCreateIndex, BoundExpression},
+    catalog::metadata::{IndexId, IndexMetadata, RelationId},
     index::{
         BTreeKey, BTreeKeyType,
         tree::{BTree, BTreeError},
     },
-    schema::{IndexId, IndexMetadata, RelationId},
     storage::file::open_rw_create,
     storage::page::RowId,
     tuple::{self, TupleError},
@@ -481,8 +483,8 @@ fn literal_to_btree_key(
 mod tests {
     use crate::{
         binder::{Binder, BoundCreateTable, BoundStatement},
+        catalog::metadata::DataType,
         executor::Executor,
-        schema::DataType,
         sql::{
             Parser,
             ast::{ColumnDefinition, DataType as AstDataType},
