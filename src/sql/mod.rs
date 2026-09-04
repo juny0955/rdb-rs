@@ -1,4 +1,4 @@
-use crate::parser::{
+use crate::sql::{
     ast::{
         Assignment, ColumnDefinition, CreateIndexStatement, CreateTableStatement, DataType,
         DeleteStatement, Expression, InsertStatement, Literal, Projection, SelectStatement,
@@ -301,7 +301,7 @@ impl Parser {
 
 #[cfg(test)]
 mod tests {
-    use crate::parser::lexer::Lexer;
+    use crate::sql::lexer::Lexer;
 
     use super::*;
 

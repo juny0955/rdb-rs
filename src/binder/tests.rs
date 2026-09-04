@@ -1,9 +1,10 @@
 use crate::{
-    parser::ast::{
-        Assignment, CreateIndexStatement, CreateTableStatement, DataType as AstDataType,
-        DeleteStatement, Expression, InsertStatement, Projection, SelectStatement, UpdateStatement,
-    },
     schema::{ColumnId, ColumnMetadata, DataType, TableId, TableMetadata},
+    sql::ast::{
+        Assignment, ColumnDefinition, CreateIndexStatement, CreateTableStatement,
+        DataType as AstDataType, DeleteStatement, Expression, InsertStatement, Projection,
+        SelectStatement, UpdateStatement,
+    },
 };
 
 use super::*;
@@ -556,7 +557,7 @@ fn update를_bound_update로변환한다() {
 fn create_table을_bound_statement로변환한다() {
     let database = database();
     let binder = Binder::new(&database);
-    let columns = vec![crate::parser::ast::ColumnDefinition {
+    let columns = vec![ColumnDefinition {
         name: "id".to_owned(),
         data_type: AstDataType::BigInt,
     }];

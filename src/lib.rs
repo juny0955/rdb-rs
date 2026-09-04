@@ -6,8 +6,8 @@ pub mod executor;
 mod file;
 mod index;
 mod page;
-pub mod parser;
 mod schema;
+pub mod sql;
 mod table;
 mod tuple;
 

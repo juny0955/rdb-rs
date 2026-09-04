@@ -1,6 +1,6 @@
 use crate::{
-    parser::ast::{ColumnDefinition, Literal},
     schema::{ColumnId, TableId},
+    sql::ast::{ColumnDefinition, Literal},
 };
 
 #[derive(Debug, PartialEq, Eq)]

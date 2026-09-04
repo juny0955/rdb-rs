@@ -7,10 +7,10 @@ use crate::{
     },
     buffer::BufferPool,
     page::{PageError, PageId, RowId, SlotId},
-    parser::ast::Literal,
     schema::{
         ColumnId, ColumnMetadata, DataType, DatabaseMetadata, RelationId, TableId, TableMetadata,
     },
+    sql::ast::Literal,
     table::{HeapTable, HeapTableError},
     test_supports::TestDirectory,
     tuple::{Value, decode, encode},

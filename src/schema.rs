@@ -9,7 +9,7 @@ pub use index::IndexMetadata;
 pub use table::TableMetadata;
 use thiserror::Error;
 
-use crate::parser::ast;
+use crate::sql::ast;
 
 const COLUMN_NAME_LENGTH_PREFIX_BYTES: usize = 6;
 const TABLE_NAME_LENGTH_PREFIX_BYTES: usize = 6;

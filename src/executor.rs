@@ -4,8 +4,8 @@ use crate::{
     },
     buffer::BufferPool,
     page::{Row, RowId},
-    parser::ast::Literal,
     schema::{ColumnId, DataType, DatabaseMetadata, TableId, TableMetadata},
+    sql::ast::Literal,
     table::{HeapTable, HeapTableError},
     tuple::{TupleError, Value, decode, encode},
 };

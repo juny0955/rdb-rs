@@ -1,10 +1,10 @@
 use crate::{
-    parser::ast::{
+    schema::{DataType, DatabaseMetadata, TableMetadata},
+    sql::ast::{
         CreateIndexStatement, DeleteStatement,
         Expression::{self, Identifier},
         InsertStatement, Literal, Projection, SelectStatement, Statement, UpdateStatement,
     },
-    schema::{DataType, DatabaseMetadata, TableMetadata},
 };
 use thiserror::Error;
 

@@ -1,4 +1,4 @@
-use crate::parser::token::{Token, TokenKind};
+use crate::sql::token::{Token, TokenKind};
 use thiserror::Error;
 
 #[derive(Debug, Error)]

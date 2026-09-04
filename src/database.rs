@@ -9,8 +9,8 @@ use crate::{
     buffer::BufferPool,
     catalog::{Catalog, CatalogError},
     executor::{Executor, ExecutorError},
-    parser::ast::{Literal, Statement},
     schema::{ColumnId, ColumnMetadata, DatabaseMetadata, SchemaError, TableId, TableMetadata},
+    sql::ast::{Literal, Statement},
     table::{HeapTable, HeapTableError},
     tuple::Value,
 };
@@ -483,12 +483,12 @@ mod tests {
         binder::{Binder, BoundCreateTable, BoundStatement},
         executor::Executor,
         page::PageId,
-        parser::{
+        schema::DataType,
+        sql::{
             Parser,
             ast::{ColumnDefinition, DataType as AstDataType},
             lexer::Lexer,
         },
-        schema::DataType,
         test_supports::TestDirectory,
         tuple::Value,
     };
