@@ -4,10 +4,10 @@ use thiserror::Error;
 
 use crate::{
     index::{
-        header::BTreePageHeader,
+        header::{BTreePageHeader, LEAF_HEADER_SIZE},
         key::{BTreeKey, BTreeKeyType},
     },
-    page::{Page, RowId},
+    page::{Page, PageId, RowId},
 };
 
 pub fn initialize_leaf_page(page: &mut Page) {
@@ -52,7 +52,7 @@ pub fn read_leaf_entries(
         return Err(LeafPageError::InvalidPage);
     }
     let mut entries = Vec::new();
-    let mut offset = 5;
+    let mut offset = LEAF_HEADER_SIZE as usize;
     for _ in 0..header.entry_count() {
         if offset + 2 > header.entry_end() as usize {
             return Err(LeafPageError::InvalidPage);
@@ -115,6 +115,7 @@ pub fn find_leaf_entry(
     target: &BTreeKey,
 ) -> Result<Option<RowId>, LeafPageError> {
     let entries = read_leaf_entries(page, key_type)?;
+
     for entry in &entries {
         if let Some(Ordering::Equal) = entry.key.compare(target) {
             return Ok(Some(entry.row_id));
@@ -124,9 +125,27 @@ pub fn find_leaf_entry(
     Ok(None)
 }
 
+pub fn find_leaf_row_ids(
+    page: &Page,
+    key_type: BTreeKeyType,
+    target: &BTreeKey,
+) -> Result<Vec<RowId>, LeafPageError> {
+    let entries = read_leaf_entries(page, key_type)?;
+
+    let mut results = Vec::new();
+    for entry in &entries {
+        if let Some(Ordering::Equal) = entry.key.compare(target) {
+            results.push(entry.row_id);
+        }
+    }
+
+    Ok(results)
+}
+
 pub fn leaf_split(
     left_page: &mut Page,
     right_page: &mut Page,
+    right_page_id: PageId,
     key_type: BTreeKeyType,
     new_entry: LeafEntry,
 ) -> Result<BTreeKey, LeafPageError> {
@@ -150,16 +169,27 @@ pub fn leaf_split(
         .key
         .clone();
 
+    let old_next = BTreePageHeader::read_from_page(left_page)
+        .ok_or(LeafPageError::InvalidPage)?
+        .next_leaf_page_id();
     initialize_leaf_page(left_page);
     for entry in &entries {
         append_leaf_entry(left_page, entry)?;
     }
+    let mut left_page_header =
+        BTreePageHeader::read_from_page(left_page).ok_or(LeafPageError::InvalidPage)?;
+    left_page_header.set_next_leaf_page_id(Some(right_page_id));
+    left_page_header.write_to_page(left_page);
 
     initialize_leaf_page(right_page);
     for entry in &split_entries {
         append_leaf_entry(right_page, entry)?;
     }
 
+    let mut right_page_header =
+        BTreePageHeader::read_from_page(right_page).ok_or(LeafPageError::InvalidPage)?;
+    right_page_header.set_next_leaf_page_id(old_next);
+    right_page_header.write_to_page(right_page);
     Ok(separator_key)
 }
 
@@ -184,6 +214,14 @@ pub fn leaf_merge(
         append_leaf_entry(&mut temp_page, entry)?;
     }
     *left_page = temp_page;
+
+    let old_next = BTreePageHeader::read_from_page(right_page)
+        .ok_or(LeafPageError::InvalidPage)?
+        .next_leaf_page_id();
+    let mut left_page_header =
+        BTreePageHeader::read_from_page(left_page).ok_or(LeafPageError::InvalidPage)?;
+    left_page_header.set_next_leaf_page_id(old_next);
+    left_page_header.write_to_page(left_page);
 
     initialize_leaf_page(right_page);
     Ok(())
@@ -346,9 +384,12 @@ mod tests {
 
         // Then
         result.expect("빈 leaf page에 entry를 추가할 수 있어야 한다");
-        assert_eq!(&page.as_bytes()[0..5], &[0, 0, 1, 0, 21]);
         assert_eq!(
-            &page.as_bytes()[5..21],
+            &page.as_bytes()[0..14],
+            &[0, 0, 1, 0, 30, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        );
+        assert_eq!(
+            &page.as_bytes()[14..30],
             &[0, 4, 0, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0, 3, 0, 7]
         );
     }
@@ -416,6 +457,28 @@ mod tests {
 
         // Then
         assert_eq!(found, None);
+    }
+
+    #[test]
+    fn 같은_leaf_key의_모든_row_id를_찾는다() -> Result<(), LeafPageError> {
+        // Given
+        let mut page = Page::new_raw();
+        initialize_leaf_page(&mut page);
+        let first_row_id = RowId::new(PageId::new(3), SlotId::new(7));
+        let second_row_id = RowId::new(PageId::new(4), SlotId::new(8));
+        append_leaf_entry(&mut page, &LeafEntry::new(BTreeKey::Int(42), first_row_id))?;
+        append_leaf_entry(
+            &mut page,
+            &LeafEntry::new(BTreeKey::Int(7), RowId::new(PageId::new(5), SlotId::new(9))),
+        )?;
+        append_leaf_entry(&mut page, &LeafEntry::new(BTreeKey::Int(42), second_row_id))?;
+
+        // When
+        let row_ids = find_leaf_row_ids(&page, BTreeKeyType::Int, &BTreeKey::Int(42))?;
+
+        // Then
+        assert_eq!(row_ids, vec![first_row_id, second_row_id]);
+        Ok(())
     }
 
     #[test]
@@ -488,11 +551,18 @@ mod tests {
         ] {
             append_leaf_entry(&mut left_page, &LeafEntry::new(key, row_id))?;
         }
+        let old_next = PageId::new(99);
+        let mut left_header =
+            BTreePageHeader::read_from_page(&left_page).expect("유효한 leaf header여야 함");
+        left_header.set_next_leaf_page_id(Some(old_next));
+        left_header.write_to_page(&mut left_page);
         let mut right_page = Page::new_raw();
+        let right_page_id = PageId::new(2);
 
         let separator = leaf_split(
             &mut left_page,
             &mut right_page,
+            right_page_id,
             BTreeKeyType::Int,
             LeafEntry::new(
                 BTreeKey::Int(25),
@@ -502,7 +572,13 @@ mod tests {
 
         let left_entries = read_leaf_entries(&left_page, BTreeKeyType::Int)?;
         let right_entries = read_leaf_entries(&right_page, BTreeKeyType::Int)?;
+        let left_header =
+            BTreePageHeader::read_from_page(&left_page).expect("유효한 left leaf header여야 함");
+        let right_header =
+            BTreePageHeader::read_from_page(&right_page).expect("유효한 right leaf header여야 함");
         assert_eq!(separator, BTreeKey::Int(20));
+        assert_eq!(left_header.next_leaf_page_id(), Some(right_page_id));
+        assert_eq!(right_header.next_leaf_page_id(), Some(old_next));
         assert_eq!(
             left_entries
                 .into_iter()
@@ -574,6 +650,11 @@ mod tests {
                 RowId::new(PageId::new(1), SlotId::new(3)),
             ),
         )?;
+        let old_next = PageId::new(99);
+        let mut right_header =
+            BTreePageHeader::read_from_page(&right_page).expect("유효한 right leaf header여야 함");
+        right_header.set_next_leaf_page_id(Some(old_next));
+        right_header.write_to_page(&mut right_page);
 
         // When
         leaf_merge(&mut left_page, &mut right_page, BTreeKeyType::Int)?;
@@ -604,6 +685,12 @@ mod tests {
             ]
         );
         assert!(read_leaf_entries(&right_page, BTreeKeyType::Int)?.is_empty());
+        let left_header =
+            BTreePageHeader::read_from_page(&left_page).expect("유효한 left leaf header여야 함");
+        let right_header =
+            BTreePageHeader::read_from_page(&right_page).expect("유효한 right leaf header여야 함");
+        assert_eq!(left_header.next_leaf_page_id(), Some(old_next));
+        assert_eq!(right_header.next_leaf_page_id(), None);
         Ok(())
     }
 
@@ -616,7 +703,7 @@ mod tests {
         append_leaf_entry(
             &mut left_page,
             &LeafEntry::new(
-                BTreeKey::Varchar("x".repeat(8175)),
+                BTreeKey::Varchar("x".repeat(8166)),
                 RowId::new(PageId::new(1), SlotId::new(1)),
             ),
         )?;
@@ -664,7 +751,7 @@ mod tests {
         append_leaf_entry(
             &mut page,
             &LeafEntry::new(
-                BTreeKey::Varchar("x".repeat(4079)),
+                BTreeKey::Varchar("x".repeat(4070)),
                 RowId::new(PageId::new(1), SlotId::new(1)),
             ),
         )?;
@@ -685,7 +772,7 @@ mod tests {
         append_leaf_entry(
             &mut page,
             &LeafEntry::new(
-                BTreeKey::Varchar("x".repeat(4080)),
+                BTreeKey::Varchar("x".repeat(4071)),
                 RowId::new(PageId::new(1), SlotId::new(1)),
             ),
         )?;
@@ -704,7 +791,7 @@ mod tests {
         let mut page = Page::new_raw();
         initialize_leaf_page(&mut page);
         let full_entry = LeafEntry::new(
-            BTreeKey::Varchar("x".repeat(8175)),
+            BTreeKey::Varchar("x".repeat(8166)),
             RowId::new(PageId::new(3), SlotId::new(7)),
         );
         append_leaf_entry(&mut page, &full_entry)

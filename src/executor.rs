@@ -59,13 +59,19 @@ impl<'a> Executor<'a> {
         heap_table: &mut HeapTable,
         buffer_pool: &mut BufferPool,
     ) -> Result<Vec<Vec<Value>>, ExecutorError> {
-        let table_id = bound.table_id;
+        let rows = heap_table.scan(buffer_pool)?;
+        self.projection_and_filtered_rows(rows, bound)
+    }
+
+    pub fn projection_and_filtered_rows(
+        &self,
+        rows: Vec<(RowId, Row)>,
+        bound: &BoundSelect,
+    ) -> Result<Vec<Vec<Value>>, ExecutorError> {
         let table = self
             .database
-            .table_by_id(table_id)
-            .ok_or(ExecutorError::TableNotFound(table_id))?;
-
-        let rows = heap_table.scan(buffer_pool)?;
+            .table_by_id(bound.table_id)
+            .ok_or(ExecutorError::TableNotFound(bound.table_id))?;
 
         let projections = &bound.projections;
         let Some(filter) = bound.filter.as_ref() else {

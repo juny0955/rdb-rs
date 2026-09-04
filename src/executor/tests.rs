@@ -6,7 +6,7 @@ use crate::{
         BoundUpdate,
     },
     buffer::BufferPool,
-    page::PageError,
+    page::{PageError, PageId, RowId, SlotId},
     parser::ast::Literal,
     schema::{
         ColumnId, ColumnMetadata, DataType, DatabaseMetadata, RelationId, TableId, TableMetadata,
@@ -415,6 +415,47 @@ fn select는_equal_filter와_일치하는_row만_반환한다() {
         .expect("SELECT가 성공해야 함");
 
     assert_eq!(rows, vec![kim_values]);
+}
+
+#[test]
+fn 전달된_후보_row에_filter와_projection을적용한다() {
+    // Given
+    let table_id = TableId::new(1);
+    let database = database(table_id);
+    let columns = users_columns();
+    let kim = encode(
+        &[Value::BigInt(1), Value::Varchar("Kim".to_owned())],
+        &columns,
+    )
+    .expect("Kim Row를 변환해야 함");
+    let lee = encode(
+        &[Value::BigInt(2), Value::Varchar("Lee".to_owned())],
+        &columns,
+    )
+    .expect("Lee Row를 변환해야 함");
+    let bound = BoundSelect {
+        table_id,
+        projections: vec![BoundProjection::Column(ColumnId::new(2))],
+        filter: Some(BoundExpression::Equal {
+            column_id: ColumnId::new(1),
+            value: Literal::Integer(1),
+        }),
+    };
+    let executor = Executor::new(&database);
+
+    // When
+    let rows = executor
+        .projection_and_filtered_rows(
+            vec![
+                (RowId::new(PageId::new(1), SlotId::new(1)), kim),
+                (RowId::new(PageId::new(1), SlotId::new(2)), lee),
+            ],
+            &bound,
+        )
+        .expect("후보 Row를 처리해야 함");
+
+    // Then
+    assert_eq!(rows, vec![vec![Value::Varchar("Kim".to_owned())]]);
 }
 
 #[test]

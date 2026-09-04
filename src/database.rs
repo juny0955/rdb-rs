@@ -5,7 +5,17 @@ use std::{
 };
 
 use crate::{
-    binder::BoundCreateIndex,
+    binder::{Binder, BinderError, BoundCreateTable, BoundStatement},
+    buffer::BufferPool,
+    catalog::{Catalog, CatalogError},
+    executor::{Executor, ExecutorError},
+    parser::ast::{Literal, Statement},
+    schema::{ColumnId, ColumnMetadata, DatabaseMetadata, SchemaError, TableId, TableMetadata},
+    table::{HeapTable, HeapTableError},
+    tuple::Value,
+};
+use crate::{
+    binder::{BoundCreateIndex, BoundExpression},
     file::open_rw_create,
     index::{
         BTreeKey, BTreeKeyType,
@@ -14,16 +24,6 @@ use crate::{
     page::RowId,
     schema::{IndexId, IndexMetadata, RelationId},
     tuple::{self, TupleError},
-};
-use crate::{
-    binder::{Binder, BinderError, BoundCreateTable, BoundStatement},
-    buffer::BufferPool,
-    catalog::{Catalog, CatalogError},
-    executor::{Executor, ExecutorError},
-    parser::ast::Statement,
-    schema::{ColumnId, ColumnMetadata, DatabaseMetadata, SchemaError, TableId, TableMetadata},
-    table::{HeapTable, HeapTableError},
-    tuple::Value,
 };
 use thiserror::Error;
 
@@ -49,6 +49,10 @@ pub enum DatabaseError {
     Io(#[from] io::Error),
     #[error("인덱스 엔트리를 찾을 수 없습니다: index={index_id:?}, row={row_id:?}")]
     IndexEntryNotFound { index_id: IndexId, row_id: RowId },
+    #[error("INT 인덱스 키가 i32 범위를 벗어났습니다: {value}")]
+    IndexKeyOutOfRange { value: i64 },
+    #[error("literal과 인덱스 키 타입이 일치하지 않습니다: {key_type:?}")]
+    IndexKeyTypeMismatch { key_type: BTreeKeyType },
 }
 
 #[derive(Debug)]
@@ -120,7 +124,63 @@ impl Database {
                     &self.data_dir,
                     b.table_id,
                 )?;
+
                 let executor = Executor::new(&self.metadata);
+
+                if let Some(filter) = &b.filter {
+                    match filter {
+                        BoundExpression::Equal { column_id, value } => {
+                            if let Some(index_metadata) =
+                                self.metadata.indexes().iter().find(|index| {
+                                    index.table_id() == b.table_id
+                                        && index.column_id() == *column_id
+                                })
+                            {
+                                let table = self
+                                    .metadata
+                                    .table_by_id(index_metadata.table_id())
+                                    .ok_or(DatabaseError::Schema(
+                                        SchemaError::IndexTableNotFound(index_metadata.table_id()),
+                                    ))?;
+                                let column = table.column_by_id(index_metadata.column_id()).ok_or(
+                                    DatabaseError::Schema(SchemaError::IndexColumnNotFound {
+                                        table_id: index_metadata.table_id(),
+                                        column_id: index_metadata.column_id(),
+                                    }),
+                                )?;
+                                let key_type = BTreeKeyType::try_from(column.data_type())?;
+                                self.buffer_pool.register_relation(
+                                    RelationId::Index(index_metadata.id()),
+                                    self.data_dir
+                                        .join(format!("{}.idx", index_metadata.id().id())),
+                                );
+                                let btree = BTree::open(
+                                    index_metadata.id(),
+                                    index_metadata.root_page_id(),
+                                    key_type,
+                                );
+
+                                let rows = if let Some(key) = literal_to_btree_key(value, key_type)?
+                                {
+                                    let row_ids = btree.search_all(&mut self.buffer_pool, key)?;
+
+                                    let mut rows = Vec::new();
+                                    for row_id in row_ids {
+                                        let row = heap_table.get(row_id, &mut self.buffer_pool)?;
+                                        rows.push((row_id, row));
+                                    }
+                                    rows
+                                } else {
+                                    vec![]
+                                };
+
+                                let results = executor.projection_and_filtered_rows(rows, &b)?;
+                                return Ok(ExecuteResult::Rows(results));
+                            }
+                        }
+                    }
+                }
+
                 let results = executor.execute_select(&b, heap_table, &mut self.buffer_pool)?;
                 Ok(ExecuteResult::Rows(results))
             }
@@ -400,6 +460,23 @@ impl Database {
     }
 }
 
+fn literal_to_btree_key(
+    literal: &Literal,
+    key_type: BTreeKeyType,
+) -> Result<Option<BTreeKey>, DatabaseError> {
+    match (literal, key_type) {
+        (Literal::Integer(v), BTreeKeyType::Int) => {
+            Ok(Some(BTreeKey::Int(i32::try_from(*v).map_err(|_| {
+                DatabaseError::IndexKeyOutOfRange { value: *v }
+            })?)))
+        }
+        (Literal::Integer(v), BTreeKeyType::BigInt) => Ok(Some(BTreeKey::BigInt(*v))),
+        (Literal::String(v), BTreeKeyType::Varchar) => Ok(Some(BTreeKey::Varchar(v.clone()))),
+        (Literal::Null, _) => Ok(None),
+        _ => Err(DatabaseError::IndexKeyTypeMismatch { key_type }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -499,6 +576,35 @@ mod tests {
             .expect("재시작 후 index metadata가 있어야 함");
 
         assert_eq!(index.root_page_id(), PageId::new(0));
+        Ok(())
+    }
+
+    #[test]
+    fn 재시작후_index_scan은_중복_key의_모든_row를_반환한다() -> Result<(), DatabaseError> {
+        // Given
+        let directory = TestDirectory::new("database-index-scan-duplicates");
+        {
+            let mut database = Database::open(directory.path(), "test")?;
+            database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
+            database.execute(&parse_sql("CREATE INDEX idx_users_id ON users(id);"))?;
+            database.execute(&parse_sql("INSERT INTO users VALUES (42, 'Kim');"))?;
+            database.execute(&parse_sql("INSERT INTO users VALUES (42, 'Lee');"))?;
+            database.execute(&parse_sql("INSERT INTO users VALUES (7, 'Park');"))?;
+        }
+        let mut database = Database::open(directory.path(), "reopened")?;
+
+        // When
+        let result = database.execute(&parse_sql("SELECT name FROM users WHERE id = 42;"))?;
+
+        // Then
+        assert!(matches!(
+            result,
+            ExecuteResult::Rows(rows)
+                if rows == vec![
+                    vec![Value::Varchar("Kim".to_owned())],
+                    vec![Value::Varchar("Lee".to_owned())],
+                ]
+        ));
         Ok(())
     }
 

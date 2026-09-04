@@ -4,7 +4,7 @@ use thiserror::Error;
 
 use crate::{
     index::{
-        header::BTreePageHeader,
+        header::{BTreePageHeader, INTERNAL_HEADER_SIZE},
         key::{BTreeKey, BTreeKeyType},
     },
     page::{Page, PageId},
@@ -55,7 +55,7 @@ pub fn read_internal_entries(
         return Err(InternalPageError::InvalidPage);
     }
     let mut entries = Vec::new();
-    let mut offset = 13;
+    let mut offset = INTERNAL_HEADER_SIZE as usize;
     for _ in 0..header.entry_count() {
         if offset + 10 > header.entry_end() as usize {
             return Err(InternalPageError::InvalidPage);

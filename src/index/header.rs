@@ -1,5 +1,8 @@
 use crate::page::{Page, PageId};
 
+pub const LEAF_HEADER_SIZE: u16 = 14;
+pub const INTERNAL_HEADER_SIZE: u16 = 13;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NodeType {
     Leaf,
@@ -28,6 +31,7 @@ pub struct BTreePageHeader {
     entry_count: u16,
     entry_end: u16,
     rightmost_child: Option<PageId>,
+    next_leaf_page_id: Option<PageId>,
 }
 
 impl BTreePageHeader {
@@ -35,8 +39,9 @@ impl BTreePageHeader {
         Self {
             node_type: NodeType::Leaf,
             entry_count: 0,
-            entry_end: 5,
+            entry_end: LEAF_HEADER_SIZE,
             rightmost_child: None,
+            next_leaf_page_id: None,
         }
     }
 
@@ -44,8 +49,9 @@ impl BTreePageHeader {
         Self {
             node_type: NodeType::Internal,
             entry_count: 0,
-            entry_end: 13,
+            entry_end: INTERNAL_HEADER_SIZE,
             rightmost_child: Some(rightmost_child),
+            next_leaf_page_id: None,
         }
     }
 
@@ -68,19 +74,29 @@ impl BTreePageHeader {
 
         match node_type {
             NodeType::Leaf => {
-                if entry_end < 5 || entry_end as usize > bytes.len() {
+                if entry_end < LEAF_HEADER_SIZE || entry_end as usize > bytes.len() {
                     return None;
                 }
+
+                let next_leaf_page_id = match bytes[5] {
+                    0 => None,
+                    1 => Some(PageId::from_bytes(bytes[6..14].try_into().ok()?)),
+                    _ => return None,
+                };
 
                 Some(Self {
                     node_type,
                     entry_count,
                     entry_end,
                     rightmost_child: None,
+                    next_leaf_page_id,
                 })
             }
             NodeType::Internal => {
-                if entry_end < 13 || bytes.len() < 13 || entry_end as usize > bytes.len() {
+                if entry_end < INTERNAL_HEADER_SIZE
+                    || bytes.len() < INTERNAL_HEADER_SIZE as usize
+                    || entry_end as usize > bytes.len()
+                {
                     return None;
                 }
 
@@ -91,6 +107,7 @@ impl BTreePageHeader {
                     entry_count,
                     entry_end,
                     rightmost_child: Some(rightmost_child),
+                    next_leaf_page_id: None,
                 })
             }
         }
@@ -100,8 +117,23 @@ impl BTreePageHeader {
         let page_bytes = page.as_bytes_mut();
         page_bytes[0..5].copy_from_slice(&self.to_bytes());
 
-        if let Some(rightmost_child) = self.rightmost_child {
-            page_bytes[5..13].copy_from_slice(&rightmost_child.to_bytes());
+        match self.node_type {
+            NodeType::Leaf => {
+                page_bytes[5..LEAF_HEADER_SIZE as usize].fill(0);
+                if let Some(next_leaf_page_id) = self.next_leaf_page_id {
+                    page_bytes[5] = u8::from(true);
+                    page_bytes[6..LEAF_HEADER_SIZE as usize]
+                        .copy_from_slice(&next_leaf_page_id.to_bytes());
+                } else {
+                    page_bytes[5] = u8::from(false);
+                }
+            }
+            NodeType::Internal => {
+                if let Some(rightmost_child) = self.rightmost_child {
+                    page_bytes[5..INTERNAL_HEADER_SIZE as usize]
+                        .copy_from_slice(&rightmost_child.to_bytes());
+                }
+            }
         }
     }
 
@@ -137,6 +169,14 @@ impl BTreePageHeader {
     pub fn rightmost_child(&self) -> Option<PageId> {
         self.rightmost_child
     }
+
+    pub fn next_leaf_page_id(&self) -> Option<PageId> {
+        self.next_leaf_page_id
+    }
+
+    pub fn set_next_leaf_page_id(&mut self, next: Option<PageId>) {
+        self.next_leaf_page_id = next;
+    }
 }
 
 #[cfg(test)]
@@ -144,15 +184,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn 빈_leaf_header를_다섯_바이트로_직렬화한다() {
+    fn 다음_leaf가_없는_leaf_header를_저장하고_복원한다() {
         // Given
         let header = BTreePageHeader::new_leaf();
+        let mut page = Page::new_raw();
 
         // When
-        let bytes = header.to_bytes();
+        header.write_to_page(&mut page);
+        let restored = BTreePageHeader::read_from_page(&page);
 
         // Then
-        assert_eq!(bytes, [0, 0, 0, 0, 5]);
+        assert_eq!(
+            &page.as_bytes()[0..14],
+            &[0, 0, 0, 0, 14, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        );
+        assert!(matches!(restored, Some(ref header) if header.is_leaf()));
+        assert_eq!(restored.and_then(|header| header.next_leaf_page_id()), None);
     }
 
     #[test]
@@ -189,8 +236,24 @@ mod tests {
                 entry_count: 0,
                 entry_end: 13,
                 rightmost_child: Some(child),
+                ..
             }) if child == PageId::new(42)
         ));
+    }
+
+    #[test]
+    fn 다음_leaf_page_id를_저장하고_복원한다() {
+        // Given
+        let mut header = BTreePageHeader::new_leaf();
+        header.set_next_leaf_page_id(Some(PageId::new(0)));
+        let mut page = Page::new_raw();
+
+        // When
+        header.write_to_page(&mut page);
+        let restored = BTreePageHeader::read_from_page(&page).expect("유효한 leaf header여야 함");
+
+        // Then
+        assert_eq!(restored.next_leaf_page_id(), Some(PageId::new(0)));
     }
 
     #[test]
