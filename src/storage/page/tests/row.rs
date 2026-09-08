@@ -102,8 +102,7 @@ fn update_row_테스트() {
     let slot = page.read_slot(slot_id).expect("read slot 실패");
 
     let update_row = Row::from_bytes(&[4, 5, 6]);
-    page
-        .update_row(slot_id, &update_row)
+    page.update_row(slot_id, &update_row)
         .expect("update row 실패");
     assert_eq!(page.read_row(slot_id).expect("read row 실패"), update_row);
     assert_eq!(page.slot_count(), 1);
