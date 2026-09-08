@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::file::RelationFileManagerError;
 
 #[test]
 fn 등록되지_않은_table의_page를_fetch하면_오류다() {
@@ -6,7 +7,9 @@ fn 등록되지_않은_table의_page를_fetch하면_오류다() {
 
     assert!(matches!(
         pool.fetch_page(key(0)),
-        Err(BufferPoolError::RelationNotRegistered(id))
+        Err(BufferPoolError::RelationFileManager(
+            RelationFileManagerError::RelationNotRegistered(id)
+        ))
             if id == RelationId::Heap(TableId::new(1))
     ));
 }

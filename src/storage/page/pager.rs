@@ -8,7 +8,7 @@ use crate::storage::page::error::PagerError;
 use super::{PAGE_SIZE, Page, PageId};
 
 /// Database File 끝에 0으로 초기화된 8KB(PAGE_SIZE) Page를 추가하고 PageId 반환
-pub fn allocate_page(file: &mut File) -> Result<PageId, PagerError> {
+pub fn allocate_file_page(file: &mut File) -> Result<PageId, PagerError> {
     let file_len = file.metadata()?.len();
     if file_len % PAGE_SIZE as u64 != 0 {
         return Err(PagerError::InvalidFileSize);

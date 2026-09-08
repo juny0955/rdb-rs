@@ -11,7 +11,7 @@ use crate::{
     catalog::metadata::TableId,
     storage::buffer::{BufferPool, BufferPoolError, page_key::PageKey},
     storage::file::{open_rw, open_rw_create},
-    storage::page::{PageError, PageId, PagerError, Row, RowId, allocate_page, page_count},
+    storage::page::{PageError, PageId, PagerError, Row, RowId, allocate_file_page, page_count},
 };
 
 #[derive(Debug, Error)]
@@ -50,7 +50,7 @@ impl HeapTable {
     }
 
     pub fn add_page(&mut self) -> Result<PageKey, HeapTableError> {
-        let page_id = allocate_page(&mut self.file)?;
+        let page_id = allocate_file_page(&mut self.file)?;
         Ok(PageKey::new(self.relation_id, page_id))
     }
 

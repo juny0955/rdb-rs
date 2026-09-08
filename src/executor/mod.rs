@@ -2,7 +2,7 @@ use crate::{
     binder::{
         BoundDelete, BoundExpression, BoundInsert, BoundProjection, BoundSelect, BoundUpdate,
     },
-    catalog::metadata::{ColumnId, DataType, DatabaseMetadata, TableId, TableMetadata},
+    catalog::metadata::{ColumnId, DatabaseMetadata, TableId, TableMetadata},
     storage::buffer::BufferPool,
     storage::heap::{HeapTable, HeapTableError},
     storage::page::{Row, RowId},
@@ -20,8 +20,6 @@ pub enum ExecutorError {
     TableNotFound(TableId),
     #[error("컬럼을 찾을 수 없습니다: {0:?}")]
     ColumnNotFound(ColumnId),
-    #[error("리터럴 타입이 올바르지 않습니다 (기대 타입: {expected:?})")]
-    LiteralTypeMismatch { expected: DataType },
 }
 
 #[derive(Debug, PartialEq, Eq)]

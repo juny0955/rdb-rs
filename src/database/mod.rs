@@ -62,7 +62,6 @@ pub enum ExecuteResult {
     Rows(Vec<Vec<Value>>),
 }
 
-#[derive(Debug)]
 pub struct Database {
     metadata: DatabaseMetadata,
     catalog: Catalog,

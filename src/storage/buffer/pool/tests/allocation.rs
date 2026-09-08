@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::file::RelationFileManagerError;
 
 #[test]
 fn 등록한_relation에_page를순서대로할당한다() -> Result<(), Box<dyn std::error::Error>> {
@@ -19,6 +20,8 @@ fn 등록되지_않은_relation에_page를할당하면_오류다() {
 
     assert!(matches!(
         pool.allocate_page(relation_id),
-        Err(BufferPoolError::RelationNotRegistered(id)) if id == relation_id
+        Err(BufferPoolError::RelationFileManager(
+            RelationFileManagerError::RelationNotRegistered(id)
+        )) if id == relation_id
     ));
 }

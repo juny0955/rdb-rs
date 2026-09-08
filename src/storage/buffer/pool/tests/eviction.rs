@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::file::RelationFileManagerError;
 
 #[test]
 fn clean_unpinned_page를_evict하면_frame을_재사용할_수_있다() {
@@ -78,7 +79,9 @@ fn dirty_page의_flush가_실패하면_evict하지_않는다() {
 
     assert!(matches!(
         pool.evict_page(page_key),
-        Err(BufferPoolError::Pager(PagerError::PageNotAllocated(id))) if id == page_id
+        Err(BufferPoolError::RelationFileManager(
+            RelationFileManagerError::Pager(PagerError::PageNotAllocated(id))
+        )) if id == page_id
     ));
     assert!(
         pool.frames[frame_id.index()]

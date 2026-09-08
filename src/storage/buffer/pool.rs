@@ -1,17 +1,17 @@
-use std::{collections::HashMap, fs::File, io, path::PathBuf};
+use std::path::PathBuf;
 
 use thiserror::Error;
 
 use crate::catalog::metadata::RelationId;
-use crate::storage::page::{PageId, allocate_page as allocate_file_page};
+use crate::storage::file::{RelationFileManager, RelationFileManagerError};
+use crate::storage::page::PageId;
 use crate::{
     storage::buffer::{
         frame::{BufferFrame, FrameId},
         page_key::PageKey,
         page_table::PageTable,
     },
-    storage::file::open_rw,
-    storage::page::{Page, PagerError, read_page, write_page},
+    storage::page::Page,
 };
 
 #[derive(Debug, Error)]
@@ -26,12 +26,8 @@ pub enum BufferPoolError {
     PageNotCached,
     #[error("pin 상태인 page 입니다")]
     PagePinned,
-    #[error("등록되지 않은 relation 입니다: {0:?}")]
-    RelationNotRegistered(RelationId),
-    #[error("table file I/O 오류: {0}")]
-    Io(#[from] io::Error),
     #[error(transparent)]
-    Pager(#[from] PagerError),
+    RelationFileManager(#[from] RelationFileManagerError),
 }
 
 pub struct FrameGuard<'a> {
@@ -62,7 +58,7 @@ impl<'a> Drop for FrameGuard<'a> {
 pub struct BufferPool {
     frames: Vec<Option<BufferFrame>>,
     page_table: PageTable,
-    relation_paths: HashMap<RelationId, PathBuf>,
+    relation_manager: RelationFileManager,
     hand_index: usize,
 }
 
@@ -70,16 +66,13 @@ impl BufferPool {
     pub fn new(capacity: usize) -> Self {
         let mut frames = Vec::new();
         frames.resize_with(capacity, || None);
+
         Self {
             frames,
             page_table: PageTable::new(),
-            relation_paths: HashMap::new(),
+            relation_manager: RelationFileManager::new(),
             hand_index: 0,
         }
-    }
-
-    pub fn register_relation(&mut self, relation_id: RelationId, path: PathBuf) {
-        self.relation_paths.insert(relation_id, path);
     }
 
     pub fn fetch_page(&mut self, page_key: PageKey) -> Result<FrameGuard<'_>, BufferPoolError> {
@@ -95,8 +88,9 @@ impl BufferPool {
             return Err(BufferPoolError::NoFreeFrame);
         }
 
-        let mut file = self.open_relation_file(page_key.relation_id())?;
-        let page = read_page(&mut file, page_key.page_id())?;
+        let page = self
+            .relation_manager
+            .read_page(page_key.relation_id(), page_key.page_id())?;
         let frame_id = self.insert_frame(BufferFrame::new(page_key, page))?;
 
         let frame = self.get_frame_mut(frame_id)?;
@@ -104,9 +98,7 @@ impl BufferPool {
     }
 
     pub fn allocate_page(&mut self, relation_id: RelationId) -> Result<PageId, BufferPoolError> {
-        let mut file = self.open_relation_file(relation_id)?;
-        let page_id = allocate_file_page(&mut file)?;
-        Ok(page_id)
+        Ok(self.relation_manager.allocate_page(relation_id)?)
     }
 
     fn insert_frame(&mut self, frame: BufferFrame) -> Result<FrameId, BufferPoolError> {
@@ -135,12 +127,20 @@ impl BufferPool {
     }
 
     pub fn flush_page(&mut self, page_key: PageKey) -> Result<(), BufferPoolError> {
-        let mut file = self.open_relation_file(page_key.relation_id())?;
         let frame_id = self.get_frame_id(page_key)?;
-        let frame = self.get_frame_mut(frame_id)?;
 
+        let relation_manager = &self.relation_manager;
+        let frames = &mut self.frames;
+
+        let frame = frames
+            .get_mut(frame_id.index())
+            .ok_or(BufferPoolError::PageNotCached)?
+            .as_mut()
+            .ok_or(BufferPoolError::PageNotCached)?;
+
+        let page = frame.page();
         if frame.is_dirty() {
-            write_page(&mut file, page_key.page_id(), frame.page())?;
+            relation_manager.write_page(page_key.relation_id(), page_key.page_id(), page)?;
             frame.mark_clean();
         }
 
@@ -155,6 +155,10 @@ impl BufferPool {
         let page_key = self.get_frame_mut(frame_id)?.page_key();
         self.evict_page(page_key)?;
         Ok(Some(page_key))
+    }
+
+    pub fn register_relation(&mut self, relation_id: RelationId, path: PathBuf) {
+        self.relation_manager.register_relation(relation_id, path)
     }
 
     fn evict_page(&mut self, page_key: PageKey) -> Result<(), BufferPoolError> {
@@ -220,14 +224,6 @@ impl BufferPool {
         }
 
         None
-    }
-
-    fn open_relation_file(&self, relation_id: RelationId) -> Result<File, BufferPoolError> {
-        let path = self
-            .relation_paths
-            .get(&relation_id)
-            .ok_or(BufferPoolError::RelationNotRegistered(relation_id))?;
-        Ok(open_rw(path)?)
     }
 }
 

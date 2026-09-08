@@ -32,14 +32,14 @@ fn allocate_성공_테스트() {
     let test_file = TestFile::new("allocate");
 
     let mut file = File::create(test_file.path()).expect("테스트 파일 생성 실패");
-    let page_id = allocate_page(&mut file).expect("allocate 실패");
+    let page_id = allocate_file_page(&mut file).expect("allocate 실패");
     assert_eq!(page_id, PageId(0));
     assert_eq!(
         file.metadata().expect("메타데이터 읽기 실패").len(),
         PAGE_SIZE as u64
     );
 
-    let page_id = allocate_page(&mut file).expect("allocate 실패");
+    let page_id = allocate_file_page(&mut file).expect("allocate 실패");
     assert_eq!(page_id, PageId(1));
     assert_eq!(
         file.metadata().expect("메타데이터 읽기 실패").len(),
@@ -54,7 +54,7 @@ fn allocate_손상된파일_테스트() {
     let mut file = File::create(test_file.path()).expect("테스트 파일 생성 실패");
     file.write_all("1".as_bytes())
         .expect("테스트 파일 작성 실패");
-    let error = allocate_page(&mut file).expect_err("손상된 파일은 allocate 실패해야 한다");
+    let error = allocate_file_page(&mut file).expect_err("손상된 파일은 allocate 실패해야 한다");
     assert!(matches!(error, PagerError::InvalidFileSize));
     assert_eq!(file.metadata().expect("메타데이터 읽기 실패").len(), 1);
 }
@@ -68,8 +68,8 @@ fn read_성공_테스트() {
     let mut file = options
         .open(test_file.path())
         .expect("테스트 파일 생성 실패");
-    let p1 = allocate_page(&mut file).expect("allocate 실패");
-    let p2 = allocate_page(&mut file).expect("allocate 실패");
+    let p1 = allocate_file_page(&mut file).expect("allocate 실패");
+    let p2 = allocate_file_page(&mut file).expect("allocate 실패");
 
     let d1 = &[1u8; PAGE_SIZE];
     let d2 = &[2u8; PAGE_SIZE];
@@ -94,7 +94,7 @@ fn read_eof_테스트() {
     let mut file = options
         .open(test_file.path())
         .expect("테스트 파일 생성 실패");
-    let _ = allocate_page(&mut file).expect("allocate 실패");
+    let _ = allocate_file_page(&mut file).expect("allocate 실패");
 
     let page_id = PageId(1);
 
@@ -114,7 +114,7 @@ fn write_성공_테스트() {
     let mut file = options
         .open(test_file.path())
         .expect("테스트 파일 생성 실패");
-    let page_id = allocate_page(&mut file).expect("allocate 실패");
+    let page_id = allocate_file_page(&mut file).expect("allocate 실패");
 
     let data = [1u8; PAGE_SIZE];
     let mut page = Page::new();
@@ -134,7 +134,7 @@ fn write_미할당_page_id_테스트() {
     let mut file = options
         .open(test_file.path())
         .expect("테스트 파일 생성 실패");
-    let _ = allocate_page(&mut file).expect("allocate 실패");
+    let _ = allocate_file_page(&mut file).expect("allocate 실패");
     let file_len = file.metadata().expect("metadata 읽기 실패").len();
 
     let data = [1u8; PAGE_SIZE];
@@ -193,7 +193,7 @@ fn 재시작시_page_데이터_유지_테스트() {
         let mut file = options
             .open(test_file.path())
             .expect("테스트 파일 열기 실패");
-        let page_id = allocate_page(&mut file).expect("allocate 실패");
+        let page_id = allocate_file_page(&mut file).expect("allocate 실패");
 
         let page = Page::new();
 

@@ -9,7 +9,7 @@ mod types;
 use crate::storage::page::header::HEADER_SIZE;
 pub use error::{PageError, PagerError};
 use free_space::row_allocation_size;
-pub use pager::{allocate_page, page_count, read_page, write_page};
+pub use pager::{allocate_file_page, page_count, read_page, write_page};
 use slot::Slot;
 pub use slot::SlotId;
 pub use types::{PageId, Row, RowId};

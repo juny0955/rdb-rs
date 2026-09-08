@@ -1,4 +1,5 @@
 use super::*;
+use crate::storage::file::RelationFileManagerError;
 
 #[test]
 fn 가득찬_pool에_삽입하면_기존_frame을_유지한다() {
@@ -53,7 +54,9 @@ fn flush가_실패하면_dirty_상태를_유지한다() {
 
     assert!(matches!(
         pool.flush_page(page_key),
-        Err(BufferPoolError::Pager(PagerError::PageNotAllocated(id))) if id == page_id
+        Err(BufferPoolError::RelationFileManager(
+            RelationFileManagerError::Pager(PagerError::PageNotAllocated(id))
+        )) if id == page_id
     ));
     assert!(
         pool.frames[0]
