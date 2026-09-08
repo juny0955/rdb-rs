@@ -1,11 +1,7 @@
 use crate::{
-    binder::{Binder, BoundCreateTable, BoundStatement},
-    catalog::metadata::DatabaseMetadata,
-    sql::{
-        Parser,
-        ast::{ColumnDefinition, DataType as AstDataType},
-        lexer::Lexer,
-    },
+    binder::{Binder, BoundColumnDefinition, BoundCreateTable, BoundStatement},
+    catalog::metadata::{DataType, DatabaseMetadata},
+    sql::{Parser, lexer::Lexer},
 };
 
 mod execute;
@@ -16,13 +12,13 @@ fn users_table() -> BoundCreateTable {
     BoundCreateTable {
         table: "users".to_owned(),
         columns: vec![
-            ColumnDefinition {
+            BoundColumnDefinition {
                 name: "id".to_owned(),
-                data_type: AstDataType::BigInt,
+                data_type: DataType::BigInt,
             },
-            ColumnDefinition {
+            BoundColumnDefinition {
                 name: "name".to_owned(),
-                data_type: AstDataType::Varchar,
+                data_type: DataType::Varchar,
             },
         ],
     }

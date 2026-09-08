@@ -1,6 +1,6 @@
 use crate::{
-    catalog::metadata::{ColumnId, TableId},
-    sql::ast::{ColumnDefinition, Literal},
+    catalog::metadata::{ColumnId, DataType, TableId},
+    tuple::Value,
 };
 
 #[derive(Debug, PartialEq, Eq)]
@@ -23,7 +23,7 @@ pub struct BoundSelect {
 #[derive(Debug, PartialEq, Eq)]
 pub struct BoundInsert {
     pub table_id: TableId,
-    pub literals: Vec<Literal>,
+    pub values: Vec<Value>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -42,7 +42,7 @@ pub struct BoundDelete {
 #[derive(Debug, PartialEq, Eq)]
 pub struct BoundCreateTable {
     pub table: String,
-    pub columns: Vec<ColumnDefinition>,
+    pub columns: Vec<BoundColumnDefinition>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -60,11 +60,19 @@ pub enum BoundProjection {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum BoundExpression {
-    Equal { column_id: ColumnId, value: Literal },
+    Equal { column_id: ColumnId, value: Value },
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct BoundAssignment {
     pub column_id: ColumnId,
-    pub value: Literal,
+    pub value: Value,
 }
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct BoundColumnDefinition {
+    pub name: String,
+    pub data_type: DataType,
+}
+
+impl BoundColumnDefinition {}

@@ -7,7 +7,6 @@ use crate::{
     },
     database::ExecuteResult,
     index::btree::{BTreeKey, BTreeKeyType, tree::BTree},
-    sql::ast::Literal,
     storage::{
         buffer::BufferPool,
         file::open_rw_create,
@@ -159,7 +158,7 @@ impl Database {
 
         for (row_id, row) in rows {
             let values = tuple::decode(&row, table.columns())?;
-            if let Some(key) = value_to_btree_key(values[index].clone()) {
+            if let Some(key) = value_to_btree_key(&values[index]) {
                 btree.insert(&mut self.buffer_pool, key, row_id)?;
             }
         }
@@ -201,7 +200,7 @@ impl Database {
                     column_id: index.column_id(),
                 }))?;
 
-            if let Some(key) = value_to_btree_key(values[column_index].clone()) {
+            if let Some(key) = value_to_btree_key(&values[column_index]) {
                 index_keys.push(IndexKey {
                     index_id: index.id(),
                     root_page_id: index.root_page_id(),
@@ -248,7 +247,7 @@ pub(super) fn search_index_row_ids(
                         data_dir,
                     );
 
-                    if let Some(key) = literal_to_btree_key(value, key_type)? {
+                    if let Some(key) = value_to_btree_key(value) {
                         return Ok(Some(btree.search(buffer_pool, key)?));
                     } else {
                         return Ok(Some(vec![]));
@@ -275,30 +274,13 @@ fn open_index_btree(
     BTree::open(index_id, root_page_id, key_type)
 }
 
-fn value_to_btree_key(value: Value) -> Option<BTreeKey> {
+fn value_to_btree_key(value: &Value) -> Option<BTreeKey> {
     match value {
-        Value::Int(v) => Some(BTreeKey::Int(v)),
-        Value::BigInt(v) => Some(BTreeKey::BigInt(v)),
-        Value::Boolean(v) => Some(BTreeKey::Boolean(v)),
-        Value::Varchar(v) => Some(BTreeKey::Varchar(v)),
+        Value::Int(v) => Some(BTreeKey::Int(*v)),
+        Value::BigInt(v) => Some(BTreeKey::BigInt(*v)),
+        Value::Boolean(v) => Some(BTreeKey::Boolean(*v)),
+        Value::Varchar(v) => Some(BTreeKey::Varchar(v.clone())),
         Value::Null => None,
-    }
-}
-
-fn literal_to_btree_key(
-    literal: &Literal,
-    key_type: BTreeKeyType,
-) -> Result<Option<BTreeKey>, DatabaseError> {
-    match (literal, key_type) {
-        (Literal::Integer(v), BTreeKeyType::Int) => {
-            Ok(Some(BTreeKey::Int(i32::try_from(*v).map_err(|_| {
-                DatabaseError::IndexKeyOutOfRange { value: *v }
-            })?)))
-        }
-        (Literal::Integer(v), BTreeKeyType::BigInt) => Ok(Some(BTreeKey::BigInt(*v))),
-        (Literal::String(v), BTreeKeyType::Varchar) => Ok(Some(BTreeKey::Varchar(v.clone()))),
-        (Literal::Null, _) => Ok(None),
-        _ => Err(DatabaseError::IndexKeyTypeMismatch { key_type }),
     }
 }
 
@@ -308,6 +290,6 @@ mod tests {
 
     #[test]
     fn value_to_btree_key는_null을_건너뛴다() {
-        assert_eq!(value_to_btree_key(Value::Null), None);
+        assert_eq!(value_to_btree_key(&Value::Null), None);
     }
 }

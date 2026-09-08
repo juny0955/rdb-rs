@@ -95,7 +95,7 @@ impl Database {
             columns.push(ColumnMetadata::new(
                 column_id,
                 column.name.to_owned(),
-                column.data_type.clone().into(),
+                column.data_type,
             ));
         }
 

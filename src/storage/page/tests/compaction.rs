@@ -111,17 +111,17 @@ fn insert_row_compress_테스트() {
     let inserted = Row::from_bytes(&vec![3; 1016]);
     let new_slot = page.insert_row(&inserted).expect("insert row 실패");
 
-    for i in 0..7 {
+    for (i, slot) in slots.iter().enumerate().take(7) {
         if i == 3 {
             assert!(matches!(
-                page.read_row(slots[i])
+                page.read_row(*slot)
                     .expect_err("not found 오류 반환해야한다"),
                 PageError::SlotNotFound
             ));
             continue;
         }
 
-        assert_eq!(row, page.read_row(slots[i]).expect("read row 실패"));
+        assert_eq!(row, page.read_row(*slot).expect("read row 실패"));
     }
     assert_eq!(page.read_row(slots[7]).expect("read row 실패"), last_row);
     assert_eq!(page.read_row(new_slot).expect("read row 실패"), inserted);

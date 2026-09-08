@@ -1,10 +1,11 @@
 use crate::{
-    catalog::metadata::{DataType, DatabaseMetadata, TableMetadata},
+    catalog::metadata::{ColumnMetadata, DataType, DatabaseMetadata, TableMetadata},
     sql::ast::{
         CreateIndexStatement, DeleteStatement,
         Expression::{self, Identifier},
         InsertStatement, Literal, Projection, SelectStatement, Statement, UpdateStatement,
     },
+    tuple::Value,
 };
 use thiserror::Error;
 
@@ -50,7 +51,14 @@ impl<'a> Binder<'a> {
 
                 Ok(BoundStatement::CreateTable(BoundCreateTable {
                     table: s.table.clone(),
-                    columns: s.columns.clone(),
+                    columns: s
+                        .columns
+                        .iter()
+                        .map(|column| BoundColumnDefinition {
+                            name: column.name.clone(),
+                            data_type: column.data_type.clone().into(),
+                        })
+                        .collect(),
                 }))
             }
             Statement::CreateIndex(s) => {
@@ -108,19 +116,12 @@ impl<'a> Binder<'a> {
             return Err(BinderError::ValueCountMismatch { expected, actual });
         }
 
+        let mut values = Vec::new();
         for (literal, column) in literals.iter().zip(table.columns()) {
-            if !Self::is_compatible(literal, column.data_type()) {
-                return Err(BinderError::TypeMismatch {
-                    column: column.name().to_owned(),
-                    expected: column.data_type(),
-                });
-            }
+            values.push(bind_value(literal, column)?);
         }
 
-        Ok(BoundInsert {
-            table_id,
-            literals: literals.clone(),
-        })
+        Ok(BoundInsert { table_id, values })
     }
 
     fn bind_delete(&self, statement: &DeleteStatement) -> Result<BoundDelete, BinderError> {
@@ -144,15 +145,10 @@ impl<'a> Binder<'a> {
         for assignment in &statement.assignments {
             match table.column(&assignment.column) {
                 Some(column) => {
-                    if !Self::is_compatible(&assignment.value, column.data_type()) {
-                        return Err(BinderError::TypeMismatch {
-                            column: column.name().to_owned(),
-                            expected: column.data_type(),
-                        });
-                    }
+                    let value = bind_value(&assignment.value, column)?;
                     assignments.push(BoundAssignment {
                         column_id: column.id(),
-                        value: assignment.value.clone(),
+                        value,
                     });
                 }
                 None => {
@@ -218,26 +214,11 @@ impl<'a> Binder<'a> {
             });
         };
 
-        if !Self::is_compatible(literal, column.data_type()) {
-            return Err(BinderError::TypeMismatch {
-                column: column_name.to_owned(),
-                expected: column.data_type(),
-            });
-        }
+        let value = bind_value(literal, column)?;
         Ok(BoundExpression::Equal {
             column_id: column.id(),
-            value: literal.clone(),
+            value,
         })
-    }
-
-    fn is_compatible(literal: &Literal, data_type: DataType) -> bool {
-        match (literal, data_type) {
-            (Literal::Null, _) => true,
-            (Literal::Integer(value), DataType::Int) => i32::try_from(*value).is_ok(),
-            (Literal::Integer(_), DataType::BigInt) => true,
-            (Literal::String(_), DataType::Varchar) => true,
-            _ => false,
-        }
     }
 
     fn require_table(&self, name: &str) -> Result<&TableMetadata, BinderError> {
@@ -248,6 +229,28 @@ impl<'a> Binder<'a> {
 
         Ok(table.unwrap())
     }
+}
+
+fn bind_value(literal: &Literal, column: &ColumnMetadata) -> Result<Value, BinderError> {
+    Ok(match (literal, column.data_type()) {
+        (Literal::Null, _) => Value::Null,
+        (Literal::Integer(v), DataType::Int) => {
+            let v = i32::try_from(*v).map_err(|_| BinderError::TypeMismatch {
+                column: column.name().to_owned(),
+                expected: column.data_type(),
+            })?;
+
+            Value::Int(v)
+        }
+        (Literal::Integer(v), DataType::BigInt) => Value::BigInt(*v),
+        (Literal::String(v), DataType::Varchar) => Value::Varchar(v.to_owned()),
+        _ => {
+            return Err(BinderError::TypeMismatch {
+                column: column.name().to_owned(),
+                expected: column.data_type(),
+            });
+        }
+    })
 }
 
 #[cfg(test)]

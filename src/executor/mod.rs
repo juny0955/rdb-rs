@@ -3,7 +3,6 @@ use crate::{
         BoundDelete, BoundExpression, BoundInsert, BoundProjection, BoundSelect, BoundUpdate,
     },
     catalog::metadata::{ColumnId, DataType, DatabaseMetadata, TableId, TableMetadata},
-    sql::ast::Literal,
     storage::buffer::BufferPool,
     storage::heap::{HeapTable, HeapTableError},
     storage::page::{Row, RowId},
@@ -94,15 +93,13 @@ impl<'a> Executor<'a> {
             .table_by_id(table_id)
             .ok_or(ExecutorError::TableNotFound(table_id))?;
 
-        let mut values = Vec::new();
-        for (literal, column) in bound.literals.iter().zip(table.columns()) {
-            let value = Self::literal_to_value(literal, column.data_type())?;
-            values.push(value);
-        }
-        let row = encode(&values, table.columns())?;
+        let row = encode(&bound.values, table.columns())?;
         let row_id = heap_table.insert(&row, buffer_pool)?;
 
-        Ok(InsertResult { row_id, values })
+        Ok(InsertResult {
+            row_id,
+            values: bound.values.to_owned(),
+        })
     }
 
     pub fn execute_update(
@@ -135,10 +132,8 @@ impl<'a> Executor<'a> {
                 let column_index = table
                     .column_index(assignment.column_id)
                     .ok_or(ExecutorError::ColumnNotFound(assignment.column_id))?;
-                let column = &table.columns()[column_index];
 
-                let value = Self::literal_to_value(&assignment.value, column.data_type())?;
-                values[column_index] = value;
+                values[column_index] = assignment.value.clone();
             }
             let new_values = values.clone();
             let row = encode(&values, table.columns())?;
@@ -191,7 +186,6 @@ impl<'a> Executor<'a> {
         filter: &BoundExpression,
     ) -> Result<Vec<(RowId, Row)>, ExecutorError> {
         let BoundExpression::Equal { column_id, value } = filter;
-        let literal = value;
         let column_index = table
             .column_index(*column_id)
             .ok_or(ExecutorError::ColumnNotFound(*column_id))?;
@@ -200,7 +194,7 @@ impl<'a> Executor<'a> {
         for (row_id, row) in rows {
             let values = decode(&row, table.columns())?;
 
-            if Self::is_equal(&values[column_index], literal) {
+            if sql_equals(&values[column_index], value) {
                 results.push((row_id, row));
             }
         }
@@ -236,34 +230,14 @@ impl<'a> Executor<'a> {
 
         Ok(results)
     }
+}
 
-    fn is_equal(value: &Value, literal: &Literal) -> bool {
-        match (value, literal) {
-            (Value::Null, Literal::Null) => false,
-            (Value::Int(a), Literal::Integer(b)) => i64::from(*a) == *b,
-            (Value::BigInt(a), Literal::Integer(b)) => a == b,
-            (Value::Varchar(a), Literal::String(b)) => a == b,
-            _ => false,
-        }
+fn sql_equals(left: &Value, right: &Value) -> bool {
+    if left == &Value::Null || right == &Value::Null {
+        return false;
     }
 
-    fn literal_to_value(literal: &Literal, data_type: DataType) -> Result<Value, ExecutorError> {
-        Ok(match (literal, data_type) {
-            (Literal::Null, _) => Value::Null,
-            (Literal::Integer(a), DataType::Int) => Value::Int(i32::try_from(*a).map_err(
-                |_| ExecutorError::LiteralTypeMismatch {
-                    expected: data_type,
-                },
-            )?),
-            (Literal::Integer(a), DataType::BigInt) => Value::BigInt(*a),
-            (Literal::String(a), DataType::Varchar) => Value::Varchar(a.to_owned()),
-            _ => {
-                return Err(ExecutorError::LiteralTypeMismatch {
-                    expected: data_type,
-                });
-            }
-        })
-    }
+    left == right
 }
 
 #[cfg(test)]

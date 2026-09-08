@@ -130,7 +130,7 @@ fn 첫_child의_병합_pair는_오른쪽_sibling을_포함한다() -> Result<(),
     )?;
 
     // When
-    let pair = find_leaf_merge_pair(&mut parent, BTreeKeyType::Int, PageId::new(10))?;
+    let pair = find_leaf_merge_pair(&parent, BTreeKeyType::Int, PageId::new(10))?;
 
     // Then
     assert_eq!(pair, Some((PageId::new(10), PageId::new(20))));
@@ -153,7 +153,7 @@ fn rightmost_child의_병합_pair는_왼쪽_sibling을_포함한다() -> Result<
     )?;
 
     // When
-    let pair = find_leaf_merge_pair(&mut parent, BTreeKeyType::Int, PageId::new(30))?;
+    let pair = find_leaf_merge_pair(&parent, BTreeKeyType::Int, PageId::new(30))?;
 
     // Then
     assert_eq!(pair, Some((PageId::new(20), PageId::new(30))));
@@ -167,7 +167,7 @@ fn child가_하나인_parent는_병합_pair가_없다() -> Result<(), Box<dyn st
     initialize_internal_page(&mut parent, PageId::new(10));
 
     // When
-    let pair = find_leaf_merge_pair(&mut parent, BTreeKeyType::Int, PageId::new(10))?;
+    let pair = find_leaf_merge_pair(&parent, BTreeKeyType::Int, PageId::new(10))?;
 
     // Then
     assert_eq!(pair, None);
@@ -185,7 +185,7 @@ fn parent에_없는_child는_병합_pair를_찾을수_없다() -> Result<(), Box
     )?;
 
     // When
-    let result = find_leaf_merge_pair(&mut parent, BTreeKeyType::Int, PageId::new(30));
+    let result = find_leaf_merge_pair(&parent, BTreeKeyType::Int, PageId::new(30));
 
     // Then
     assert!(matches!(result, Err(InternalPageError::InvalidPage)));

@@ -8,7 +8,6 @@ use crate::{
     catalog::metadata::{
         ColumnId, ColumnMetadata, DataType, DatabaseMetadata, RelationId, TableId, TableMetadata,
     },
-    sql::ast::Literal,
     storage::buffer::BufferPool,
     storage::heap::{HeapTable, HeapTableError},
     storage::page::{PageError, PageId, RowId, SlotId},
@@ -65,7 +64,7 @@ fn select_name_then_all(table_id: TableId) -> BoundSelect {
     }
 }
 
-fn select_name_equals(table_id: TableId, value: Literal) -> BoundSelect {
+fn select_name_equals(table_id: TableId, value: Value) -> BoundSelect {
     BoundSelect {
         table_id,
         projections: vec![BoundProjection::All],
@@ -85,7 +84,7 @@ fn insert는_리터럴을_row로_변환해_테이블에_저장한다() {
     let path = directory.path().join("1.tbl");
     let bound = BoundInsert {
         table_id,
-        literals: vec![Literal::Integer(1), Literal::String("Kim".to_owned())],
+        values: vec![Value::BigInt(1), Value::Varchar("Kim".to_owned())],
     };
 
     HeapTable::open(table_id, &path).expect("테이블 파일을 생성해야 함");
@@ -145,11 +144,11 @@ fn update는_필터와_일치하는_row만_수정하고_재시작후에도_유�
         table_id,
         assignments: vec![BoundAssignment {
             column_id: ColumnId::new(2),
-            value: Literal::String("Park".to_owned()),
+            value: Value::Varchar("Park".to_owned()),
         }],
         filter: Some(BoundExpression::Equal {
             column_id: ColumnId::new(1),
-            value: Literal::Integer(1),
+            value: Value::BigInt(1),
         }),
     };
 
@@ -225,7 +224,7 @@ fn delete는_필터와_일치하는_row만_삭제하고_재시작후에도_유�
         table_id,
         filter: Some(BoundExpression::Equal {
             column_id: ColumnId::new(1),
-            value: Literal::Integer(1),
+            value: Value::BigInt(1),
         }),
     };
 
@@ -408,7 +407,7 @@ fn select는_equal_filter와_일치하는_row만_반환한다() {
     let executor = Executor::new(&database);
     let rows = executor
         .execute_select(
-            &select_name_equals(table_id, Literal::String("Kim".to_owned())),
+            &select_name_equals(table_id, Value::Varchar("Kim".to_owned())),
             &mut heap_table,
             &mut buffer_pool,
         )
@@ -438,7 +437,7 @@ fn 전달된_후보_row에_filter와_projection을적용한다() {
         projections: vec![BoundProjection::Column(ColumnId::new(2))],
         filter: Some(BoundExpression::Equal {
             column_id: ColumnId::new(1),
-            value: Literal::Integer(1),
+            value: Value::BigInt(1),
         }),
     };
     let executor = Executor::new(&database);
@@ -481,7 +480,7 @@ fn select에서_null_equal_filter는_row를_반환하지_않는다() {
     let executor = Executor::new(&database);
     let rows = executor
         .execute_select(
-            &select_name_equals(table_id, Literal::Null),
+            &select_name_equals(table_id, Value::Null),
             &mut heap_table,
             &mut buffer_pool,
         )

@@ -455,7 +455,7 @@ fn select을_bound_select으로변환한다() {
             projections: vec![BoundProjection::Column(ColumnId::new(2))],
             filter: Some(BoundExpression::Equal {
                 column_id: ColumnId::new(1),
-                value: Literal::Integer(1),
+                value: Value::BigInt(1),
             }),
         })
     );
@@ -492,7 +492,7 @@ fn insert를_bound_insert로변환한다() {
         binder.bind_insert(&statement),
         Ok(BoundInsert {
             table_id: TableId::new(1),
-            literals: vec![Literal::Integer(1), Literal::String("Kim".to_owned())],
+            values: vec![Value::BigInt(1), Value::Varchar("Kim".to_owned())],
         })
     );
 }
@@ -515,7 +515,7 @@ fn delete를_bound_delete로변환한다() {
             table_id: TableId::new(1),
             filter: Some(BoundExpression::Equal {
                 column_id: ColumnId::new(1),
-                value: Literal::Integer(1),
+                value: Value::BigInt(1),
             }),
         })
     );
@@ -543,11 +543,11 @@ fn update를_bound_update로변환한다() {
             table_id: TableId::new(1),
             assignments: vec![BoundAssignment {
                 column_id: ColumnId::new(2),
-                value: Literal::String("Lee".to_owned()),
+                value: Value::Varchar("Lee".to_owned()),
             }],
             filter: Some(BoundExpression::Equal {
                 column_id: ColumnId::new(1),
-                value: Literal::Integer(1),
+                value: Value::BigInt(1),
             }),
         })
     );
@@ -557,20 +557,23 @@ fn update를_bound_update로변환한다() {
 fn create_table을_bound_statement로변환한다() {
     let database = database();
     let binder = Binder::new(&database);
-    let columns = vec![ColumnDefinition {
+    let ast_columns = vec![ColumnDefinition {
         name: "id".to_owned(),
         data_type: AstDataType::BigInt,
     }];
     let statement = Statement::CreateTable(CreateTableStatement {
         table: "orders".to_owned(),
-        columns: columns.clone(),
+        columns: ast_columns,
     });
 
     assert_eq!(
         binder.bind(&statement),
         Ok(BoundStatement::CreateTable(BoundCreateTable {
             table: "orders".to_owned(),
-            columns,
+            columns: vec![BoundColumnDefinition {
+                name: "id".to_owned(),
+                data_type: DataType::BigInt,
+            }],
         }))
     );
 }
