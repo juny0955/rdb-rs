@@ -5,14 +5,15 @@ fn create는_disk에_빈_root_leaf를_생성한다() -> Result<(), Box<dyn std::
     let index_file = TestFile::new("btree-create");
     let index_id = IndexId::new(1);
     let root_page_id = {
-        let mut buffer_pool = BufferPool::new(1);
-        buffer_pool.register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+        let mut storage_manager = StorageManager::new(1);
+        storage_manager
+            .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
 
-        let tree = BTree::create(index_id, BTreeKeyType::Int, &mut buffer_pool)?;
+        let tree = BTree::create(index_id, BTreeKeyType::Int, &mut storage_manager)?;
         tree.root_page_id()
     };
 
-    let mut reopened_buffer_pool = BufferPool::new(1);
+    let mut reopened_buffer_pool = StorageManager::new(1);
     reopened_buffer_pool
         .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
     let root_page =
@@ -40,12 +41,12 @@ fn root_leaf의_부모는_없다() -> Result<(), Box<dyn std::error::Error>> {
     write_page(&mut file, root_page_id, &root_page)?;
     drop(file);
 
-    let mut buffer_pool = BufferPool::new(1);
-    buffer_pool.register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+    let mut storage_manager = StorageManager::new(1);
+    storage_manager.register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
 
     // When
-    let page_ids = tree.find_leaf_and_parent_page_ids(&mut buffer_pool, &BTreeKey::Int(42))?;
+    let page_ids = tree.find_leaf_and_parent_page_ids(&mut storage_manager, &BTreeKey::Int(42))?;
 
     // Then
     assert_eq!(page_ids, (None, root_page_id));
@@ -76,12 +77,12 @@ fn leaf의_직접_부모를_반환한다() -> Result<(), Box<dyn std::error::Err
     write_page(&mut file, leaf_page_id, &leaf_page)?;
     drop(file);
 
-    let mut buffer_pool = BufferPool::new(1);
-    buffer_pool.register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+    let mut storage_manager = StorageManager::new(1);
+    storage_manager.register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
 
     // When
-    let page_ids = tree.find_leaf_and_parent_page_ids(&mut buffer_pool, &BTreeKey::Int(42))?;
+    let page_ids = tree.find_leaf_and_parent_page_ids(&mut storage_manager, &BTreeKey::Int(42))?;
 
     // Then
     assert_eq!(page_ids, (Some(parent_page_id), leaf_page_id));
@@ -105,18 +106,18 @@ fn root_leaf에서_key를검색한다() -> Result<(), Box<dyn std::error::Error>
     write_page(&mut file, root_page_id, &root_page)?;
     drop(file);
 
-    let mut buffer_pool = BufferPool::new(1);
-    buffer_pool.register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+    let mut storage_manager = StorageManager::new(1);
+    storage_manager.register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
 
     // When / Then
     assert_eq!(
-        tree.search(&mut buffer_pool, BTreeKey::Int(42))?,
+        tree.search(&mut storage_manager, BTreeKey::Int(42))?,
         vec![row_id]
     );
-    assert_eq!(tree.search(&mut buffer_pool, BTreeKey::Int(7))?, vec![]);
+    assert_eq!(tree.search(&mut storage_manager, BTreeKey::Int(7))?, vec![]);
     assert!(matches!(
-        tree.search(&mut buffer_pool, BTreeKey::Varchar("42".to_owned())),
+        tree.search(&mut storage_manager, BTreeKey::Varchar("42".to_owned())),
         Err(BTreeError::InvalidKeyType)
     ));
     Ok(())

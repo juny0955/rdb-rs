@@ -70,12 +70,12 @@ fn create_index는_재시작후_기존_행을_backfill한다() -> Result<(), Dat
         database.execute(&parse_sql("INSERT INTO users VALUES (NULL, 'Null');"))?;
 
         let heap_table = database.table_cache.get_or_open_table(
-            &mut database.buffer_pool,
+            &mut database.storage_manager,
             database.data_dir.as_path(),
             TableId::new(1),
         )?;
         heap_table
-            .scan(&mut database.buffer_pool)?
+            .scan(&mut database.storage_manager)?
             .into_iter()
             .next()
             .expect("인덱싱할 행이 있어야 함")
@@ -92,14 +92,14 @@ fn create_index는_재시작후_기존_행을_backfill한다() -> Result<(), Dat
         .metadata
         .index("idx_users_id")
         .expect("index metadata가 있어야 함");
-    database.buffer_pool.register_relation(
+    database.storage_manager.register_relation(
         RelationId::Index(index.id()),
         directory.path().join(format!("{}.idx", index.id().id())),
     );
     let btree = BTree::open(index.id(), index.root_page_id(), BTreeKeyType::BigInt);
 
     assert_eq!(
-        btree.search(&mut database.buffer_pool, BTreeKey::BigInt(42))?,
+        btree.search(&mut database.storage_manager, BTreeKey::BigInt(42))?,
         vec![indexed_row_id]
     );
     Ok(())
@@ -115,12 +115,12 @@ fn insert는_생성된_index에_반영하고_재시작후_검색된다() -> Resu
         database.execute(&parse_sql("INSERT INTO users VALUES (42, 'Kim');"))?;
 
         let heap_table = database.table_cache.get_or_open_table(
-            &mut database.buffer_pool,
+            &mut database.storage_manager,
             database.data_dir.as_path(),
             TableId::new(1),
         )?;
         heap_table
-            .scan(&mut database.buffer_pool)?
+            .scan(&mut database.storage_manager)?
             .into_iter()
             .next()
             .expect("삽입한 행이 있어야 함")
@@ -132,14 +132,14 @@ fn insert는_생성된_index에_반영하고_재시작후_검색된다() -> Resu
         .metadata
         .index("idx_users_id")
         .expect("index metadata가 있어야 함");
-    database.buffer_pool.register_relation(
+    database.storage_manager.register_relation(
         RelationId::Index(index.id()),
         directory.path().join(format!("{}.idx", index.id().id())),
     );
     let btree = BTree::open(index.id(), index.root_page_id(), BTreeKeyType::BigInt);
 
     assert_eq!(
-        btree.search(&mut database.buffer_pool, BTreeKey::BigInt(42))?,
+        btree.search(&mut database.storage_manager, BTreeKey::BigInt(42))?,
         vec![inserted_row_id]
     );
     Ok(())
@@ -161,14 +161,14 @@ fn delete는_index_entry를_제거하고_재시작후_검색되지_않는다() -
         .metadata
         .index("idx_users_id")
         .expect("index metadata가 있어야 함");
-    database.buffer_pool.register_relation(
+    database.storage_manager.register_relation(
         RelationId::Index(index.id()),
         directory.path().join(format!("{}.idx", index.id().id())),
     );
     let btree = BTree::open(index.id(), index.root_page_id(), BTreeKeyType::BigInt);
 
     assert_eq!(
-        btree.search(&mut database.buffer_pool, BTreeKey::BigInt(42))?,
+        btree.search(&mut database.storage_manager, BTreeKey::BigInt(42))?,
         vec![]
     );
     Ok(())
@@ -184,12 +184,12 @@ fn update는_index_entry를_교체하고_재시작후_검색된다() -> Result<(
         database.execute(&parse_sql("INSERT INTO users VALUES (42, 'Kim');"))?;
 
         let heap_table = database.table_cache.get_or_open_table(
-            &mut database.buffer_pool,
+            &mut database.storage_manager,
             database.data_dir.as_path(),
             TableId::new(1),
         )?;
         let row_id = heap_table
-            .scan(&mut database.buffer_pool)?
+            .scan(&mut database.storage_manager)?
             .into_iter()
             .next()
             .expect("수정할 행이 있어야 함")
@@ -204,18 +204,18 @@ fn update는_index_entry를_교체하고_재시작후_검색된다() -> Result<(
         .metadata
         .index("idx_users_id")
         .expect("index metadata가 있어야 함");
-    database.buffer_pool.register_relation(
+    database.storage_manager.register_relation(
         RelationId::Index(index.id()),
         directory.path().join(format!("{}.idx", index.id().id())),
     );
     let btree = BTree::open(index.id(), index.root_page_id(), BTreeKeyType::BigInt);
 
     assert_eq!(
-        btree.search(&mut database.buffer_pool, BTreeKey::BigInt(42))?,
+        btree.search(&mut database.storage_manager, BTreeKey::BigInt(42))?,
         vec![]
     );
     assert_eq!(
-        btree.search(&mut database.buffer_pool, BTreeKey::BigInt(100))?,
+        btree.search(&mut database.storage_manager, BTreeKey::BigInt(100))?,
         vec![row_id]
     );
     Ok(())

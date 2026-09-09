@@ -12,7 +12,7 @@ use crate::{
     database::{index::search_index_row_ids, table::TableCache},
     executor::ExecutorError,
     sql::ast::Statement,
-    storage::{buffer::BufferPool, heap::HeapTableError},
+    storage::{heap::HeapTableError, manager::StorageManager},
     tuple::Value,
 };
 use crate::{
@@ -65,7 +65,7 @@ pub enum ExecuteResult {
 pub struct Database {
     metadata: DatabaseMetadata,
     catalog: Catalog,
-    buffer_pool: BufferPool,
+    storage_manager: StorageManager,
     table_cache: TableCache,
     data_dir: PathBuf,
 }
@@ -87,7 +87,7 @@ impl Database {
         Ok(Self {
             metadata,
             catalog,
-            buffer_pool: BufferPool::new(BUFFER_POOL_CAPACITY),
+            storage_manager: StorageManager::new(BUFFER_POOL_CAPACITY),
             table_cache: TableCache::new(),
             data_dir: data_dir.to_path_buf(),
         })

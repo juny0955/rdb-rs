@@ -10,13 +10,13 @@ impl Database {
         bound: &BoundInsert,
     ) -> Result<ExecuteResult, DatabaseError> {
         let heap_table = self.table_cache.get_or_open_table(
-            &mut self.buffer_pool,
+            &mut self.storage_manager,
             &self.data_dir,
             bound.table_id,
         )?;
 
         let executor = Executor::new(&self.metadata);
-        let result = executor.execute_insert(bound, heap_table, &mut self.buffer_pool)?;
+        let result = executor.execute_insert(bound, heap_table, &mut self.storage_manager)?;
         self.insert_row_into_indexes(bound.table_id, result.row_id, &result.values)?;
         Ok(ExecuteResult::Command { affected_rows: 1 })
     }
@@ -26,19 +26,22 @@ impl Database {
         bound: &BoundSelect,
     ) -> Result<ExecuteResult, DatabaseError> {
         let heap_table = self.table_cache.get_or_open_table(
-            &mut self.buffer_pool,
+            &mut self.storage_manager,
             &self.data_dir,
             bound.table_id,
         )?;
 
         let executor = Executor::new(&self.metadata);
 
-        if let Some(row_ids) =
-            search_index_row_ids(&self.metadata, &mut self.buffer_pool, &self.data_dir, bound)?
-        {
+        if let Some(row_ids) = search_index_row_ids(
+            &self.metadata,
+            &mut self.storage_manager,
+            &self.data_dir,
+            bound,
+        )? {
             let mut rows = Vec::new();
             for row_id in row_ids {
-                let row = heap_table.get(row_id, &mut self.buffer_pool)?;
+                let row = heap_table.get(row_id, &mut self.storage_manager)?;
                 rows.push((row_id, row));
             }
 
@@ -46,7 +49,7 @@ impl Database {
             return Ok(ExecuteResult::Rows(results));
         }
 
-        let results = executor.execute_select(bound, heap_table, &mut self.buffer_pool)?;
+        let results = executor.execute_select(bound, heap_table, &mut self.storage_manager)?;
         Ok(ExecuteResult::Rows(results))
     }
 
@@ -55,12 +58,12 @@ impl Database {
         bound: &BoundUpdate,
     ) -> Result<ExecuteResult, DatabaseError> {
         let heap_table = self.table_cache.get_or_open_table(
-            &mut self.buffer_pool,
+            &mut self.storage_manager,
             &self.data_dir,
             bound.table_id,
         )?;
         let executor = Executor::new(&self.metadata);
-        let results = executor.execute_update(bound, heap_table, &mut self.buffer_pool)?;
+        let results = executor.execute_update(bound, heap_table, &mut self.storage_manager)?;
         let affected_rows = results.len();
 
         for result in results {
@@ -75,12 +78,12 @@ impl Database {
         bound: &BoundDelete,
     ) -> Result<ExecuteResult, DatabaseError> {
         let heap_table = self.table_cache.get_or_open_table(
-            &mut self.buffer_pool,
+            &mut self.storage_manager,
             &self.data_dir,
             bound.table_id,
         )?;
         let executor = Executor::new(&self.metadata);
-        let results = executor.execute_delete(bound, heap_table, &mut self.buffer_pool)?;
+        let results = executor.execute_delete(bound, heap_table, &mut self.storage_manager)?;
         let affected_rows = results.len();
 
         for result in results {

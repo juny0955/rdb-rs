@@ -11,7 +11,8 @@ use crate::{
         tree::{BTree, BTreeError},
     },
     storage::{
-        buffer::{BufferPool, page_key::PageKey},
+        buffer::page_key::PageKey,
+        manager::StorageManager,
         page::{Page, PageId, RowId},
     },
 };
@@ -19,7 +20,7 @@ use crate::{
 impl BTree {
     pub fn insert(
         &self,
-        buffer_pool: &mut BufferPool,
+        storage_manager: &mut StorageManager,
         key: BTreeKey,
         row_id: RowId,
     ) -> Result<(), BTreeError> {
@@ -27,11 +28,11 @@ impl BTree {
             return Err(BTreeError::InvalidKeyType);
         }
 
-        let page_id = self.find_leaf_page_id(buffer_pool, &key)?;
+        let page_id = self.find_leaf_page_id(storage_manager, &key)?;
         let page_key = PageKey::new(self.relation_id, page_id);
         let new_entry = LeafEntry::new(key, row_id);
         let (root_bytes, is_root) = {
-            let mut guard = buffer_pool.fetch_page(page_key)?;
+            let mut guard = storage_manager.fetch_page(page_key)?;
             let page = guard.page_mut();
             match append_leaf_entry(page, &new_entry) {
                 Ok(()) => (None, false),
@@ -44,12 +45,12 @@ impl BTree {
         };
 
         match root_bytes {
-            None => buffer_pool.flush_page(page_key)?,
+            None => storage_manager.flush_page(page_key)?,
             Some(root_bytes) => {
                 if is_root {
-                    self.root_leaf_split(buffer_pool, root_bytes, new_entry)?;
+                    self.root_leaf_split(storage_manager, root_bytes, new_entry)?;
                 } else {
-                    self.child_leaf_split(buffer_pool, root_bytes, page_id, new_entry)?;
+                    self.child_leaf_split(storage_manager, root_bytes, page_id, new_entry)?;
                 }
             }
         }
@@ -59,12 +60,12 @@ impl BTree {
 
     fn root_leaf_split(
         &self,
-        buffer_pool: &mut BufferPool,
+        storage_manager: &mut StorageManager,
         root_bytes: Vec<u8>,
         new_entry: LeafEntry,
     ) -> Result<(), BTreeError> {
-        let left_page_id = buffer_pool.allocate_page(self.relation_id)?;
-        let right_page_id = buffer_pool.allocate_page(self.relation_id)?;
+        let left_page_id = storage_manager.allocate_page(self.relation_id)?;
+        let right_page_id = storage_manager.allocate_page(self.relation_id)?;
 
         let mut left_page = Page::new_raw();
         let left_page_key = PageKey::new(self.relation_id, left_page_id);
@@ -80,11 +81,11 @@ impl BTree {
             self.key_type,
             new_entry,
         )?;
-        Self::fetch_and_flush_page(buffer_pool, left_page_key, left_page.as_bytes())?;
-        Self::fetch_and_flush_page(buffer_pool, right_page_key, right_page.as_bytes())?;
+        Self::fetch_and_flush_page(storage_manager, left_page_key, left_page.as_bytes())?;
+        Self::fetch_and_flush_page(storage_manager, right_page_key, right_page.as_bytes())?;
         let root_page = self.root_internal_split(left_page_id, right_page_id, separator)?;
         Self::fetch_and_flush_page(
-            buffer_pool,
+            storage_manager,
             PageKey::new(self.relation_id, self.root_page_id),
             root_page.as_bytes(),
         )?;
@@ -94,7 +95,7 @@ impl BTree {
 
     fn child_leaf_split(
         &self,
-        buffer_pool: &mut BufferPool,
+        storage_manager: &mut StorageManager,
         leaf_bytes: Vec<u8>,
         old_child: PageId,
         new_entry: LeafEntry,
@@ -102,7 +103,7 @@ impl BTree {
         let mut parent = {
             let mut parent = Page::new_raw();
             let guard =
-                buffer_pool.fetch_page(PageKey::new(self.relation_id, self.root_page_id))?;
+                storage_manager.fetch_page(PageKey::new(self.relation_id, self.root_page_id))?;
 
             parent
                 .as_bytes_mut()
@@ -110,8 +111,8 @@ impl BTree {
             parent
         };
 
-        let left_page_id = buffer_pool.allocate_page(self.relation_id)?;
-        let right_page_id = buffer_pool.allocate_page(self.relation_id)?;
+        let left_page_id = storage_manager.allocate_page(self.relation_id)?;
+        let right_page_id = storage_manager.allocate_page(self.relation_id)?;
 
         let mut left_page = Page::new_raw();
         let left_page_key = PageKey::new(self.relation_id, left_page_id);
@@ -139,17 +140,17 @@ impl BTree {
 
         match replace_result {
             Ok(()) => {
-                Self::fetch_and_flush_page(buffer_pool, left_page_key, left_page.as_bytes())?;
-                Self::fetch_and_flush_page(buffer_pool, right_page_key, right_page.as_bytes())?;
+                Self::fetch_and_flush_page(storage_manager, left_page_key, left_page.as_bytes())?;
+                Self::fetch_and_flush_page(storage_manager, right_page_key, right_page.as_bytes())?;
                 Self::fetch_and_flush_page(
-                    buffer_pool,
+                    storage_manager,
                     PageKey::new(self.relation_id, self.root_page_id),
                     parent.as_bytes(),
                 )?;
             }
             Err(InternalPageError::PageFull) => {
-                let left_internal_id = buffer_pool.allocate_page(self.relation_id)?;
-                let right_internal_id = buffer_pool.allocate_page(self.relation_id)?;
+                let left_internal_id = storage_manager.allocate_page(self.relation_id)?;
+                let right_internal_id = storage_manager.allocate_page(self.relation_id)?;
 
                 let mut left_internal_page = Page::new_raw();
                 let left_internal_page_key = PageKey::new(self.relation_id, left_internal_id);
@@ -192,20 +193,20 @@ impl BTree {
 
                 let new_root =
                     self.root_internal_split(left_internal_id, right_internal_id, root_separator)?;
-                Self::fetch_and_flush_page(buffer_pool, left_page_key, left_page.as_bytes())?;
-                Self::fetch_and_flush_page(buffer_pool, right_page_key, right_page.as_bytes())?;
+                Self::fetch_and_flush_page(storage_manager, left_page_key, left_page.as_bytes())?;
+                Self::fetch_and_flush_page(storage_manager, right_page_key, right_page.as_bytes())?;
                 Self::fetch_and_flush_page(
-                    buffer_pool,
+                    storage_manager,
                     left_internal_page_key,
                     left_internal_page.as_bytes(),
                 )?;
                 Self::fetch_and_flush_page(
-                    buffer_pool,
+                    storage_manager,
                     right_internal_page_key,
                     right_internal_page.as_bytes(),
                 )?;
                 Self::fetch_and_flush_page(
-                    buffer_pool,
+                    storage_manager,
                     PageKey::new(self.relation_id, self.root_page_id),
                     new_root.as_bytes(),
                 )?;

@@ -43,19 +43,19 @@ fn root_internal에서_left와_right_leaf를검색한다() -> Result<(), Box<dyn
     write_page(&mut file, right_page_id, &right_page)?;
     drop(file);
 
-    let mut buffer_pool = BufferPool::new(2);
-    buffer_pool.register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+    let mut storage_manager = StorageManager::new(2);
+    storage_manager.register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
 
     assert_eq!(
-        tree.search(&mut buffer_pool, BTreeKey::Int(10))?,
+        tree.search(&mut storage_manager, BTreeKey::Int(10))?,
         vec![left_row_id]
     );
     assert_eq!(
-        tree.search(&mut buffer_pool, BTreeKey::Int(50))?,
+        tree.search(&mut storage_manager, BTreeKey::Int(50))?,
         vec![right_row_id]
     );
-    assert_eq!(tree.search(&mut buffer_pool, BTreeKey::Int(7))?, vec![]);
+    assert_eq!(tree.search(&mut storage_manager, BTreeKey::Int(7))?, vec![]);
     Ok(())
 }
 
@@ -105,7 +105,7 @@ fn search은_다음_leaf의_중복_key까지_반환한다() -> Result<(), Box<dy
     drop(file);
 
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
-    let mut reopened_buffer_pool = BufferPool::new(1);
+    let mut reopened_buffer_pool = StorageManager::new(1);
     reopened_buffer_pool
         .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
 

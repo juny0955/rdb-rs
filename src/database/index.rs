@@ -8,8 +8,8 @@ use crate::{
     database::ExecuteResult,
     index::btree::{BTreeKey, BTreeKeyType, tree::BTree},
     storage::{
-        buffer::BufferPool,
         file::open_rw_create,
+        manager::StorageManager,
         page::{PageId, RowId},
     },
     tuple::{self, Value},
@@ -81,13 +81,13 @@ impl Database {
     ) -> Result<(), DatabaseError> {
         for index_key in self.index_keys_for_values(table_id, values)? {
             let btree = open_index_btree(
-                &mut self.buffer_pool,
+                &mut self.storage_manager,
                 index_key.index_id,
                 index_key.root_page_id,
                 index_key.key.key_type(),
                 &self.data_dir,
             );
-            btree.insert(&mut self.buffer_pool, index_key.key, row_id)?;
+            btree.insert(&mut self.storage_manager, index_key.key, row_id)?;
         }
 
         Ok(())
@@ -101,13 +101,13 @@ impl Database {
     ) -> Result<(), DatabaseError> {
         for index_key in self.index_keys_for_values(table_id, values)? {
             let btree = open_index_btree(
-                &mut self.buffer_pool,
+                &mut self.storage_manager,
                 index_key.index_id,
                 index_key.root_page_id,
                 index_key.key.key_type(),
                 &self.data_dir,
             );
-            if !btree.delete(&mut self.buffer_pool, index_key.key, row_id)? {
+            if !btree.delete(&mut self.storage_manager, index_key.key, row_id)? {
                 return Err(DatabaseError::IndexEntryNotFound {
                     index_id: index_key.index_id,
                     row_id,
@@ -125,10 +125,14 @@ impl Database {
     ) -> Result<BTree, DatabaseError> {
         let index_path = self.data_dir.join(format!("{}.idx", index_id.id()));
         open_rw_create(&index_path)?;
-        self.buffer_pool
+        self.storage_manager
             .register_relation(RelationId::Index(index_id), index_path);
 
-        Ok(BTree::create(index_id, key_type, &mut self.buffer_pool)?)
+        Ok(BTree::create(
+            index_id,
+            key_type,
+            &mut self.storage_manager,
+        )?)
     }
 
     fn backfill_index(
@@ -137,10 +141,12 @@ impl Database {
         column_id: ColumnId,
         btree: &BTree,
     ) -> Result<(), DatabaseError> {
-        let heap_table =
-            self.table_cache
-                .get_or_open_table(&mut self.buffer_pool, &self.data_dir, table_id)?;
-        let rows = heap_table.scan(&mut self.buffer_pool)?;
+        let heap_table = self.table_cache.get_or_open_table(
+            &mut self.storage_manager,
+            &self.data_dir,
+            table_id,
+        )?;
+        let rows = heap_table.scan(&mut self.storage_manager)?;
 
         let table = self
             .metadata
@@ -159,7 +165,7 @@ impl Database {
         for (row_id, row) in rows {
             let values = tuple::decode(&row, table.columns())?;
             if let Some(key) = value_to_btree_key(&values[index]) {
-                btree.insert(&mut self.buffer_pool, key, row_id)?;
+                btree.insert(&mut self.storage_manager, key, row_id)?;
             }
         }
 
@@ -215,7 +221,7 @@ impl Database {
 
 pub(super) fn search_index_row_ids(
     metadata: &DatabaseMetadata,
-    buffer_pool: &mut BufferPool,
+    storage_manager: &mut StorageManager,
     data_dir: &Path,
     bound: &BoundSelect,
 ) -> Result<Option<Vec<RowId>>, DatabaseError> {
@@ -240,7 +246,7 @@ pub(super) fn search_index_row_ids(
                     let key_type = BTreeKeyType::try_from(column.data_type())?;
 
                     let btree = open_index_btree(
-                        buffer_pool,
+                        storage_manager,
                         index_metadata.id(),
                         index_metadata.root_page_id(),
                         key_type,
@@ -248,7 +254,7 @@ pub(super) fn search_index_row_ids(
                     );
 
                     if let Some(key) = value_to_btree_key(value) {
-                        return Ok(Some(btree.search(buffer_pool, key)?));
+                        return Ok(Some(btree.search(storage_manager, key)?));
                     } else {
                         return Ok(Some(vec![]));
                     };
@@ -261,13 +267,13 @@ pub(super) fn search_index_row_ids(
 }
 
 fn open_index_btree(
-    buffer_pool: &mut BufferPool,
+    storage_manager: &mut StorageManager,
     index_id: IndexId,
     root_page_id: PageId,
     key_type: BTreeKeyType,
     data_dir: &Path,
 ) -> BTree {
-    buffer_pool.register_relation(
+    storage_manager.register_relation(
         RelationId::Index(index_id),
         data_dir.join(format!("{}.idx", index_id.id())),
     );

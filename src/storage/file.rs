@@ -9,7 +9,9 @@ use thiserror::Error;
 
 use crate::{
     catalog::metadata::RelationId,
-    storage::page::{Page, PageId, PagerError, allocate_file_page, read_page, write_page},
+    storage::page::{
+        Page, PageId, PagerError, allocate_file_page, page_count, read_page, write_page,
+    },
 };
 
 #[derive(Debug, Error)]
@@ -74,6 +76,11 @@ impl RelationFileManager {
     ) -> Result<PageId, RelationFileManagerError> {
         let mut file = self.open_relation_file(relation_id)?;
         Ok(allocate_file_page(&mut file)?)
+    }
+
+    pub fn page_count(&self, relation_id: RelationId) -> Result<u64, RelationFileManagerError> {
+        let file = &self.open_relation_file(relation_id)?;
+        Ok(page_count(file)?)
     }
 }
 

@@ -30,21 +30,22 @@ fn 가득찬_root_leaf를_split한_후_재시작해도_양쪽_key를_검색한�
 
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Varchar);
     {
-        let mut buffer_pool = BufferPool::new(1);
-        buffer_pool.register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+        let mut storage_manager = StorageManager::new(1);
+        storage_manager
+            .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
 
-        tree.insert(&mut buffer_pool, right_key.clone(), right_row_id)?;
+        tree.insert(&mut storage_manager, right_key.clone(), right_row_id)?;
         assert_eq!(
-            tree.search(&mut buffer_pool, left_key.clone())?,
+            tree.search(&mut storage_manager, left_key.clone())?,
             vec![left_row_id]
         );
         assert_eq!(
-            tree.search(&mut buffer_pool, right_key.clone())?,
+            tree.search(&mut storage_manager, right_key.clone())?,
             vec![right_row_id]
         );
     }
 
-    let mut reopened_buffer_pool = BufferPool::new(1);
+    let mut reopened_buffer_pool = StorageManager::new(1);
     reopened_buffer_pool
         .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
     assert_eq!(
@@ -110,29 +111,30 @@ fn 가득찬_rightmost_leaf를_split한_후_재시작해도_세_범위를_검색
 
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Varchar);
     {
-        let mut buffer_pool = BufferPool::new(1);
-        buffer_pool.register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+        let mut storage_manager = StorageManager::new(1);
+        storage_manager
+            .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
 
         tree.insert(
-            &mut buffer_pool,
+            &mut storage_manager,
             split_right_key.clone(),
             split_right_row_id,
         )?;
         assert_eq!(
-            tree.search(&mut buffer_pool, left_key.clone())?,
+            tree.search(&mut storage_manager, left_key.clone())?,
             vec![left_row_id]
         );
         assert_eq!(
-            tree.search(&mut buffer_pool, split_left_key.clone())?,
+            tree.search(&mut storage_manager, split_left_key.clone())?,
             vec![split_left_row_id]
         );
         assert_eq!(
-            tree.search(&mut buffer_pool, split_right_key.clone())?,
+            tree.search(&mut storage_manager, split_right_key.clone())?,
             vec![split_right_row_id]
         );
     }
 
-    let mut reopened_buffer_pool = BufferPool::new(1);
+    let mut reopened_buffer_pool = StorageManager::new(1);
     reopened_buffer_pool
         .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
     assert_eq!(

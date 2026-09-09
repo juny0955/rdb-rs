@@ -9,7 +9,7 @@ use crate::{
         ColumnId, ColumnMetadata, RelationId, SchemaError, TableId, TableMetadata,
     },
     database::{Database, DatabaseError},
-    storage::{buffer::BufferPool, heap::HeapTable},
+    storage::{heap::HeapTable, manager::StorageManager},
 };
 
 #[derive(Debug)]
@@ -26,7 +26,7 @@ impl TableCache {
 
     pub(super) fn get_or_open_table(
         &mut self,
-        buffer_pool: &mut BufferPool,
+        storage_manager: &mut StorageManager,
         data_dir: &Path,
         table_id: TableId,
     ) -> Result<&mut HeapTable, DatabaseError> {
@@ -37,7 +37,7 @@ impl TableCache {
                     table_id,
                     &data_dir.join(format!("{}.tbl", table_id.id())),
                 )?;
-                buffer_pool.register_relation(
+                storage_manager.register_relation(
                     RelationId::Heap(table_id),
                     data_dir.join(format!("{}.tbl", table_id.id())),
                 );
@@ -72,7 +72,7 @@ impl Database {
         self.table_cache.insert(table_id, heap_table);
         self.metadata.add_table(table)?;
         self.catalog.save(&self.metadata)?;
-        self.buffer_pool.register_relation(
+        self.storage_manager.register_relation(
             RelationId::Heap(table_id),
             self.data_dir.join(format!("{}.tbl", table_id.id())),
         );

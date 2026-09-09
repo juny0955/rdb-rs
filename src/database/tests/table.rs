@@ -64,7 +64,7 @@ fn get_or_open_table은_같은_table을_한번만_등록한다() -> Result<(), D
     let mut database = Database::open(directory.path(), "reopened")?;
     {
         let _ = database.table_cache.get_or_open_table(
-            &mut database.buffer_pool,
+            &mut database.storage_manager,
             database.data_dir.as_path(),
             table_id,
         )?;
@@ -73,7 +73,7 @@ fn get_or_open_table은_같은_table을_한번만_등록한다() -> Result<(), D
 
     {
         let _ = database.table_cache.get_or_open_table(
-            &mut database.buffer_pool,
+            &mut database.storage_manager,
             database.data_dir.as_path(),
             table_id,
         )?;

@@ -18,21 +18,25 @@ fn root_leaf에서_entry를_삭제한_후_재시작해도_결과가_유지된다
 
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
     {
-        let mut buffer_pool = BufferPool::new(1);
-        buffer_pool.register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
-        tree.insert(&mut buffer_pool, BTreeKey::Int(10), deleted_row_id)?;
-        tree.insert(&mut buffer_pool, BTreeKey::Int(20), remaining_row_id)?;
+        let mut storage_manager = StorageManager::new(1);
+        storage_manager
+            .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+        tree.insert(&mut storage_manager, BTreeKey::Int(10), deleted_row_id)?;
+        tree.insert(&mut storage_manager, BTreeKey::Int(20), remaining_row_id)?;
 
-        assert!(tree.delete(&mut buffer_pool, BTreeKey::Int(10), deleted_row_id)?);
-        assert!(!tree.delete(&mut buffer_pool, BTreeKey::Int(10), deleted_row_id)?);
-        assert_eq!(tree.search(&mut buffer_pool, BTreeKey::Int(10))?, vec![]);
+        assert!(tree.delete(&mut storage_manager, BTreeKey::Int(10), deleted_row_id)?);
+        assert!(!tree.delete(&mut storage_manager, BTreeKey::Int(10), deleted_row_id)?);
         assert_eq!(
-            tree.search(&mut buffer_pool, BTreeKey::Int(20))?,
+            tree.search(&mut storage_manager, BTreeKey::Int(10))?,
+            vec![]
+        );
+        assert_eq!(
+            tree.search(&mut storage_manager, BTreeKey::Int(20))?,
             vec![remaining_row_id]
         );
     }
 
-    let mut reopened_buffer_pool = BufferPool::new(1);
+    let mut reopened_buffer_pool = StorageManager::new(1);
     reopened_buffer_pool
         .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
     assert_eq!(
@@ -90,21 +94,25 @@ fn rightmost_leaf를_삭제하면_left_leaf와_병합되고_재시작후에도_�
 
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
     {
-        let mut buffer_pool = BufferPool::new(1);
-        buffer_pool.register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+        let mut storage_manager = StorageManager::new(1);
+        storage_manager
+            .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
 
         // When
-        assert!(tree.delete(&mut buffer_pool, BTreeKey::Int(20), deleted_row_id)?);
+        assert!(tree.delete(&mut storage_manager, BTreeKey::Int(20), deleted_row_id)?);
 
         // Then
         assert_eq!(
-            tree.search(&mut buffer_pool, BTreeKey::Int(10))?,
+            tree.search(&mut storage_manager, BTreeKey::Int(10))?,
             vec![left_row_id]
         );
-        assert_eq!(tree.search(&mut buffer_pool, BTreeKey::Int(20))?, vec![]);
+        assert_eq!(
+            tree.search(&mut storage_manager, BTreeKey::Int(20))?,
+            vec![]
+        );
     }
 
-    let mut reopened_buffer_pool = BufferPool::new(1);
+    let mut reopened_buffer_pool = StorageManager::new(1);
     reopened_buffer_pool
         .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
     assert_eq!(

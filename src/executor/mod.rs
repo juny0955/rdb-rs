@@ -3,9 +3,11 @@ use crate::{
         BoundDelete, BoundExpression, BoundInsert, BoundProjection, BoundSelect, BoundUpdate,
     },
     catalog::metadata::{ColumnId, DatabaseMetadata, TableId, TableMetadata},
-    storage::buffer::BufferPool,
-    storage::heap::{HeapTable, HeapTableError},
-    storage::page::{Row, RowId},
+    storage::{
+        heap::{HeapTable, HeapTableError},
+        manager::StorageManager,
+        page::{Row, RowId},
+    },
     tuple::{TupleError, Value, decode, encode},
 };
 use thiserror::Error;
@@ -54,9 +56,9 @@ impl<'a> Executor<'a> {
         &self,
         bound: &BoundSelect,
         heap_table: &mut HeapTable,
-        buffer_pool: &mut BufferPool,
+        storage_manager: &mut StorageManager,
     ) -> Result<Vec<Vec<Value>>, ExecutorError> {
-        let rows = heap_table.scan(buffer_pool)?;
+        let rows = heap_table.scan(storage_manager)?;
         self.projection_and_filtered_rows(rows, bound)
     }
 
@@ -83,7 +85,7 @@ impl<'a> Executor<'a> {
         &self,
         bound: &BoundInsert,
         heap_table: &mut HeapTable,
-        buffer_pool: &mut BufferPool,
+        storage_manager: &mut StorageManager,
     ) -> Result<InsertResult, ExecutorError> {
         let table_id = bound.table_id;
         let table = self
@@ -92,7 +94,7 @@ impl<'a> Executor<'a> {
             .ok_or(ExecutorError::TableNotFound(table_id))?;
 
         let row = encode(&bound.values, table.columns())?;
-        let row_id = heap_table.insert(&row, buffer_pool)?;
+        let row_id = heap_table.insert(&row, storage_manager)?;
 
         Ok(InsertResult {
             row_id,
@@ -104,7 +106,7 @@ impl<'a> Executor<'a> {
         &self,
         bound: &BoundUpdate,
         heap_table: &mut HeapTable,
-        buffer_pool: &mut BufferPool,
+        storage_manager: &mut StorageManager,
     ) -> Result<Vec<UpdateResult>, ExecutorError> {
         let table_id = bound.table_id;
         let table = self
@@ -112,7 +114,7 @@ impl<'a> Executor<'a> {
             .table_by_id(table_id)
             .ok_or(ExecutorError::TableNotFound(table_id))?;
 
-        let rows = heap_table.scan(buffer_pool)?;
+        let rows = heap_table.scan(storage_manager)?;
 
         let rows = {
             if let Some(filter) = bound.filter.as_ref() {
@@ -135,7 +137,7 @@ impl<'a> Executor<'a> {
             }
             let new_values = values.clone();
             let row = encode(&values, table.columns())?;
-            heap_table.update(row_id, &row, buffer_pool)?;
+            heap_table.update(row_id, &row, storage_manager)?;
             results.push(UpdateResult {
                 row_id,
                 old_values,
@@ -150,7 +152,7 @@ impl<'a> Executor<'a> {
         &self,
         bound: &BoundDelete,
         heap_table: &mut HeapTable,
-        buffer_pool: &mut BufferPool,
+        storage_manager: &mut StorageManager,
     ) -> Result<Vec<DeleteResult>, ExecutorError> {
         let table_id = bound.table_id;
         let table = self
@@ -158,7 +160,7 @@ impl<'a> Executor<'a> {
             .table_by_id(table_id)
             .ok_or(ExecutorError::TableNotFound(table_id))?;
 
-        let rows = heap_table.scan(buffer_pool)?;
+        let rows = heap_table.scan(storage_manager)?;
 
         let rows = {
             if let Some(filter) = bound.filter.as_ref() {
@@ -171,7 +173,7 @@ impl<'a> Executor<'a> {
         let mut results = Vec::new();
         for (row_id, row) in rows {
             let values = decode(&row, table.columns())?;
-            heap_table.delete(row_id, buffer_pool)?;
+            heap_table.delete(row_id, storage_manager)?;
             results.push(DeleteResult { row_id, values });
         }
 

@@ -1,10 +1,5 @@
-use std::path::PathBuf;
-
 use thiserror::Error;
 
-use crate::catalog::metadata::RelationId;
-use crate::storage::file::{RelationFileManager, RelationFileManagerError};
-use crate::storage::page::PageId;
 use crate::{
     storage::buffer::{
         frame::{BufferFrame, FrameId},
@@ -26,8 +21,8 @@ pub enum BufferPoolError {
     PageNotCached,
     #[error("pin 상태인 page 입니다")]
     PagePinned,
-    #[error(transparent)]
-    RelationFileManager(#[from] RelationFileManagerError),
+    #[error("dirty 상태인 page 입니다")]
+    PageDirty,
 }
 
 pub struct FrameGuard<'a> {
@@ -58,7 +53,6 @@ impl<'a> Drop for FrameGuard<'a> {
 pub struct BufferPool {
     frames: Vec<Option<BufferFrame>>,
     page_table: PageTable,
-    relation_manager: RelationFileManager,
     hand_index: usize,
 }
 
@@ -70,35 +64,35 @@ impl BufferPool {
         Self {
             frames,
             page_table: PageTable::new(),
-            relation_manager: RelationFileManager::new(),
             hand_index: 0,
         }
     }
 
-    pub fn fetch_page(&mut self, page_key: PageKey) -> Result<FrameGuard<'_>, BufferPoolError> {
-        if self.page_table.get(&page_key).is_some() {
-            let frame = self
-                .fetch_cached_frame(page_key)
-                .ok_or(BufferPoolError::PageNotCached)?;
-
-            return Ok(FrameGuard::new(frame));
-        }
-
-        if self.frames.iter().all(Option::is_some) && self.evict_clock_victim()?.is_none() {
-            return Err(BufferPoolError::NoFreeFrame);
-        }
-
-        let page = self
-            .relation_manager
-            .read_page(page_key.relation_id(), page_key.page_id())?;
-        let frame_id = self.insert_frame(BufferFrame::new(page_key, page))?;
-
-        let frame = self.get_frame_mut(frame_id)?;
+    pub fn fetch_cached_page(
+        &mut self,
+        page_key: PageKey,
+    ) -> Result<FrameGuard<'_>, BufferPoolError> {
+        let frame = self
+            .fetch_cached_frame(page_key)
+            .ok_or(BufferPoolError::PageNotCached)?;
         Ok(FrameGuard::new(frame))
     }
 
-    pub fn allocate_page(&mut self, relation_id: RelationId) -> Result<PageId, BufferPoolError> {
-        Ok(self.relation_manager.allocate_page(relation_id)?)
+    fn fetch_cached_frame(&mut self, page_key: PageKey) -> Option<&mut BufferFrame> {
+        let frame_id = self.page_table.get(&page_key)?;
+        let frame = self.frames.get_mut(frame_id.index())?.as_mut()?;
+        frame.pin();
+        Some(frame)
+    }
+
+    pub fn insert_page(
+        &mut self,
+        page_key: PageKey,
+        page: Page,
+    ) -> Result<FrameGuard<'_>, BufferPoolError> {
+        let frame_id = self.insert_frame(BufferFrame::new(page_key, page))?;
+        let frame = self.get_frame_mut(frame_id)?;
+        Ok(FrameGuard::new(frame))
     }
 
     fn insert_frame(&mut self, frame: BufferFrame) -> Result<FrameId, BufferPoolError> {
@@ -119,85 +113,39 @@ impl BufferPool {
         Err(BufferPoolError::NoFreeFrame)
     }
 
-    fn fetch_cached_frame(&mut self, page_key: PageKey) -> Option<&mut BufferFrame> {
-        let frame_id = self.page_table.get(&page_key)?;
-        let frame = self.frames.get_mut(frame_id.index())?.as_mut()?;
-        frame.pin();
-        Some(frame)
-    }
-
-    pub fn flush_page(&mut self, page_key: PageKey) -> Result<(), BufferPoolError> {
+    pub fn remove_page(&mut self, page_key: PageKey) -> Result<(), BufferPoolError> {
         let frame_id = self.get_frame_id(page_key)?;
-
-        let relation_manager = &self.relation_manager;
-        let frames = &mut self.frames;
-
-        let frame = frames
-            .get_mut(frame_id.index())
-            .ok_or(BufferPoolError::PageNotCached)?
-            .as_mut()
-            .ok_or(BufferPoolError::PageNotCached)?;
-
-        let page = frame.page();
-        if frame.is_dirty() {
-            relation_manager.write_page(page_key.relation_id(), page_key.page_id(), page)?;
-            frame.mark_clean();
+        {
+            let frame = self.get_frame_mut(frame_id)?;
+            if frame.pin_count() > 0 {
+                return Err(BufferPoolError::PagePinned);
+            }
+            if frame.is_dirty() {
+                return Err(BufferPoolError::PageDirty);
+            }
         }
+
+        self.page_table
+            .remove(&page_key)
+            .ok_or(BufferPoolError::PageNotCached)?;
+        self.frames
+            .get_mut(frame_id.index())
+            .and_then(Option::take)
+            .ok_or(BufferPoolError::PageNotCached)?;
 
         Ok(())
     }
 
-    pub fn evict_clock_victim(&mut self) -> Result<Option<PageKey>, BufferPoolError> {
-        let Some(frame_id) = self.select_clock_victim() else {
+    pub fn select_clock_victim(&mut self) -> Result<Option<PageKey>, BufferPoolError> {
+        let Some(frame_id) = self.select_clock_frame() else {
             return Ok(None);
         };
 
         let page_key = self.get_frame_mut(frame_id)?.page_key();
-        self.evict_page(page_key)?;
         Ok(Some(page_key))
     }
 
-    pub fn register_relation(&mut self, relation_id: RelationId, path: PathBuf) {
-        self.relation_manager.register_relation(relation_id, path)
-    }
-
-    fn evict_page(&mut self, page_key: PageKey) -> Result<(), BufferPoolError> {
-        let frame_id = self.get_frame_id(page_key)?;
-        let frame = self.get_frame_mut(frame_id)?;
-
-        if frame.pin_count() > 0 {
-            return Err(BufferPoolError::PagePinned);
-        }
-
-        if frame.is_dirty() {
-            self.flush_page(page_key)?;
-        }
-
-        self.frames[frame_id.index()]
-            .take()
-            .ok_or(BufferPoolError::PageNotCached)?;
-        self.page_table
-            .remove(&page_key)
-            .ok_or(BufferPoolError::PageNotCached)?;
-
-        Ok(())
-    }
-
-    fn get_frame_id(&self, page_key: PageKey) -> Result<FrameId, BufferPoolError> {
-        self.page_table
-            .get(&page_key)
-            .ok_or(BufferPoolError::PageNotCached)
-    }
-
-    fn get_frame_mut(&mut self, frame_id: FrameId) -> Result<&mut BufferFrame, BufferPoolError> {
-        self.frames
-            .get_mut(frame_id.index())
-            .ok_or(BufferPoolError::PageNotCached)?
-            .as_mut()
-            .ok_or(BufferPoolError::PageNotCached)
-    }
-
-    fn select_clock_victim(&mut self) -> Option<FrameId> {
+    fn select_clock_frame(&mut self) -> Option<FrameId> {
         if self.frames.is_empty() {
             return None;
         }
@@ -224,6 +172,49 @@ impl BufferPool {
         }
 
         None
+    }
+
+    pub fn clean_frame(&mut self, page_key: PageKey) -> Result<(), BufferPoolError> {
+        let frame_id = self.get_frame_id(page_key)?;
+        let frame = self.get_frame_mut(frame_id)?;
+        frame.mark_clean();
+        Ok(())
+    }
+
+    pub fn contains_page(&self, page_key: PageKey) -> bool {
+        self.page_table.get(&page_key).is_some()
+    }
+
+    pub fn is_dirty(&self, page_key: PageKey) -> Result<bool, BufferPoolError> {
+        let frame_id = self.get_frame_id(page_key)?;
+        let frame = self.get_frame(frame_id)?;
+        Ok(frame.is_dirty())
+    }
+
+    pub fn is_full(&self) -> bool {
+        self.frames.iter().all(|frame| frame.is_some())
+    }
+
+    fn get_frame_id(&self, page_key: PageKey) -> Result<FrameId, BufferPoolError> {
+        self.page_table
+            .get(&page_key)
+            .ok_or(BufferPoolError::PageNotCached)
+    }
+
+    fn get_frame(&self, frame_id: FrameId) -> Result<&BufferFrame, BufferPoolError> {
+        self.frames
+            .get(frame_id.index())
+            .ok_or(BufferPoolError::PageNotCached)?
+            .as_ref()
+            .ok_or(BufferPoolError::PageNotCached)
+    }
+
+    fn get_frame_mut(&mut self, frame_id: FrameId) -> Result<&mut BufferFrame, BufferPoolError> {
+        self.frames
+            .get_mut(frame_id.index())
+            .ok_or(BufferPoolError::PageNotCached)?
+            .as_mut()
+            .ok_or(BufferPoolError::PageNotCached)
     }
 }
 

@@ -9,7 +9,8 @@ use crate::{
         tree::{BTree, BTreeError},
     },
     storage::{
-        buffer::{BufferPool, page_key::PageKey},
+        buffer::page_key::PageKey,
+        manager::StorageManager,
         page::{Page, PageId, RowId},
     },
 };
@@ -17,7 +18,7 @@ use crate::{
 impl BTree {
     pub fn delete(
         &self,
-        buffer_pool: &mut BufferPool,
+        storage_manager: &mut StorageManager,
         key: BTreeKey,
         row_id: RowId,
     ) -> Result<bool, BTreeError> {
@@ -25,10 +26,10 @@ impl BTree {
             return Err(BTreeError::InvalidKeyType);
         }
 
-        let (parent, page_id) = self.find_leaf_and_parent_page_ids(buffer_pool, &key)?;
+        let (parent, page_id) = self.find_leaf_and_parent_page_ids(storage_manager, &key)?;
         let page_key = PageKey::new(self.relation_id, page_id);
         let (deleted, is_underfull) = {
-            let mut guard = buffer_pool.fetch_page(page_key)?;
+            let mut guard = storage_manager.fetch_page(page_key)?;
             let page = guard.page_mut();
 
             let deleted = delete_leaf_entry(&mut *page, self.key_type, &key, row_id)?;
@@ -37,13 +38,14 @@ impl BTree {
         };
 
         if deleted {
-            buffer_pool.flush_page(page_key)?;
+            storage_manager.flush_page(page_key)?;
 
             if is_underfull && let Some(parent) = parent {
                 let mut parent_page = Page::new_raw();
                 let parent_key = PageKey::new(self.relation_id, parent);
                 {
-                    let guard = buffer_pool.fetch_page(PageKey::new(self.relation_id, parent))?;
+                    let guard =
+                        storage_manager.fetch_page(PageKey::new(self.relation_id, parent))?;
                     parent_page
                         .as_bytes_mut()
                         .copy_from_slice(guard.page().as_bytes());
@@ -57,13 +59,13 @@ impl BTree {
                     let mut left_page = Page::new_raw();
                     let mut right_page = Page::new_raw();
                     {
-                        let guard = buffer_pool.fetch_page(left_key)?;
+                        let guard = storage_manager.fetch_page(left_key)?;
                         left_page
                             .as_bytes_mut()
                             .copy_from_slice(guard.page().as_bytes());
                     }
                     {
-                        let guard = buffer_pool.fetch_page(right_key)?;
+                        let guard = storage_manager.fetch_page(right_key)?;
                         right_page
                             .as_bytes_mut()
                             .copy_from_slice(guard.page().as_bytes());
@@ -77,9 +79,13 @@ impl BTree {
                         self.key_type,
                     )?;
 
-                    Self::fetch_and_flush_page(buffer_pool, left_key, left_page.as_bytes())?;
-                    Self::fetch_and_flush_page(buffer_pool, right_key, right_page.as_bytes())?;
-                    Self::fetch_and_flush_page(buffer_pool, parent_key, parent_page.as_bytes())?;
+                    Self::fetch_and_flush_page(storage_manager, left_key, left_page.as_bytes())?;
+                    Self::fetch_and_flush_page(storage_manager, right_key, right_page.as_bytes())?;
+                    Self::fetch_and_flush_page(
+                        storage_manager,
+                        parent_key,
+                        parent_page.as_bytes(),
+                    )?;
                 }
             }
         }
@@ -89,14 +95,15 @@ impl BTree {
 
     pub(super) fn find_leaf_and_parent_page_ids(
         &self,
-        buffer_pool: &mut BufferPool,
+        storage_manager: &mut StorageManager,
         target: &BTreeKey,
     ) -> Result<(Option<PageId>, PageId), BTreeError> {
         let mut current_page_id = self.root_page_id;
         let mut parent = None;
 
         loop {
-            let guard = buffer_pool.fetch_page(PageKey::new(self.relation_id, current_page_id))?;
+            let guard =
+                storage_manager.fetch_page(PageKey::new(self.relation_id, current_page_id))?;
             let page = guard.page();
             let header = BTreePageHeader::read_from_page(page)
                 .ok_or(BTreeError::InvalidPage(current_page_id))?;
