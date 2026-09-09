@@ -1,7 +1,6 @@
 use crate::{
     binder::BoundStatement,
     database::{Database, DatabaseError, ExecuteResult},
-    executor::Executor,
     test_supports::TestDirectory,
     tuple::Value,
 };
@@ -57,29 +56,20 @@ fn sql_crud는_parser부터_file까지_동작한다() -> Result<(), DatabaseErro
     else {
         panic!("INSERT가 bind되어야 함");
     };
-    let heap_table = database.table_cache.get_or_open_table(
-        &mut database.storage_manager,
-        database.data_dir.as_path(),
-        bound.table_id,
-    )?;
-    Executor::new(&database.metadata)
-        .execute_insert(&bound, heap_table, &mut database.storage_manager)
-        .expect("INSERT가 실행되어야 함");
+    assert!(matches!(
+        database.execute_insert(&bound)?,
+        ExecuteResult::Command { affected_rows: 1 }
+    ));
 
     let BoundStatement::Select(bound) =
         bind_sql("SELECT name FROM users WHERE id = 1;", &database.metadata)
     else {
         panic!("SELECT가 bind되어야 함");
     };
-    let heap_table = database.table_cache.get_or_open_table(
-        &mut database.storage_manager,
-        database.data_dir.as_path(),
-        bound.table_id,
-    )?;
-    let rows = Executor::new(&database.metadata)
-        .execute_select(&bound, heap_table, &mut database.storage_manager)
-        .expect("SELECT가 실행되어야 함");
-    assert_eq!(rows, vec![vec![Value::Varchar("Kim".to_owned())]]);
+    assert!(matches!(
+        database.execute_select(&bound)?,
+        ExecuteResult::Rows(rows) if rows == vec![vec![Value::Varchar("Kim".to_owned())]]
+    ));
 
     let BoundStatement::Update(bound) = bind_sql(
         "UPDATE users SET name = 'Lee' WHERE id = 1;",
@@ -87,58 +77,36 @@ fn sql_crud는_parser부터_file까지_동작한다() -> Result<(), DatabaseErro
     ) else {
         panic!("UPDATE가 bind되어야 함");
     };
-    let heap_table = database.table_cache.get_or_open_table(
-        &mut database.storage_manager,
-        database.data_dir.as_path(),
-        bound.table_id,
-    )?;
-    let updated = Executor::new(&database.metadata)
-        .execute_update(&bound, heap_table, &mut database.storage_manager)
-        .expect("UPDATE가 실행되어야 함");
-    assert_eq!(updated.len(), 1);
+    assert!(matches!(
+        database.execute_update(&bound)?,
+        ExecuteResult::Command { affected_rows: 1 }
+    ));
 
     let BoundStatement::Select(bound) = bind_sql("SELECT * FROM users;", &database.metadata) else {
         panic!("SELECT가 bind되어야 함");
     };
-    let heap_table = database.table_cache.get_or_open_table(
-        &mut database.storage_manager,
-        database.data_dir.as_path(),
-        bound.table_id,
-    )?;
-    let rows = Executor::new(&database.metadata)
-        .execute_select(&bound, heap_table, &mut database.storage_manager)
-        .expect("SELECT가 실행되어야 함");
-    assert_eq!(
-        rows,
-        vec![vec![Value::BigInt(1), Value::Varchar("Lee".to_owned())]]
-    );
+    assert!(matches!(
+        database.execute_select(&bound)?,
+        ExecuteResult::Rows(rows)
+            if rows == vec![vec![Value::BigInt(1), Value::Varchar("Lee".to_owned())]]
+    ));
 
     let BoundStatement::Delete(bound) =
         bind_sql("DELETE FROM users WHERE id = 1;", &database.metadata)
     else {
         panic!("DELETE가 bind되어야 함");
     };
-    let heap_table = database.table_cache.get_or_open_table(
-        &mut database.storage_manager,
-        database.data_dir.as_path(),
-        bound.table_id,
-    )?;
-    let deleted = Executor::new(&database.metadata)
-        .execute_delete(&bound, heap_table, &mut database.storage_manager)
-        .expect("DELETE가 실행되어야 함");
-    assert_eq!(deleted.len(), 1);
+    assert!(matches!(
+        database.execute_delete(&bound)?,
+        ExecuteResult::Command { affected_rows: 1 }
+    ));
 
     let BoundStatement::Select(bound) = bind_sql("SELECT * FROM users;", &database.metadata) else {
         panic!("SELECT가 bind되어야 함");
     };
-    let heap_table = database.table_cache.get_or_open_table(
-        &mut database.storage_manager,
-        database.data_dir.as_path(),
-        bound.table_id,
-    )?;
-    let rows = Executor::new(&database.metadata)
-        .execute_select(&bound, heap_table, &mut database.storage_manager)
-        .expect("SELECT가 실행되어야 함");
-    assert!(rows.is_empty());
+    assert!(matches!(
+        database.execute_select(&bound)?,
+        ExecuteResult::Rows(rows) if rows.is_empty()
+    ));
     Ok(())
 }

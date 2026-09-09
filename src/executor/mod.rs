@@ -1,23 +1,19 @@
 use crate::{
-    binder::{
-        BoundDelete, BoundExpression, BoundInsert, BoundProjection, BoundSelect, BoundUpdate,
-    },
-    catalog::metadata::{ColumnId, DatabaseMetadata, TableId, TableMetadata},
-    storage::{
-        heap::{HeapTable, HeapTableError},
-        manager::StorageManager,
-        page::{Row, RowId},
-    },
+    binder::{BoundDelete, BoundInsert, BoundSelect, BoundUpdate},
+    catalog::metadata::{ColumnId, DatabaseMetadata, TableId},
+    executor::{predicate::filter_rows, projection::project_rows},
+    storage::page::{Row, RowId},
     tuple::{TupleError, Value, decode, encode},
 };
 use thiserror::Error;
 
+mod predicate;
+mod projection;
+
 #[derive(Debug, Error)]
 pub enum ExecutorError {
-    #[error("tuple 처리 오류: {0}")]
+    #[error(transparent)]
     Tuple(#[from] TupleError),
-    #[error("heap table 처리 오류: {0}")]
-    HeapTable(#[from] HeapTableError),
     #[error("테이블을 찾을 수 없습니다: {0:?}")]
     TableNotFound(TableId),
     #[error("컬럼을 찾을 수 없습니다: {0:?}")]
@@ -25,20 +21,15 @@ pub enum ExecutorError {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct InsertResult {
+pub struct PreparedUpdate {
     pub row_id: RowId,
-    pub values: Vec<Value>,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct UpdateResult {
-    pub row_id: RowId,
+    pub new_row: Row,
     pub old_values: Vec<Value>,
     pub new_values: Vec<Value>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct DeleteResult {
+pub struct PreparedDelete {
     pub row_id: RowId,
     pub values: Vec<Value>,
 }
@@ -52,73 +43,30 @@ impl<'a> Executor<'a> {
         Self { database }
     }
 
-    pub fn execute_select(
-        &self,
-        bound: &BoundSelect,
-        heap_table: &mut HeapTable,
-        storage_manager: &mut StorageManager,
-    ) -> Result<Vec<Vec<Value>>, ExecutorError> {
-        let rows = heap_table.scan(storage_manager)?;
-        self.projection_and_filtered_rows(rows, bound)
-    }
-
-    pub fn projection_and_filtered_rows(
-        &self,
-        rows: Vec<(RowId, Row)>,
-        bound: &BoundSelect,
-    ) -> Result<Vec<Vec<Value>>, ExecutorError> {
-        let table = self
-            .database
-            .table_by_id(bound.table_id)
-            .ok_or(ExecutorError::TableNotFound(bound.table_id))?;
-
-        let projections = &bound.projections;
-        let Some(filter) = bound.filter.as_ref() else {
-            return Self::project_rows(rows, table, projections);
-        };
-
-        let filtered_rows = Self::filter_rows(rows, table, filter)?;
-        Self::project_rows(filtered_rows, table, projections)
-    }
-
-    pub fn execute_insert(
-        &self,
-        bound: &BoundInsert,
-        heap_table: &mut HeapTable,
-        storage_manager: &mut StorageManager,
-    ) -> Result<InsertResult, ExecutorError> {
+    pub fn encode_insert(&self, bound: &BoundInsert) -> Result<Row, ExecutorError> {
         let table_id = bound.table_id;
         let table = self
             .database
             .table_by_id(table_id)
             .ok_or(ExecutorError::TableNotFound(table_id))?;
 
-        let row = encode(&bound.values, table.columns())?;
-        let row_id = heap_table.insert(&row, storage_manager)?;
-
-        Ok(InsertResult {
-            row_id,
-            values: bound.values.to_owned(),
-        })
+        Ok(encode(&bound.values, table.columns())?)
     }
 
-    pub fn execute_update(
+    pub fn prepare_update(
         &self,
         bound: &BoundUpdate,
-        heap_table: &mut HeapTable,
-        storage_manager: &mut StorageManager,
-    ) -> Result<Vec<UpdateResult>, ExecutorError> {
+        rows: Vec<(RowId, Row)>,
+    ) -> Result<Vec<PreparedUpdate>, ExecutorError> {
         let table_id = bound.table_id;
         let table = self
             .database
             .table_by_id(table_id)
             .ok_or(ExecutorError::TableNotFound(table_id))?;
-
-        let rows = heap_table.scan(storage_manager)?;
 
         let rows = {
             if let Some(filter) = bound.filter.as_ref() {
-                Self::filter_rows(rows, table, filter)?
+                filter_rows(rows, table, filter)?
             } else {
                 rows
             }
@@ -136,10 +84,10 @@ impl<'a> Executor<'a> {
                 values[column_index] = assignment.value.clone();
             }
             let new_values = values.clone();
-            let row = encode(&values, table.columns())?;
-            heap_table.update(row_id, &row, storage_manager)?;
-            results.push(UpdateResult {
+            let new_row = encode(&new_values, table.columns())?;
+            results.push(PreparedUpdate {
                 row_id,
+                new_row,
                 old_values,
                 new_values,
             });
@@ -148,23 +96,20 @@ impl<'a> Executor<'a> {
         Ok(results)
     }
 
-    pub fn execute_delete(
+    pub fn prepare_delete(
         &self,
         bound: &BoundDelete,
-        heap_table: &mut HeapTable,
-        storage_manager: &mut StorageManager,
-    ) -> Result<Vec<DeleteResult>, ExecutorError> {
+        rows: Vec<(RowId, Row)>,
+    ) -> Result<Vec<PreparedDelete>, ExecutorError> {
         let table_id = bound.table_id;
         let table = self
             .database
             .table_by_id(table_id)
             .ok_or(ExecutorError::TableNotFound(table_id))?;
 
-        let rows = heap_table.scan(storage_manager)?;
-
         let rows = {
             if let Some(filter) = bound.filter.as_ref() {
-                Self::filter_rows(rows, table, filter)?
+                filter_rows(rows, table, filter)?
             } else {
                 rows
             }
@@ -173,71 +118,30 @@ impl<'a> Executor<'a> {
         let mut results = Vec::new();
         for (row_id, row) in rows {
             let values = decode(&row, table.columns())?;
-            heap_table.delete(row_id, storage_manager)?;
-            results.push(DeleteResult { row_id, values });
+            results.push(PreparedDelete { row_id, values });
         }
 
         Ok(results)
     }
 
-    fn filter_rows(
+    pub fn projection_and_filtered_rows(
+        &self,
         rows: Vec<(RowId, Row)>,
-        table: &TableMetadata,
-        filter: &BoundExpression,
-    ) -> Result<Vec<(RowId, Row)>, ExecutorError> {
-        let BoundExpression::Equal { column_id, value } = filter;
-        let column_index = table
-            .column_index(*column_id)
-            .ok_or(ExecutorError::ColumnNotFound(*column_id))?;
-
-        let mut results = Vec::new();
-        for (row_id, row) in rows {
-            let values = decode(&row, table.columns())?;
-
-            if sql_equals(&values[column_index], value) {
-                results.push((row_id, row));
-            }
-        }
-
-        Ok(results)
-    }
-
-    fn project_rows(
-        rows: Vec<(RowId, Row)>,
-        table: &TableMetadata,
-        projections: &[BoundProjection],
+        bound: &BoundSelect,
     ) -> Result<Vec<Vec<Value>>, ExecutorError> {
-        let mut results = Vec::new();
+        let table = self
+            .database
+            .table_by_id(bound.table_id)
+            .ok_or(ExecutorError::TableNotFound(bound.table_id))?;
 
-        for (_, row) in rows {
-            let values = decode(&row, table.columns())?;
-            let mut projection_values = Vec::new();
+        let projections = &bound.projections;
+        let Some(filter) = bound.filter.as_ref() else {
+            return project_rows(rows, table, projections);
+        };
 
-            for projection in projections {
-                match projection {
-                    BoundProjection::All => projection_values.extend(values.iter().cloned()),
-                    BoundProjection::Column(column_id) => {
-                        let column_index = table
-                            .column_index(*column_id)
-                            .ok_or(ExecutorError::ColumnNotFound(*column_id))?;
-                        projection_values.push(values[column_index].clone());
-                    }
-                }
-            }
-
-            results.push(projection_values);
-        }
-
-        Ok(results)
+        let filtered_rows = filter_rows(rows, table, filter)?;
+        project_rows(filtered_rows, table, projections)
     }
-}
-
-fn sql_equals(left: &Value, right: &Value) -> bool {
-    if left == &Value::Null || right == &Value::Null {
-        return false;
-    }
-
-    left == right
 }
 
 #[cfg(test)]

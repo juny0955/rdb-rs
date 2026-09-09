@@ -89,18 +89,20 @@ fn insert는_리터럴을_row로_변환해_테이블에_저장한다() {
 
     HeapTable::open(table_id, &path).expect("테이블 파일을 생성해야 함");
     let mut storage_manager = storage_manager(table_id, &path);
-    let insert_result = {
+    let row = Executor::new(&database)
+        .encode_insert(&bound)
+        .expect("INSERT 값을 Row로 변환해야 함");
+    let row_id = {
         let mut heap_table =
             HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
-        let executor = Executor::new(&database);
-        executor
-            .execute_insert(&bound, &mut heap_table, &mut storage_manager)
-            .expect("INSERT가 성공해야 함")
+        heap_table
+            .insert(&row, &mut storage_manager)
+            .expect("Row를 저장해야 함")
     };
 
     let mut table = HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
     let row = table
-        .get(insert_result.row_id, &mut storage_manager)
+        .get(row_id, &mut storage_manager)
         .expect("삽입한 Row를 읽어야 함");
     let values = decode(&row, &columns).expect("Row를 값으로 변환해야 함");
 
@@ -156,9 +158,20 @@ fn update는_필터와_일치하는_row만_수정하고_재시작후에도_유�
         let mut heap_table =
             HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
         let executor = Executor::new(&database);
-        executor
-            .execute_update(&bound, &mut heap_table, &mut storage_manager)
-            .expect("UPDATE가 성공해야 함")
+        let rows = heap_table
+            .scan(&mut storage_manager)
+            .expect("테이블을 scan해야 함");
+        let updated = executor
+            .prepare_update(&bound, rows)
+            .expect("UPDATE 대상을 계산해야 함");
+
+        for result in &updated {
+            heap_table
+                .update(result.row_id, &result.new_row, &mut storage_manager)
+                .expect("UPDATE 대상을 저장소에 반영해야 함");
+        }
+
+        updated
     };
 
     assert_eq!(updated.len(), 1);
@@ -232,9 +245,20 @@ fn delete는_필터와_일치하는_row만_삭제하고_재시작후에도_유�
         let mut heap_table =
             HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
         let executor = Executor::new(&database);
-        executor
-            .execute_delete(&bound, &mut heap_table, &mut storage_manager)
-            .expect("DELETE가 성공해야 함")
+        let rows = heap_table
+            .scan(&mut storage_manager)
+            .expect("테이블을 scan해야 함");
+        let deleted = executor
+            .prepare_delete(&bound, rows)
+            .expect("DELETE 대상을 계산해야 함");
+
+        for result in &deleted {
+            heap_table
+                .delete(result.row_id, &mut storage_manager)
+                .expect("DELETE 대상을 저장소에서 삭제해야 함");
+        }
+
+        deleted
     };
 
     assert_eq!(deleted.len(), 1);
@@ -285,8 +309,11 @@ fn select는_테이블의_모든_row를_반환한다() {
     let mut heap_table =
         HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
     let executor = Executor::new(&database);
+    let scanned_rows = heap_table
+        .scan(&mut storage_manager)
+        .expect("테이블을 scan해야 함");
     let rows = executor
-        .execute_select(&select_all(table_id), &mut heap_table, &mut storage_manager)
+        .projection_and_filtered_rows(scanned_rows, &select_all(table_id))
         .expect("SELECT가 성공해야 함");
 
     assert_eq!(rows, vec![first_values, second_values]);
@@ -324,12 +351,11 @@ fn select는_지정한_컬럼만_반환한다() {
     let mut heap_table =
         HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
     let executor = Executor::new(&database);
+    let scanned_rows = heap_table
+        .scan(&mut storage_manager)
+        .expect("테이블을 scan해야 함");
     let rows = executor
-        .execute_select(
-            &select_name(table_id),
-            &mut heap_table,
-            &mut storage_manager,
-        )
+        .projection_and_filtered_rows(scanned_rows, &select_name(table_id))
         .expect("SELECT가 성공해야 함");
 
     assert_eq!(
@@ -365,12 +391,11 @@ fn select는_projection_목록_순서대로_값을_반환한다() {
     let mut heap_table =
         HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
     let executor = Executor::new(&database);
+    let scanned_rows = heap_table
+        .scan(&mut storage_manager)
+        .expect("테이블을 scan해야 함");
     let rows = executor
-        .execute_select(
-            &select_name_then_all(table_id),
-            &mut heap_table,
-            &mut storage_manager,
-        )
+        .projection_and_filtered_rows(scanned_rows, &select_name_then_all(table_id))
         .expect("SELECT가 성공해야 함");
 
     assert_eq!(
@@ -409,11 +434,13 @@ fn select는_equal_filter와_일치하는_row만_반환한다() {
     let mut heap_table =
         HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
     let executor = Executor::new(&database);
+    let scanned_rows = heap_table
+        .scan(&mut storage_manager)
+        .expect("테이블을 scan해야 함");
     let rows = executor
-        .execute_select(
+        .projection_and_filtered_rows(
+            scanned_rows,
             &select_name_equals(table_id, Value::Varchar("Kim".to_owned())),
-            &mut heap_table,
-            &mut storage_manager,
         )
         .expect("SELECT가 성공해야 함");
 
@@ -482,12 +509,11 @@ fn select에서_null_equal_filter는_row를_반환하지_않는다() {
     let mut heap_table =
         HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
     let executor = Executor::new(&database);
+    let scanned_rows = heap_table
+        .scan(&mut storage_manager)
+        .expect("테이블을 scan해야 함");
     let rows = executor
-        .execute_select(
-            &select_name_equals(table_id, Value::Null),
-            &mut heap_table,
-            &mut storage_manager,
-        )
+        .projection_and_filtered_rows(scanned_rows, &select_name_equals(table_id, Value::Null))
         .expect("SELECT가 성공해야 함");
 
     assert!(rows.is_empty());
@@ -498,14 +524,9 @@ fn select는_메타데이터에_없는_테이블을_거부한다() {
     let table_id = TableId::new(1);
     let database = DatabaseMetadata::new("test".to_owned(), vec![], vec![])
         .expect("빈 데이터베이스 메타데이터가 유효해야 함");
-    let directory = TestDirectory::new("table-not-found");
-    let path = directory.path().join("1.tbl");
-    let mut heap_table = HeapTable::open(table_id, &path).expect("테이블 파일을 생성해야 함");
-    let mut storage_manager = storage_manager(table_id, &path);
     let executor = Executor::new(&database);
 
-    let result =
-        executor.execute_select(&select_all(table_id), &mut heap_table, &mut storage_manager);
+    let result = executor.projection_and_filtered_rows(vec![], &select_all(table_id));
 
     assert!(matches!(result, Err(ExecutorError::TableNotFound(id)) if id == table_id));
 }
