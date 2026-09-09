@@ -78,6 +78,16 @@ impl StorageManager {
         Ok(())
     }
 
+    pub fn create_relation(
+        &mut self,
+        relation_id: RelationId,
+        path: PathBuf,
+    ) -> Result<(), StorageManagerError> {
+        Ok(self
+            .relation_file_manager
+            .create_relation(relation_id, path)?)
+    }
+
     pub fn register_relation(&mut self, relation_id: RelationId, path: PathBuf) {
         self.relation_file_manager
             .register_relation(relation_id, path)

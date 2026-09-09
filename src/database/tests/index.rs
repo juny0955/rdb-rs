@@ -1,13 +1,14 @@
 use crate::{
+    binder::BoundStatement,
     catalog::metadata::{RelationId, TableId},
-    database::{Database, DatabaseError, ExecuteResult},
+    database::{Database, DatabaseError, ExecuteResult, index::search_index_row_ids},
     index::btree::{BTreeKey, BTreeKeyType, tree::BTree},
     storage::page::PageId,
     test_supports::TestDirectory,
     tuple::Value,
 };
 
-use super::parse_sql;
+use super::{bind_sql, parse_sql};
 
 #[test]
 fn create_index는_index_file과_metadata를_생성하고_재시작후에도_유지한다()
@@ -57,6 +58,31 @@ fn 재시작후_index_scan은_중복_key의_모든_row를_반환한다() -> Resu
                 vec![Value::Varchar("Lee".to_owned())],
             ]
     ));
+    Ok(())
+}
+
+#[test]
+fn indexed_equal_predicate는_index_candidate를_반환한다() -> Result<(), DatabaseError> {
+    let directory = TestDirectory::new("database-index-candidate");
+    let mut database = Database::open(directory.path(), "test")?;
+    database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
+    database.execute(&parse_sql("CREATE INDEX idx_users_id ON users(id);"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (42, 'Kim');"))?;
+
+    let BoundStatement::Select(bound) =
+        bind_sql("SELECT name FROM users WHERE id = 42;", &database.metadata)
+    else {
+        panic!("SELECT 문이어야 함");
+    };
+
+    let candidates = search_index_row_ids(
+        &database.metadata,
+        &mut database.storage_manager,
+        &database.data_dir,
+        &bound,
+    )?;
+
+    assert!(matches!(candidates, Some(row_ids) if row_ids.len() == 1));
     Ok(())
 }
 
@@ -171,6 +197,30 @@ fn delete는_index_entry를_제거하고_재시작후_검색되지_않는다() -
         btree.search(&mut database.storage_manager, BTreeKey::BigInt(42))?,
         vec![]
     );
+    Ok(())
+}
+
+#[test]
+fn indexed_null_value를_delete하면_index_entry_없음_오류가_발생하지_않는다()
+-> Result<(), DatabaseError> {
+    let directory = TestDirectory::new("database-delete-null-indexed-value");
+    {
+        let mut database = Database::open(directory.path(), "test")?;
+        database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
+        database.execute(&parse_sql("CREATE INDEX idx_users_id ON users(id);"))?;
+        database.execute(&parse_sql("INSERT INTO users VALUES (NULL, 'Null');"))?;
+
+        assert!(matches!(
+            database.execute(&parse_sql("DELETE FROM users WHERE name = 'Null';"))?,
+            ExecuteResult::Command { affected_rows: 1 }
+        ));
+    }
+
+    let mut database = Database::open(directory.path(), "reopened")?;
+    assert!(matches!(
+        database.execute(&parse_sql("SELECT name FROM users;"))?,
+        ExecuteResult::Rows(rows) if rows.is_empty()
+    ));
     Ok(())
 }
 

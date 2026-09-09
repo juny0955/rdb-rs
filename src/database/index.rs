@@ -2,26 +2,17 @@ use std::path::Path;
 
 use crate::{
     binder::{BoundCreateIndex, BoundExpression, BoundSelect},
-    catalog::metadata::{
-        ColumnId, DatabaseMetadata, IndexId, IndexMetadata, RelationId, SchemaError, TableId,
-    },
+    catalog::metadata::{DatabaseMetadata, IndexId, IndexMetadata, SchemaError, TableId},
     database::ExecuteResult,
-    index::btree::{BTreeKey, BTreeKeyType, tree::BTree},
-    storage::{
-        file::open_rw_create,
-        manager::StorageManager,
-        page::{PageId, RowId},
+    index::{
+        btree::BTreeKeyType,
+        manager::{DeleteResult, IndexManager},
     },
+    storage::{manager::StorageManager, page::RowId},
     tuple::{self, Value},
 };
 
 use super::{Database, DatabaseError};
-
-struct IndexKey {
-    index_id: IndexId,
-    root_page_id: PageId,
-    key: BTreeKey,
-}
 
 impl Database {
     pub(super) fn create_index(
@@ -56,17 +47,22 @@ impl Database {
 
         let index_id = IndexId::new(self.metadata.indexes().len() as u32 + 1);
         let key_type = BTreeKeyType::try_from(column.data_type())?;
-        let btree = self.create_index_btree(index_id, key_type)?;
+        let root_page_id = IndexManager::create_index_btree(
+            &mut self.storage_manager,
+            index_id,
+            key_type,
+            &self.data_dir,
+        )?;
 
         let index_metadata = IndexMetadata::new(
             index_id,
             bound.index_name.clone(),
             table_id,
             column_id,
-            btree.root_page_id(),
+            root_page_id,
         );
 
-        self.backfill_index(table_id, column_id, &btree)?;
+        self.backfill_index(&index_metadata)?;
         self.metadata.add_index(index_metadata)?;
         self.catalog.save(&self.metadata)?;
 
@@ -79,15 +75,37 @@ impl Database {
         row_id: RowId,
         values: &[Value],
     ) -> Result<(), DatabaseError> {
-        for index_key in self.index_keys_for_values(table_id, values)? {
-            let btree = open_index_btree(
+        let table = self
+            .metadata
+            .table_by_id(table_id)
+            .ok_or(DatabaseError::Schema(SchemaError::IndexTableNotFound(
+                table_id,
+            )))?;
+
+        let indexes = self
+            .metadata
+            .indexes()
+            .iter()
+            .filter(|index| index.table_id() == table.id());
+
+        for index_metadata in indexes {
+            let column_index =
+                table
+                    .column_index(index_metadata.column_id())
+                    .ok_or(DatabaseError::Schema(SchemaError::IndexColumnNotFound {
+                        table_id: table.id(),
+                        column_id: index_metadata.column_id(),
+                    }))?;
+
+            let value = &values[column_index];
+
+            IndexManager::insert_entry(
                 &mut self.storage_manager,
-                index_key.index_id,
-                index_key.root_page_id,
-                index_key.key.key_type(),
+                index_metadata,
+                value,
                 &self.data_dir,
-            );
-            btree.insert(&mut self.storage_manager, index_key.key, row_id)?;
+                row_id,
+            )?;
         }
 
         Ok(())
@@ -99,55 +117,6 @@ impl Database {
         row_id: RowId,
         values: &[Value],
     ) -> Result<(), DatabaseError> {
-        for index_key in self.index_keys_for_values(table_id, values)? {
-            let btree = open_index_btree(
-                &mut self.storage_manager,
-                index_key.index_id,
-                index_key.root_page_id,
-                index_key.key.key_type(),
-                &self.data_dir,
-            );
-            if !btree.delete(&mut self.storage_manager, index_key.key, row_id)? {
-                return Err(DatabaseError::IndexEntryNotFound {
-                    index_id: index_key.index_id,
-                    row_id,
-                });
-            }
-        }
-
-        Ok(())
-    }
-
-    fn create_index_btree(
-        &mut self,
-        index_id: IndexId,
-        key_type: BTreeKeyType,
-    ) -> Result<BTree, DatabaseError> {
-        let index_path = self.data_dir.join(format!("{}.idx", index_id.id()));
-        open_rw_create(&index_path)?;
-        self.storage_manager
-            .register_relation(RelationId::Index(index_id), index_path);
-
-        Ok(BTree::create(
-            index_id,
-            key_type,
-            &mut self.storage_manager,
-        )?)
-    }
-
-    fn backfill_index(
-        &mut self,
-        table_id: TableId,
-        column_id: ColumnId,
-        btree: &BTree,
-    ) -> Result<(), DatabaseError> {
-        let heap_table = self.table_cache.get_or_open_table(
-            &mut self.storage_manager,
-            &self.data_dir,
-            table_id,
-        )?;
-        let rows = heap_table.scan(&mut self.storage_manager)?;
-
         let table = self
             .metadata
             .table_by_id(table_id)
@@ -155,67 +124,78 @@ impl Database {
                 table_id,
             )))?;
 
-        let index = table.column_index(column_id).ok_or(DatabaseError::Schema(
-            SchemaError::IndexColumnNotFound {
-                table_id: table.id(),
-                column_id,
-            },
-        ))?;
-
-        for (row_id, row) in rows {
-            let values = tuple::decode(&row, table.columns())?;
-            if let Some(key) = value_to_btree_key(&values[index]) {
-                btree.insert(&mut self.storage_manager, key, row_id)?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn index_keys_for_values(
-        &self,
-        table_id: TableId,
-        values: &[Value],
-    ) -> Result<Vec<IndexKey>, DatabaseError> {
         let indexes = self
             .metadata
             .indexes()
             .iter()
-            .filter(|index| index.table_id() == table_id)
-            .collect::<Vec<_>>();
+            .filter(|index| index.table_id() == table.id());
 
-        let table = self
-            .metadata
-            .table_by_id(table_id)
-            .ok_or(DatabaseError::Schema(SchemaError::IndexTableNotFound(
-                table_id,
-            )))?;
+        for index_metadata in indexes {
+            let column_index =
+                table
+                    .column_index(index_metadata.column_id())
+                    .ok_or(DatabaseError::Schema(SchemaError::IndexColumnNotFound {
+                        table_id: table.id(),
+                        column_id: index_metadata.column_id(),
+                    }))?;
 
-        let mut index_keys = Vec::new();
-        for index in indexes {
-            let column = table
-                .column_by_id(index.column_id())
-                .ok_or(DatabaseError::Schema(SchemaError::IndexColumnNotFound {
-                    table_id,
-                    column_id: index.column_id(),
-                }))?;
-            let column_index = table
-                .column_index(column.id())
-                .ok_or(DatabaseError::Schema(SchemaError::IndexColumnNotFound {
-                    table_id,
-                    column_id: index.column_id(),
-                }))?;
-
-            if let Some(key) = value_to_btree_key(&values[column_index]) {
-                index_keys.push(IndexKey {
-                    index_id: index.id(),
-                    root_page_id: index.root_page_id(),
-                    key,
-                });
+            let value = &values[column_index];
+            match IndexManager::delete_entry(
+                &mut self.storage_manager,
+                index_metadata,
+                value,
+                &self.data_dir,
+                row_id,
+            )? {
+                DeleteResult::Deleted | DeleteResult::SkippedNull => continue,
+                DeleteResult::NotFound => {
+                    return Err(DatabaseError::IndexEntryNotFound {
+                        index_id: index_metadata.id(),
+                        row_id,
+                    });
+                }
             }
         }
 
-        Ok(index_keys)
+        Ok(())
+    }
+
+    fn backfill_index(&mut self, index_metadata: &IndexMetadata) -> Result<(), DatabaseError> {
+        let heap_table = self.table_cache.get_or_open_table(
+            &mut self.storage_manager,
+            &self.data_dir,
+            index_metadata.table_id(),
+        )?;
+        let rows = heap_table.scan(&mut self.storage_manager)?;
+
+        let table =
+            self.metadata
+                .table_by_id(index_metadata.table_id())
+                .ok_or(DatabaseError::Schema(SchemaError::IndexTableNotFound(
+                    index_metadata.table_id(),
+                )))?;
+
+        let index = table
+            .column_index(index_metadata.column_id())
+            .ok_or(DatabaseError::Schema(SchemaError::IndexColumnNotFound {
+                table_id: table.id(),
+                column_id: index_metadata.column_id(),
+            }))?;
+
+        let mut entries = Vec::new();
+        for (row_id, row) in rows {
+            let values = tuple::decode(&row, table.columns())?;
+            entries.push((values[index].clone(), row_id));
+        }
+
+        IndexManager::backfill_entries(
+            &mut self.storage_manager,
+            index_metadata,
+            entries,
+            &self.data_dir,
+        )?;
+
+        Ok(())
     }
 }
 
@@ -236,66 +216,23 @@ pub(super) fn search_index_row_ids(
                             index_metadata.table_id(),
                         )),
                     )?;
-                    let column = table.column_by_id(index_metadata.column_id()).ok_or(
+                    let _ = table.column_by_id(index_metadata.column_id()).ok_or(
                         DatabaseError::Schema(SchemaError::IndexColumnNotFound {
                             table_id: index_metadata.table_id(),
                             column_id: index_metadata.column_id(),
                         }),
                     )?;
 
-                    let key_type = BTreeKeyType::try_from(column.data_type())?;
-
-                    let btree = open_index_btree(
+                    return Ok(Some(IndexManager::search_row_ids(
                         storage_manager,
-                        index_metadata.id(),
-                        index_metadata.root_page_id(),
-                        key_type,
+                        index_metadata,
+                        value,
                         data_dir,
-                    );
-
-                    if let Some(key) = value_to_btree_key(value) {
-                        return Ok(Some(btree.search(storage_manager, key)?));
-                    } else {
-                        return Ok(Some(vec![]));
-                    };
+                    )?));
                 }
             }
         }
     }
 
     Ok(None)
-}
-
-fn open_index_btree(
-    storage_manager: &mut StorageManager,
-    index_id: IndexId,
-    root_page_id: PageId,
-    key_type: BTreeKeyType,
-    data_dir: &Path,
-) -> BTree {
-    storage_manager.register_relation(
-        RelationId::Index(index_id),
-        data_dir.join(format!("{}.idx", index_id.id())),
-    );
-    BTree::open(index_id, root_page_id, key_type)
-}
-
-fn value_to_btree_key(value: &Value) -> Option<BTreeKey> {
-    match value {
-        Value::Int(v) => Some(BTreeKey::Int(*v)),
-        Value::BigInt(v) => Some(BTreeKey::BigInt(*v)),
-        Value::Boolean(v) => Some(BTreeKey::Boolean(*v)),
-        Value::Varchar(v) => Some(BTreeKey::Varchar(v.clone())),
-        Value::Null => None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn value_to_btree_key는_null을_건너뛴다() {
-        assert_eq!(value_to_btree_key(&Value::Null), None);
-    }
 }

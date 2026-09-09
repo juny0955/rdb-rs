@@ -40,6 +40,16 @@ impl RelationFileManager {
         self.paths.insert(relation_id, path);
     }
 
+    pub fn create_relation(
+        &mut self,
+        relation_id: RelationId,
+        path: PathBuf,
+    ) -> Result<(), RelationFileManagerError> {
+        let _ = open_rw_create(&path)?;
+        self.paths.insert(relation_id, path);
+        Ok(())
+    }
+
     pub fn open_relation_file(
         &self,
         relation_id: RelationId,
