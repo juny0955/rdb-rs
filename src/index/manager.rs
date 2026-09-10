@@ -1,5 +1,3 @@
-use std::path::{Path, PathBuf};
-
 use crate::{
     catalog::metadata::{IndexId, IndexMetadata, RelationId},
     index::btree::{
@@ -25,10 +23,8 @@ impl IndexManager {
         storage_manager: &mut StorageManager,
         index_id: IndexId,
         key_type: BTreeKeyType,
-        data_dir: &Path,
     ) -> Result<PageId, BTreeError> {
-        storage_manager
-            .create_relation(RelationId::Index(index_id), index_path(data_dir, index_id))?;
+        storage_manager.create_relation(RelationId::Index(index_id))?;
         let btree = BTree::create(index_id, key_type, storage_manager)?;
         Ok(btree.root_page_id())
     }
@@ -37,7 +33,6 @@ impl IndexManager {
         storage_manager: &mut StorageManager,
         index_metadata: &IndexMetadata,
         value: &Value,
-        data_dir: &Path,
         row_id: RowId,
     ) -> Result<(), BTreeError> {
         if let Some(key) = value_to_btree_key(value) {
@@ -46,8 +41,7 @@ impl IndexManager {
                 index_metadata.id(),
                 index_metadata.root_page_id(),
                 key.key_type(),
-                data_dir,
-            );
+            )?;
 
             btree.insert(storage_manager, key, row_id)?;
         }
@@ -59,7 +53,6 @@ impl IndexManager {
         storage_manager: &mut StorageManager,
         index_metadata: &IndexMetadata,
         value: &Value,
-        data_dir: &Path,
         row_id: RowId,
     ) -> Result<DeleteResult, BTreeError> {
         if let Some(key) = value_to_btree_key(value) {
@@ -68,8 +61,7 @@ impl IndexManager {
                 index_metadata.id(),
                 index_metadata.root_page_id(),
                 key.key_type(),
-                data_dir,
-            );
+            )?;
 
             if btree.delete(storage_manager, key, row_id)? {
                 Ok(DeleteResult::Deleted)
@@ -85,7 +77,6 @@ impl IndexManager {
         storage_manager: &mut StorageManager,
         index_metadata: &IndexMetadata,
         value: &Value,
-        data_dir: &Path,
     ) -> Result<Vec<RowId>, BTreeError> {
         if let Some(key) = value_to_btree_key(value) {
             let btree = Self::open_index_btree(
@@ -93,8 +84,7 @@ impl IndexManager {
                 index_metadata.id(),
                 index_metadata.root_page_id(),
                 key.key_type(),
-                data_dir,
-            );
+            )?;
 
             return btree.search(storage_manager, key);
         }
@@ -106,10 +96,9 @@ impl IndexManager {
         storage_manager: &mut StorageManager,
         index_metadata: &IndexMetadata,
         entries: Vec<(Value, RowId)>,
-        data_dir: &Path,
     ) -> Result<(), BTreeError> {
         for (value, row_id) in entries {
-            Self::insert_entry(storage_manager, index_metadata, &value, data_dir, row_id)?;
+            Self::insert_entry(storage_manager, index_metadata, &value, row_id)?;
         }
 
         Ok(())
@@ -120,16 +109,10 @@ impl IndexManager {
         index_id: IndexId,
         root_page_id: PageId,
         key_type: BTreeKeyType,
-        data_dir: &Path,
-    ) -> BTree {
-        storage_manager
-            .register_relation(RelationId::Index(index_id), index_path(data_dir, index_id));
-        BTree::open(index_id, root_page_id, key_type)
+    ) -> Result<BTree, BTreeError> {
+        storage_manager.register_relation(RelationId::Index(index_id))?;
+        Ok(BTree::open(index_id, root_page_id, key_type))
     }
-}
-
-fn index_path(dir: &Path, index_id: IndexId) -> PathBuf {
-    dir.join(format!("{}.idx", index_id.id()))
 }
 
 fn value_to_btree_key(value: &Value) -> Option<BTreeKey> {

@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use crate::{
     binder::{BoundCreateIndex, BoundExpression, BoundSelect},
     catalog::metadata::{DatabaseMetadata, IndexId, IndexMetadata, SchemaError, TableId},
@@ -47,12 +45,8 @@ impl Database {
 
         let index_id = IndexId::new(self.metadata.indexes().len() as u32 + 1);
         let key_type = BTreeKeyType::try_from(column.data_type())?;
-        let root_page_id = IndexManager::create_index_btree(
-            &mut self.storage_manager,
-            index_id,
-            key_type,
-            &self.data_dir,
-        )?;
+        let root_page_id =
+            IndexManager::create_index_btree(&mut self.storage_manager, index_id, key_type)?;
 
         let index_metadata = IndexMetadata::new(
             index_id,
@@ -99,13 +93,7 @@ impl Database {
 
             let value = &values[column_index];
 
-            IndexManager::insert_entry(
-                &mut self.storage_manager,
-                index_metadata,
-                value,
-                &self.data_dir,
-                row_id,
-            )?;
+            IndexManager::insert_entry(&mut self.storage_manager, index_metadata, value, row_id)?;
         }
 
         Ok(())
@@ -144,7 +132,6 @@ impl Database {
                 &mut self.storage_manager,
                 index_metadata,
                 value,
-                &self.data_dir,
                 row_id,
             )? {
                 DeleteResult::Deleted | DeleteResult::SkippedNull => continue,
@@ -161,11 +148,9 @@ impl Database {
     }
 
     fn backfill_index(&mut self, index_metadata: &IndexMetadata) -> Result<(), DatabaseError> {
-        let heap_table = self.table_cache.get_or_open_table(
-            &mut self.storage_manager,
-            &self.data_dir,
-            index_metadata.table_id(),
-        )?;
+        let heap_table = self
+            .table_cache
+            .get_or_open_table(&mut self.storage_manager, index_metadata.table_id())?;
         let rows = heap_table.scan(&mut self.storage_manager)?;
 
         let table =
@@ -188,12 +173,7 @@ impl Database {
             entries.push((values[index].clone(), row_id));
         }
 
-        IndexManager::backfill_entries(
-            &mut self.storage_manager,
-            index_metadata,
-            entries,
-            &self.data_dir,
-        )?;
+        IndexManager::backfill_entries(&mut self.storage_manager, index_metadata, entries)?;
 
         Ok(())
     }
@@ -202,7 +182,6 @@ impl Database {
 pub(super) fn search_index_row_ids(
     metadata: &DatabaseMetadata,
     storage_manager: &mut StorageManager,
-    data_dir: &Path,
     bound: &BoundSelect,
 ) -> Result<Option<Vec<RowId>>, DatabaseError> {
     if let Some(filter) = &bound.filter {
@@ -227,7 +206,6 @@ pub(super) fn search_index_row_ids(
                         storage_manager,
                         index_metadata,
                         value,
-                        data_dir,
                     )?));
                 }
             }

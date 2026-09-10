@@ -4,7 +4,7 @@ use crate::storage::file::RelationFileManagerError;
 #[test]
 fn dirty_frame을_flush하면_disk에_기록하고_clean으로_표시한다()
 -> Result<(), Box<dyn std::error::Error>> {
-    let test_file = NamedTempFile::new()?;
+    let test_file = TestRelationFile::new("manager-flush", "1.tbl");
     let mut file = test_file.reopen()?;
     let page_id = allocate_page(&mut file)?;
     let page_key = page_key(page_id);
@@ -27,7 +27,7 @@ fn dirty_frame을_flush하면_disk에_기록하고_clean으로_표시한다()
 
 #[test]
 fn flush가_실패하면_dirty_상태를_유지한다() -> Result<(), Box<dyn std::error::Error>> {
-    let test_file = NamedTempFile::new()?;
+    let test_file = TestRelationFile::new("manager-flush-failure", "1.tbl");
     let mut file = test_file.reopen()?;
     let page_id = allocate_page(&mut file)?;
     let page_key = page_key(page_id);
@@ -57,7 +57,7 @@ fn flush가_실패하면_dirty_상태를_유지한다() -> Result<(), Box<dyn st
 
 #[test]
 fn flush된_page는_storage_manager_재시작후에도_읽힌다() -> Result<(), Box<dyn std::error::Error>> {
-    let test_file = NamedTempFile::new()?;
+    let test_file = TestRelationFile::new("manager-flush-reopen", "1.tbl");
     let relation_id = RelationId::Heap(TableId::new(1));
     let row = Row::from_bytes(b"reopen persistence");
 

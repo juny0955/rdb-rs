@@ -2,7 +2,10 @@ use crate::{
     binder::BoundStatement,
     catalog::metadata::{RelationId, TableId},
     database::{Database, DatabaseError, ExecuteResult, index::search_index_row_ids},
-    index::btree::{BTreeKey, BTreeKeyType, tree::BTree},
+    index::btree::{
+        BTreeKey, BTreeKeyType,
+        tree::{BTree, BTreeError},
+    },
     storage::page::PageId,
     test_supports::TestDirectory,
     tuple::Value,
@@ -75,12 +78,8 @@ fn indexed_equal_predicate는_index_candidate를_반환한다() -> Result<(), Da
         panic!("SELECT 문이어야 함");
     };
 
-    let candidates = search_index_row_ids(
-        &database.metadata,
-        &mut database.storage_manager,
-        &database.data_dir,
-        &bound,
-    )?;
+    let candidates =
+        search_index_row_ids(&database.metadata, &mut database.storage_manager, &bound)?;
 
     assert!(matches!(candidates, Some(row_ids) if row_ids.len() == 1));
     Ok(())
@@ -95,11 +94,9 @@ fn create_index는_재시작후_기존_행을_backfill한다() -> Result<(), Dat
         database.execute(&parse_sql("INSERT INTO users VALUES (42, 'Kim');"))?;
         database.execute(&parse_sql("INSERT INTO users VALUES (NULL, 'Null');"))?;
 
-        let heap_table = database.table_cache.get_or_open_table(
-            &mut database.storage_manager,
-            database.data_dir.as_path(),
-            TableId::new(1),
-        )?;
+        let heap_table = database
+            .table_cache
+            .get_or_open_table(&mut database.storage_manager, TableId::new(1))?;
         heap_table
             .scan(&mut database.storage_manager)?
             .into_iter()
@@ -118,10 +115,10 @@ fn create_index는_재시작후_기존_행을_backfill한다() -> Result<(), Dat
         .metadata
         .index("idx_users_id")
         .expect("index metadata가 있어야 함");
-    database.storage_manager.register_relation(
-        RelationId::Index(index.id()),
-        directory.path().join(format!("{}.idx", index.id().id())),
-    );
+    database
+        .storage_manager
+        .register_relation(RelationId::Index(index.id()))
+        .map_err(BTreeError::from)?;
     let btree = BTree::open(index.id(), index.root_page_id(), BTreeKeyType::BigInt);
 
     assert_eq!(
@@ -140,11 +137,9 @@ fn insert는_생성된_index에_반영하고_재시작후_검색된다() -> Resu
         database.execute(&parse_sql("CREATE INDEX idx_users_id ON users(id);"))?;
         database.execute(&parse_sql("INSERT INTO users VALUES (42, 'Kim');"))?;
 
-        let heap_table = database.table_cache.get_or_open_table(
-            &mut database.storage_manager,
-            database.data_dir.as_path(),
-            TableId::new(1),
-        )?;
+        let heap_table = database
+            .table_cache
+            .get_or_open_table(&mut database.storage_manager, TableId::new(1))?;
         heap_table
             .scan(&mut database.storage_manager)?
             .into_iter()
@@ -158,10 +153,10 @@ fn insert는_생성된_index에_반영하고_재시작후_검색된다() -> Resu
         .metadata
         .index("idx_users_id")
         .expect("index metadata가 있어야 함");
-    database.storage_manager.register_relation(
-        RelationId::Index(index.id()),
-        directory.path().join(format!("{}.idx", index.id().id())),
-    );
+    database
+        .storage_manager
+        .register_relation(RelationId::Index(index.id()))
+        .map_err(BTreeError::from)?;
     let btree = BTree::open(index.id(), index.root_page_id(), BTreeKeyType::BigInt);
 
     assert_eq!(
@@ -187,10 +182,10 @@ fn delete는_index_entry를_제거하고_재시작후_검색되지_않는다() -
         .metadata
         .index("idx_users_id")
         .expect("index metadata가 있어야 함");
-    database.storage_manager.register_relation(
-        RelationId::Index(index.id()),
-        directory.path().join(format!("{}.idx", index.id().id())),
-    );
+    database
+        .storage_manager
+        .register_relation(RelationId::Index(index.id()))
+        .map_err(BTreeError::from)?;
     let btree = BTree::open(index.id(), index.root_page_id(), BTreeKeyType::BigInt);
 
     assert_eq!(
@@ -233,11 +228,9 @@ fn update는_index_entry를_교체하고_재시작후_검색된다() -> Result<(
         database.execute(&parse_sql("CREATE INDEX idx_users_id ON users(id);"))?;
         database.execute(&parse_sql("INSERT INTO users VALUES (42, 'Kim');"))?;
 
-        let heap_table = database.table_cache.get_or_open_table(
-            &mut database.storage_manager,
-            database.data_dir.as_path(),
-            TableId::new(1),
-        )?;
+        let heap_table = database
+            .table_cache
+            .get_or_open_table(&mut database.storage_manager, TableId::new(1))?;
         let row_id = heap_table
             .scan(&mut database.storage_manager)?
             .into_iter()
@@ -254,10 +247,10 @@ fn update는_index_entry를_교체하고_재시작후_검색된다() -> Result<(
         .metadata
         .index("idx_users_id")
         .expect("index metadata가 있어야 함");
-    database.storage_manager.register_relation(
-        RelationId::Index(index.id()),
-        directory.path().join(format!("{}.idx", index.id().id())),
-    );
+    database
+        .storage_manager
+        .register_relation(RelationId::Index(index.id()))
+        .map_err(BTreeError::from)?;
     let btree = BTree::open(index.id(), index.root_page_id(), BTreeKeyType::BigInt);
 
     assert_eq!(

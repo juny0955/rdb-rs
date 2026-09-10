@@ -4,7 +4,7 @@ use crate::{
     index::btree::leaf::{LeafEntry, append_leaf_entry, initialize_leaf_page},
     storage::file::open_rw,
     storage::page::{Page, SlotId, allocate_file_page as allocate_page, write_page},
-    test_supports::TestFile,
+    test_supports::TestRelationFile,
 };
 
 mod delete;

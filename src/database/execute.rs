@@ -9,11 +9,9 @@ impl Database {
         &mut self,
         bound: &BoundInsert,
     ) -> Result<ExecuteResult, DatabaseError> {
-        let heap_table = self.table_cache.get_or_open_table(
-            &mut self.storage_manager,
-            &self.data_dir,
-            bound.table_id,
-        )?;
+        let heap_table = self
+            .table_cache
+            .get_or_open_table(&mut self.storage_manager, bound.table_id)?;
 
         let executor = Executor::new(&self.metadata);
         let row = executor.encode_insert(bound)?;
@@ -26,20 +24,13 @@ impl Database {
         &mut self,
         bound: &BoundSelect,
     ) -> Result<ExecuteResult, DatabaseError> {
-        let heap_table = self.table_cache.get_or_open_table(
-            &mut self.storage_manager,
-            &self.data_dir,
-            bound.table_id,
-        )?;
+        let heap_table = self
+            .table_cache
+            .get_or_open_table(&mut self.storage_manager, bound.table_id)?;
 
         let executor = Executor::new(&self.metadata);
 
-        let index_scan = search_index_row_ids(
-            &self.metadata,
-            &mut self.storage_manager,
-            &self.data_dir,
-            bound,
-        )?;
+        let index_scan = search_index_row_ids(&self.metadata, &mut self.storage_manager, bound)?;
 
         let rows = if let Some(row_ids) = index_scan {
             let mut rows = Vec::new();
@@ -61,11 +52,9 @@ impl Database {
         &mut self,
         bound: &BoundUpdate,
     ) -> Result<ExecuteResult, DatabaseError> {
-        let heap_table = self.table_cache.get_or_open_table(
-            &mut self.storage_manager,
-            &self.data_dir,
-            bound.table_id,
-        )?;
+        let heap_table = self
+            .table_cache
+            .get_or_open_table(&mut self.storage_manager, bound.table_id)?;
         let executor = Executor::new(&self.metadata);
 
         let rows = heap_table.scan(&mut self.storage_manager)?;
@@ -99,11 +88,9 @@ impl Database {
         &mut self,
         bound: &BoundDelete,
     ) -> Result<ExecuteResult, DatabaseError> {
-        let heap_table = self.table_cache.get_or_open_table(
-            &mut self.storage_manager,
-            &self.data_dir,
-            bound.table_id,
-        )?;
+        let heap_table = self
+            .table_cache
+            .get_or_open_table(&mut self.storage_manager, bound.table_id)?;
         let executor = Executor::new(&self.metadata);
 
         let rows = heap_table.scan(&mut self.storage_manager)?;

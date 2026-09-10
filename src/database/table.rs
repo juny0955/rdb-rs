@@ -1,15 +1,15 @@
-use std::{
-    collections::{HashMap, hash_map::Entry},
-    path::Path,
-};
+use std::collections::{HashMap, hash_map::Entry};
 
 use crate::{
     binder::BoundCreateTable,
     catalog::metadata::{
         ColumnId, ColumnMetadata, RelationId, SchemaError, TableId, TableMetadata,
     },
-    database::{Database, DatabaseError},
-    storage::{heap::HeapTable, manager::StorageManager},
+    database::{Database, DatabaseError, ExecuteResult},
+    storage::{
+        heap::{HeapTable, HeapTableError},
+        manager::StorageManager,
+    },
 };
 
 #[derive(Debug)]
@@ -27,21 +27,13 @@ impl TableCache {
     pub(super) fn get_or_open_table(
         &mut self,
         storage_manager: &mut StorageManager,
-        data_dir: &Path,
         table_id: TableId,
-    ) -> Result<&mut HeapTable, DatabaseError> {
+    ) -> Result<&mut HeapTable, HeapTableError> {
         match self.tables.entry(table_id) {
             Entry::Occupied(entry) => Ok(entry.into_mut()),
             Entry::Vacant(entry) => {
-                let table = HeapTable::open_existing(
-                    table_id,
-                    &data_dir.join(format!("{}.tbl", table_id.id())),
-                )?;
-                storage_manager.register_relation(
-                    RelationId::Heap(table_id),
-                    data_dir.join(format!("{}.tbl", table_id.id())),
-                );
-                Ok(entry.insert(table))
+                storage_manager.register_relation(RelationId::Heap(table_id))?;
+                Ok(entry.insert(HeapTable::new(table_id)))
             }
         }
     }
@@ -60,24 +52,20 @@ impl Database {
     pub(super) fn create_table(
         &mut self,
         bound: &BoundCreateTable,
-    ) -> Result<TableId, DatabaseError> {
+    ) -> Result<ExecuteResult, DatabaseError> {
         let table = self.build_table_metadata(bound)?;
         let table_id = table.id();
 
-        let heap_table = HeapTable::open(
-            table_id,
-            &self.data_dir.join(format!("{}.tbl", table_id.id())),
-        )?;
+        self.storage_manager
+            .create_relation(RelationId::Heap(table_id))
+            .map_err(HeapTableError::from)?;
+        let heap_table = HeapTable::new(table_id);
 
         self.table_cache.insert(table_id, heap_table);
         self.metadata.add_table(table)?;
         self.catalog.save(&self.metadata)?;
-        self.storage_manager.register_relation(
-            RelationId::Heap(table_id),
-            self.data_dir.join(format!("{}.tbl", table_id.id())),
-        );
 
-        Ok(table_id)
+        Ok(ExecuteResult::Success)
     }
 
     fn build_table_metadata(

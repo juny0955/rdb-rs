@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn root_internal에서_left와_right_leaf를검색한다() -> Result<(), Box<dyn std::error::Error>> {
-    let index_file = TestFile::new("btree-search-root-internal");
+    let index_file = TestRelationFile::new("btree-search-root-internal", "1.idx");
     let index_id = IndexId::new(1);
     let root_page_id = PageId::new(0);
     let left_page_id = PageId::new(1);
@@ -43,8 +43,8 @@ fn root_internal에서_left와_right_leaf를검색한다() -> Result<(), Box<dyn
     write_page(&mut file, right_page_id, &right_page)?;
     drop(file);
 
-    let mut storage_manager = StorageManager::new(2);
-    storage_manager.register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+    let mut storage_manager = StorageManager::new(index_file.data_dir(), 2);
+    storage_manager.register_relation(RelationId::Index(index_id))?;
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
 
     assert_eq!(
@@ -62,7 +62,7 @@ fn root_internal에서_left와_right_leaf를검색한다() -> Result<(), Box<dyn
 #[test]
 fn search은_다음_leaf의_중복_key까지_반환한다() -> Result<(), Box<dyn std::error::Error>> {
     // Given
-    let index_file = TestFile::new("btree-search-all-leaf-chain");
+    let index_file = TestRelationFile::new("btree-search-all-leaf-chain", "1.idx");
     let index_id = IndexId::new(1);
     let root_page_id = PageId::new(0);
     let left_page_id = PageId::new(1);
@@ -105,9 +105,8 @@ fn search은_다음_leaf의_중복_key까지_반환한다() -> Result<(), Box<dy
     drop(file);
 
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
-    let mut reopened_buffer_pool = StorageManager::new(1);
-    reopened_buffer_pool
-        .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+    let mut reopened_buffer_pool = StorageManager::new(index_file.data_dir(), 1);
+    reopened_buffer_pool.register_relation(RelationId::Index(index_id))?;
 
     // When
     let row_ids = tree.search(&mut reopened_buffer_pool, BTreeKey::Int(42))?;

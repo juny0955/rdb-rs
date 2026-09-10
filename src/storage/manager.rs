@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::HashMap, path::Path};
 
 use thiserror::Error;
 
@@ -26,10 +26,10 @@ pub struct StorageManager {
 }
 
 impl StorageManager {
-    pub fn new(buffer_pool_capacity: usize) -> Self {
+    pub fn new(data_dir: &Path, buffer_pool_capacity: usize) -> Self {
         Self {
             buffer_pool: BufferPool::new(buffer_pool_capacity),
-            relation_file_manager: RelationFileManager::new(),
+            relation_file_manager: RelationFileManager::new(data_dir),
             page_count: HashMap::new(),
         }
     }
@@ -78,19 +78,15 @@ impl StorageManager {
         Ok(())
     }
 
-    pub fn create_relation(
-        &mut self,
-        relation_id: RelationId,
-        path: PathBuf,
-    ) -> Result<(), StorageManagerError> {
-        Ok(self
-            .relation_file_manager
-            .create_relation(relation_id, path)?)
+    pub fn create_relation(&mut self, relation_id: RelationId) -> Result<(), StorageManagerError> {
+        Ok(self.relation_file_manager.create_relation(relation_id)?)
     }
 
-    pub fn register_relation(&mut self, relation_id: RelationId, path: PathBuf) {
-        self.relation_file_manager
-            .register_relation(relation_id, path)
+    pub fn register_relation(
+        &mut self,
+        relation_id: RelationId,
+    ) -> Result<(), StorageManagerError> {
+        Ok(self.relation_file_manager.register_relation(relation_id)?)
     }
 
     pub fn allocate_page(

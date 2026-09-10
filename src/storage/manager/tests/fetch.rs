@@ -3,7 +3,8 @@ use crate::storage::file::RelationFileManagerError;
 
 #[test]
 fn 등록되지_않은_table의_page를_fetch하면_오류다() {
-    let mut storage_manager = StorageManager::new(1);
+    let directory = TestDirectory::new("manager-unregistered-fetch");
+    let mut storage_manager = StorageManager::new(directory.path(), 1);
 
     assert!(matches!(
         storage_manager.fetch_page(key(0)),
@@ -19,10 +20,9 @@ fn 다른_table의_같은_page_id는_서로_다른_frame에_저장된다() -> Re
 {
     let first_table_id = TableId::new(1);
     let second_table_id = TableId::new(2);
-    let first_file = NamedTempFile::new()?;
-    let second_file = NamedTempFile::new()?;
-    let mut first_table_file = first_file.reopen()?;
-    let mut second_table_file = second_file.reopen()?;
+    let directory = TestDirectory::new("manager-same-page-id");
+    let mut first_table_file = open_rw_create(&directory.path().join("1.tbl"))?;
+    let mut second_table_file = open_rw_create(&directory.path().join("2.tbl"))?;
     let page_id = allocate_page(&mut first_table_file)?;
     assert_eq!(allocate_page(&mut second_table_file)?, page_id);
 
@@ -40,9 +40,9 @@ fn 다른_table의_같은_page_id는_서로_다른_frame에_저장된다() -> Re
     let second_relation = RelationId::Heap(second_table_id);
     let first_key = PageKey::new(first_relation, page_id);
     let second_key = PageKey::new(second_relation, page_id);
-    let mut storage_manager = StorageManager::new(2);
-    storage_manager.register_relation(first_relation, first_file.path().to_path_buf());
-    storage_manager.register_relation(second_relation, second_file.path().to_path_buf());
+    let mut storage_manager = StorageManager::new(directory.path(), 2);
+    storage_manager.register_relation(first_relation)?;
+    storage_manager.register_relation(second_relation)?;
 
     {
         let first_frame = storage_manager.fetch_page(first_key)?;
@@ -61,10 +61,9 @@ fn 다른_table의_dirty_victim을_evict하면_원래_file에_기록한다()
 -> Result<(), Box<dyn std::error::Error>> {
     let first_table_id = TableId::new(1);
     let second_table_id = TableId::new(2);
-    let first_file = NamedTempFile::new()?;
-    let second_file = NamedTempFile::new()?;
-    let mut first_table_file = first_file.reopen()?;
-    let mut second_table_file = second_file.reopen()?;
+    let directory = TestDirectory::new("manager-dirty-victim");
+    let mut first_table_file = open_rw_create(&directory.path().join("1.tbl"))?;
+    let mut second_table_file = open_rw_create(&directory.path().join("2.tbl"))?;
     let page_id = allocate_page(&mut first_table_file)?;
     assert_eq!(allocate_page(&mut second_table_file)?, page_id);
 
@@ -72,9 +71,9 @@ fn 다른_table의_dirty_victim을_evict하면_원래_file에_기록한다()
     let second_relation = RelationId::Heap(second_table_id);
     let first_key = PageKey::new(first_relation, page_id);
     let second_key = PageKey::new(second_relation, page_id);
-    let mut storage_manager = StorageManager::new(1);
-    storage_manager.register_relation(first_relation, first_file.path().to_path_buf());
-    storage_manager.register_relation(second_relation, second_file.path().to_path_buf());
+    let mut storage_manager = StorageManager::new(directory.path(), 1);
+    storage_manager.register_relation(first_relation)?;
+    storage_manager.register_relation(second_relation)?;
 
     let row = Row::from_bytes(b"dirty victim");
     let slot_id = {
@@ -93,7 +92,7 @@ fn 다른_table의_dirty_victim을_evict하면_원래_file에_기록한다()
 
 #[test]
 fn 같은_page를_다시_fetch하면_disk_변경을읽지않는다() -> Result<(), Box<dyn std::error::Error>> {
-    let test_file = NamedTempFile::new()?;
+    let test_file = TestRelationFile::new("manager-cache-hit", "1.tbl");
     let mut file = test_file.reopen()?;
     let page_id = allocate_page(&mut file)?;
     let page_key = page_key(page_id);

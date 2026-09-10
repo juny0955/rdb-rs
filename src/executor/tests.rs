@@ -8,9 +8,12 @@ use crate::{
     catalog::metadata::{
         ColumnId, ColumnMetadata, DataType, DatabaseMetadata, RelationId, TableId, TableMetadata,
     },
-    storage::heap::{HeapTable, HeapTableError},
-    storage::manager::StorageManager,
     storage::page::{PageError, PageId, RowId, SlotId},
+    storage::{
+        file::RelationFileManagerError,
+        heap::{HeapTable, HeapTableError},
+        manager::{StorageManager, StorageManagerError},
+    },
     test_supports::TestDirectory,
     tuple::{Value, decode, encode},
 };
@@ -32,8 +35,14 @@ fn database(table_id: TableId) -> DatabaseMetadata {
 }
 
 fn storage_manager(table_id: TableId, path: &Path) -> StorageManager {
-    let mut storage_manager = StorageManager::new(16);
-    storage_manager.register_relation(RelationId::Heap(table_id), path.to_path_buf());
+    let mut storage_manager = StorageManager::new(
+        path.parent()
+            .expect("table path의 부모 디렉터리가 있어야 함"),
+        16,
+    );
+    storage_manager
+        .create_relation(RelationId::Heap(table_id))
+        .expect("테이블 relation을 생성해야 함");
     storage_manager
 }
 
@@ -87,20 +96,19 @@ fn insert는_리터럴을_row로_변환해_테이블에_저장한다() {
         values: vec![Value::BigInt(1), Value::Varchar("Kim".to_owned())],
     };
 
-    HeapTable::open(table_id, &path).expect("테이블 파일을 생성해야 함");
+    HeapTable::new(table_id);
     let mut storage_manager = storage_manager(table_id, &path);
     let row = Executor::new(&database)
         .encode_insert(&bound)
         .expect("INSERT 값을 Row로 변환해야 함");
     let row_id = {
-        let mut heap_table =
-            HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
+        let mut heap_table = HeapTable::new(table_id);
         heap_table
             .insert(&row, &mut storage_manager)
             .expect("Row를 저장해야 함")
     };
 
-    let mut table = HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
+    let mut table = HeapTable::new(table_id);
     let row = table
         .get(row_id, &mut storage_manager)
         .expect("삽입한 Row를 읽어야 함");
@@ -132,7 +140,7 @@ fn update는_필터와_일치하는_row만_수정하고_재시작후에도_유�
 
     let mut storage_manager = storage_manager(table_id, &path);
     let (kim_id, lee_id) = {
-        let mut table = HeapTable::open(table_id, &path).expect("테이블 파일을 생성해야 함");
+        let mut table = HeapTable::new(table_id);
         let kim_id = table
             .insert(&kim, &mut storage_manager)
             .expect("Kim Row를 삽입해야 함");
@@ -155,8 +163,7 @@ fn update는_필터와_일치하는_row만_수정하고_재시작후에도_유�
     };
 
     let updated = {
-        let mut heap_table =
-            HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
+        let mut heap_table = HeapTable::new(table_id);
         let executor = Executor::new(&database);
         let rows = heap_table
             .scan(&mut storage_manager)
@@ -176,8 +183,7 @@ fn update는_필터와_일치하는_row만_수정하고_재시작후에도_유�
 
     assert_eq!(updated.len(), 1);
 
-    let mut table =
-        HeapTable::open_existing(table_id, &path).expect("테이블 파일을 다시 열어야 함");
+    let mut table = HeapTable::new(table_id);
     let kim = decode(
         &table
             .get(kim_id, &mut storage_manager)
@@ -223,7 +229,7 @@ fn delete는_필터와_일치하는_row만_삭제하고_재시작후에도_유�
 
     let mut storage_manager = storage_manager(table_id, &path);
     let (kim_id, lee_id) = {
-        let mut table = HeapTable::open(table_id, &path).expect("테이블 파일을 생성해야 함");
+        let mut table = HeapTable::new(table_id);
         let kim_id = table
             .insert(&kim, &mut storage_manager)
             .expect("Kim Row를 삽입해야 함");
@@ -242,8 +248,7 @@ fn delete는_필터와_일치하는_row만_삭제하고_재시작후에도_유�
     };
 
     let deleted = {
-        let mut heap_table =
-            HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
+        let mut heap_table = HeapTable::new(table_id);
         let executor = Executor::new(&database);
         let rows = heap_table
             .scan(&mut storage_manager)
@@ -263,8 +268,7 @@ fn delete는_필터와_일치하는_row만_삭제하고_재시작후에도_유�
 
     assert_eq!(deleted.len(), 1);
 
-    let mut table =
-        HeapTable::open_existing(table_id, &path).expect("테이블 파일을 다시 열어야 함");
+    let mut table = HeapTable::new(table_id);
     assert!(matches!(
         table.get(kim_id, &mut storage_manager),
         Err(HeapTableError::Page(PageError::SlotNotFound))
@@ -297,7 +301,7 @@ fn select는_테이블의_모든_row를_반환한다() {
     let mut storage_manager = storage_manager(table_id, &path);
 
     {
-        let mut table = HeapTable::open(table_id, &path).expect("테이블 파일을 생성해야 함");
+        let mut table = HeapTable::new(table_id);
         table
             .insert(&first_row, &mut storage_manager)
             .expect("첫 Row를 삽입해야 함");
@@ -306,8 +310,7 @@ fn select는_테이블의_모든_row를_반환한다() {
             .expect("둘째 Row를 삽입해야 함");
     }
 
-    let mut heap_table =
-        HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
+    let mut heap_table = HeapTable::new(table_id);
     let executor = Executor::new(&database);
     let scanned_rows = heap_table
         .scan(&mut storage_manager)
@@ -339,7 +342,7 @@ fn select는_지정한_컬럼만_반환한다() {
     let mut storage_manager = storage_manager(table_id, &path);
 
     {
-        let mut table = HeapTable::open(table_id, &path).expect("테이블 파일을 생성해야 함");
+        let mut table = HeapTable::new(table_id);
         table
             .insert(&kim, &mut storage_manager)
             .expect("Kim Row를 삽입해야 함");
@@ -348,8 +351,7 @@ fn select는_지정한_컬럼만_반환한다() {
             .expect("Lee Row를 삽입해야 함");
     }
 
-    let mut heap_table =
-        HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
+    let mut heap_table = HeapTable::new(table_id);
     let executor = Executor::new(&database);
     let scanned_rows = heap_table
         .scan(&mut storage_manager)
@@ -382,14 +384,13 @@ fn select는_projection_목록_순서대로_값을_반환한다() {
     let mut storage_manager = storage_manager(table_id, &path);
 
     {
-        let mut table = HeapTable::open(table_id, &path).expect("테이블 파일을 생성해야 함");
+        let mut table = HeapTable::new(table_id);
         table
             .insert(&row, &mut storage_manager)
             .expect("Row를 삽입해야 함");
     }
 
-    let mut heap_table =
-        HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
+    let mut heap_table = HeapTable::new(table_id);
     let executor = Executor::new(&database);
     let scanned_rows = heap_table
         .scan(&mut storage_manager)
@@ -422,7 +423,7 @@ fn select는_equal_filter와_일치하는_row만_반환한다() {
     let mut storage_manager = storage_manager(table_id, &path);
 
     {
-        let mut table = HeapTable::open(table_id, &path).expect("테이블 파일을 생성해야 함");
+        let mut table = HeapTable::new(table_id);
         table
             .insert(&kim, &mut storage_manager)
             .expect("Kim Row를 삽입해야 함");
@@ -431,8 +432,7 @@ fn select는_equal_filter와_일치하는_row만_반환한다() {
             .expect("Lee Row를 삽입해야 함");
     }
 
-    let mut heap_table =
-        HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
+    let mut heap_table = HeapTable::new(table_id);
     let executor = Executor::new(&database);
     let scanned_rows = heap_table
         .scan(&mut storage_manager)
@@ -500,14 +500,13 @@ fn select에서_null_equal_filter는_row를_반환하지_않는다() {
     let mut storage_manager = storage_manager(table_id, &path);
 
     {
-        let mut table = HeapTable::open(table_id, &path).expect("테이블 파일을 생성해야 함");
+        let mut table = HeapTable::new(table_id);
         table
             .insert(&null_name, &mut storage_manager)
             .expect("NULL Row를 삽입해야 함");
     }
 
-    let mut heap_table =
-        HeapTable::open_existing(table_id, &path).expect("테이블 파일을 열어야 함");
+    let mut heap_table = HeapTable::new(table_id);
     let executor = Executor::new(&database);
     let scanned_rows = heap_table
         .scan(&mut storage_manager)
@@ -535,12 +534,12 @@ fn select는_메타데이터에_없는_테이블을_거부한다() {
 fn 없는_테이블_파일을_열어도_파일을_생성하지_않는다() {
     let table_id = TableId::new(1);
     let directory = TestDirectory::new("missing-file");
-    let path = directory.path().join("1.tbl");
-    let result = HeapTable::open_existing(table_id, &path);
+    let mut storage_manager = StorageManager::new(directory.path(), 1);
+    let result = storage_manager.register_relation(RelationId::Heap(table_id));
 
     assert!(matches!(
         result,
-        Err(HeapTableError::Io(error))
+        Err(StorageManagerError::RelationFileManager(RelationFileManagerError::Io(error)))
             if error.kind() == ErrorKind::NotFound
     ));
     assert!(!directory.path().join("1.tbl").exists());

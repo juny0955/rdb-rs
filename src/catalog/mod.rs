@@ -31,7 +31,7 @@ pub struct Catalog {
 
 impl Catalog {
     pub fn open(path: &Path) -> Result<Catalog, CatalogError> {
-        let file = open_rw_create(path)?;
+        let file = open_rw_create(&path.join("catalog"))?;
         Ok(Self { file })
     }
 
@@ -66,7 +66,7 @@ impl Catalog {
 mod catalogs {
     use crate::{
         catalog::metadata::{ColumnId, ColumnMetadata, DataType, TableId, TableMetadata},
-        test_supports::TestFile,
+        test_supports::TestDirectory,
     };
 
     use super::*;
@@ -77,14 +77,15 @@ mod catalogs {
         let table = TableMetadata::new(TableId::new(1), "users".to_string(), vec![column]).unwrap();
         let database = DatabaseMetadata::new("mydb".to_string(), vec![table], vec![])?;
 
-        let test_file = TestFile::new("catalog-reload");
+        let directory = TestDirectory::new("catalog-reload");
         {
-            let mut catalog = Catalog::open(test_file.path())?;
+            let mut catalog = Catalog::open(directory.path())?;
             catalog.save(&database)?;
         }
+        assert!(directory.path().join("catalog").exists());
 
         {
-            let mut catalog = Catalog::open(test_file.path())?;
+            let mut catalog = Catalog::open(directory.path())?;
             let load = catalog.load()?;
             assert_eq!(database, load);
         }

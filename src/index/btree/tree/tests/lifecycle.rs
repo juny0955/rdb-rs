@@ -2,20 +2,18 @@ use super::*;
 
 #[test]
 fn create는_disk에_빈_root_leaf를_생성한다() -> Result<(), Box<dyn std::error::Error>> {
-    let index_file = TestFile::new("btree-create");
+    let index_file = TestRelationFile::new("btree-create", "1.idx");
     let index_id = IndexId::new(1);
     let root_page_id = {
-        let mut storage_manager = StorageManager::new(1);
-        storage_manager
-            .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+        let mut storage_manager = StorageManager::new(index_file.data_dir(), 1);
+        storage_manager.register_relation(RelationId::Index(index_id))?;
 
         let tree = BTree::create(index_id, BTreeKeyType::Int, &mut storage_manager)?;
         tree.root_page_id()
     };
 
-    let mut reopened_buffer_pool = StorageManager::new(1);
-    reopened_buffer_pool
-        .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+    let mut reopened_buffer_pool = StorageManager::new(index_file.data_dir(), 1);
+    reopened_buffer_pool.register_relation(RelationId::Index(index_id))?;
     let root_page =
         reopened_buffer_pool.fetch_page(PageKey::new(RelationId::Index(index_id), root_page_id))?;
     let header = BTreePageHeader::read_from_page(root_page.page())
@@ -30,7 +28,7 @@ fn create는_disk에_빈_root_leaf를_생성한다() -> Result<(), Box<dyn std::
 #[test]
 fn root_leaf의_부모는_없다() -> Result<(), Box<dyn std::error::Error>> {
     // Given
-    let index_file = TestFile::new("btree-find-root-leaf-parent");
+    let index_file = TestRelationFile::new("btree-find-root-leaf-parent", "1.idx");
     let index_id = IndexId::new(1);
     let root_page_id = PageId::new(0);
     let mut root_page = Page::new_raw();
@@ -41,8 +39,8 @@ fn root_leaf의_부모는_없다() -> Result<(), Box<dyn std::error::Error>> {
     write_page(&mut file, root_page_id, &root_page)?;
     drop(file);
 
-    let mut storage_manager = StorageManager::new(1);
-    storage_manager.register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+    let mut storage_manager = StorageManager::new(index_file.data_dir(), 1);
+    storage_manager.register_relation(RelationId::Index(index_id))?;
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
 
     // When
@@ -56,7 +54,7 @@ fn root_leaf의_부모는_없다() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn leaf의_직접_부모를_반환한다() -> Result<(), Box<dyn std::error::Error>> {
     // Given
-    let index_file = TestFile::new("btree-find-direct-leaf-parent");
+    let index_file = TestRelationFile::new("btree-find-direct-leaf-parent", "1.idx");
     let index_id = IndexId::new(1);
     let root_page_id = PageId::new(0);
     let parent_page_id = PageId::new(1);
@@ -77,8 +75,8 @@ fn leaf의_직접_부모를_반환한다() -> Result<(), Box<dyn std::error::Err
     write_page(&mut file, leaf_page_id, &leaf_page)?;
     drop(file);
 
-    let mut storage_manager = StorageManager::new(1);
-    storage_manager.register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+    let mut storage_manager = StorageManager::new(index_file.data_dir(), 1);
+    storage_manager.register_relation(RelationId::Index(index_id))?;
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
 
     // When
@@ -92,7 +90,7 @@ fn leaf의_직접_부모를_반환한다() -> Result<(), Box<dyn std::error::Err
 #[test]
 fn root_leaf에서_key를검색한다() -> Result<(), Box<dyn std::error::Error>> {
     // Given
-    let index_file = TestFile::new("btree-search-root-leaf");
+    let index_file = TestRelationFile::new("btree-search-root-leaf", "1.idx");
     let index_id = IndexId::new(1);
     let root_page_id = PageId::new(0);
     let row_id = RowId::new(PageId::new(3), SlotId::new(7));
@@ -106,8 +104,8 @@ fn root_leaf에서_key를검색한다() -> Result<(), Box<dyn std::error::Error>
     write_page(&mut file, root_page_id, &root_page)?;
     drop(file);
 
-    let mut storage_manager = StorageManager::new(1);
-    storage_manager.register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+    let mut storage_manager = StorageManager::new(index_file.data_dir(), 1);
+    storage_manager.register_relation(RelationId::Index(index_id))?;
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
 
     // When / Then

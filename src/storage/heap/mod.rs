@@ -1,8 +1,3 @@
-use std::{
-    io::{self},
-    path::Path,
-};
-
 use thiserror::Error;
 
 use crate::{
@@ -12,18 +7,13 @@ use crate::{
 use crate::{
     catalog::metadata::TableId,
     storage::buffer::page_key::PageKey,
-    storage::file::{open_rw, open_rw_create},
-    storage::page::{PageError, PageId, PagerError, Row, RowId},
+    storage::page::{PageError, PageId, Row, RowId},
 };
 
 #[derive(Debug, Error)]
 pub enum HeapTableError {
     #[error(transparent)]
-    Io(#[from] io::Error),
-    #[error(transparent)]
     Page(#[from] PageError),
-    #[error(transparent)]
-    Pager(#[from] PagerError),
     #[error(transparent)]
     StorageManager(#[from] StorageManagerError),
 }
@@ -34,18 +24,10 @@ pub struct HeapTable {
 }
 
 impl HeapTable {
-    pub fn open(table_id: TableId, path: &Path) -> Result<Self, HeapTableError> {
-        let _ = open_rw_create(path)?;
-        Ok(Self {
+    pub fn new(table_id: TableId) -> Self {
+        Self {
             relation_id: RelationId::Heap(table_id),
-        })
-    }
-
-    pub fn open_existing(table_id: TableId, path: &Path) -> Result<Self, HeapTableError> {
-        let _ = open_rw(path)?;
-        Ok(Self {
-            relation_id: RelationId::Heap(table_id),
-        })
+        }
     }
 
     pub fn add_page(
@@ -163,7 +145,7 @@ impl HeapTable {
 #[cfg(test)]
 mod tests {
     use crate::catalog::metadata::{RelationId, TableId};
-    use crate::test_supports::TestFile;
+    use crate::test_supports::TestRelationFile;
 
     use super::*;
 
@@ -171,32 +153,23 @@ mod tests {
         TableId::new(1)
     }
 
-    fn storage_manager(test_file: &TestFile) -> StorageManager {
-        let mut storage_manager = StorageManager::new(16);
+    fn storage_manager(test_file: &TestRelationFile) -> StorageManager {
+        let mut storage_manager = StorageManager::new(test_file.data_dir(), 16);
         storage_manager
-            .register_relation(RelationId::Heap(table_id()), test_file.path().to_path_buf());
+            .register_relation(RelationId::Heap(table_id()))
+            .expect("테이블 relation을 등록해야 함");
         storage_manager
     }
 
     #[test]
-    fn open_테스트() -> Result<(), HeapTableError> {
-        let test_file1 = TestFile::new("users1.tbl");
-        let test_file2 = TestFile::new("users2.tbl");
-        {
-            let _ = HeapTable::open(table_id(), test_file1.path())?;
-            let _ = HeapTable::open(table_id(), test_file2.path())?;
-        }
-        {
-            let _ = HeapTable::open(table_id(), test_file1.path())?;
-            let _ = HeapTable::open(table_id(), test_file2.path())?;
-        }
-        Ok(())
+    fn new_테스트() {
+        let _ = HeapTable::new(table_id());
     }
 
     #[test]
     fn add_page_테스트() -> Result<(), HeapTableError> {
-        let test_file = TestFile::new("add-page");
-        let mut table = HeapTable::open(table_id(), test_file.path())?;
+        let test_file = TestRelationFile::new("add-page", "1.tbl");
+        let mut table = HeapTable::new(table_id());
         let mut storage_manager = storage_manager(&test_file);
         let page_id1 = table.add_page(&mut storage_manager)?;
         let page_id2 = table.add_page(&mut storage_manager)?;
@@ -207,16 +180,16 @@ mod tests {
 
     #[test]
     fn insert_테스트() -> Result<(), HeapTableError> {
-        let test_file = TestFile::new("insert");
+        let test_file = TestRelationFile::new("insert", "1.tbl");
         let row = Row::from_bytes(&[1, 2, 3]);
         let row_id;
         {
-            let mut table = HeapTable::open(table_id(), test_file.path())?;
+            let mut table = HeapTable::new(table_id());
             let mut storage_manager = storage_manager(&test_file);
             row_id = table.insert(&row, &mut storage_manager)?;
         }
         {
-            let mut table = HeapTable::open_existing(table_id(), test_file.path())?;
+            let mut table = HeapTable::new(table_id());
             let mut storage_manager = storage_manager(&test_file);
             assert_eq!(table.get(row_id, &mut storage_manager)?, row);
         }
@@ -225,10 +198,10 @@ mod tests {
 
     #[test]
     fn insert_storage_full_테스트() -> Result<(), HeapTableError> {
-        let test_file = TestFile::new("insert_storage_full");
+        let test_file = TestRelationFile::new("insert_storage_full", "1.tbl");
         let row1 = Row::from_bytes(&vec![1; 8000]);
         let row2 = Row::from_bytes(&[1; 200]);
-        let mut table = HeapTable::open(table_id(), test_file.path())?;
+        let mut table = HeapTable::new(table_id());
         let mut storage_manager = storage_manager(&test_file);
         let row_id1 = table.insert(&row1, &mut storage_manager)?;
         let row_id2 = table.insert(&row2, &mut storage_manager)?;
@@ -240,9 +213,9 @@ mod tests {
 
     #[test]
     fn get_테스트() -> Result<(), HeapTableError> {
-        let test_file = TestFile::new("get");
+        let test_file = TestRelationFile::new("get", "1.tbl");
         let row = Row::from_bytes(&[1; 200]);
-        let mut table = HeapTable::open(table_id(), test_file.path())?;
+        let mut table = HeapTable::new(table_id());
         let mut storage_manager = storage_manager(&test_file);
         let row_id = table.insert(&row, &mut storage_manager)?;
 
@@ -254,10 +227,10 @@ mod tests {
 
     #[test]
     fn update_테스트() -> Result<(), HeapTableError> {
-        let test_file = TestFile::new("update");
+        let test_file = TestRelationFile::new("update", "1.tbl");
 
         let row = Row::from_bytes(&[1, 2, 3]);
-        let mut table = HeapTable::open(table_id(), test_file.path())?;
+        let mut table = HeapTable::new(table_id());
         let mut storage_manager = storage_manager(&test_file);
         let row_id = table.insert(&row, &mut storage_manager)?;
 
@@ -272,19 +245,19 @@ mod tests {
 
     #[test]
     fn update_재시작_테스트() -> Result<(), HeapTableError> {
-        let test_file = TestFile::new("update-reopen");
+        let test_file = TestRelationFile::new("update-reopen", "1.tbl");
         let row = Row::from_bytes(&[1, 2, 3]);
         let updated_row = Row::from_bytes(&[4, 5, 6]);
 
         let row_id = {
-            let mut table = HeapTable::open(table_id(), test_file.path())?;
+            let mut table = HeapTable::new(table_id());
             let mut storage_manager = storage_manager(&test_file);
             let row_id = table.insert(&row, &mut storage_manager)?;
             table.update(row_id, &updated_row, &mut storage_manager)?;
             row_id
         };
 
-        let mut table = HeapTable::open_existing(table_id(), test_file.path())?;
+        let mut table = HeapTable::new(table_id());
         let mut storage_manager = storage_manager(&test_file);
 
         assert_eq!(table.get(row_id, &mut storage_manager)?, updated_row);
@@ -293,9 +266,9 @@ mod tests {
 
     #[test]
     fn delete_테스트() -> Result<(), HeapTableError> {
-        let test_file = TestFile::new("delete");
+        let test_file = TestRelationFile::new("delete", "1.tbl");
         let row = Row::from_bytes(&[1, 2, 3]);
-        let mut table = HeapTable::open(table_id(), test_file.path())?;
+        let mut table = HeapTable::new(table_id());
         let mut storage_manager = storage_manager(&test_file);
         let row_id = table.insert(&row, &mut storage_manager)?;
         let get = table.get(row_id, &mut storage_manager)?;
@@ -314,18 +287,18 @@ mod tests {
 
     #[test]
     fn delete_재시작_테스트() -> Result<(), HeapTableError> {
-        let test_file = TestFile::new("delete-reopen");
+        let test_file = TestRelationFile::new("delete-reopen", "1.tbl");
         let row = Row::from_bytes(&[1, 2, 3]);
 
         let row_id = {
-            let mut table = HeapTable::open(table_id(), test_file.path())?;
+            let mut table = HeapTable::new(table_id());
             let mut storage_manager = storage_manager(&test_file);
             let row_id = table.insert(&row, &mut storage_manager)?;
             table.delete(row_id, &mut storage_manager)?;
             row_id
         };
 
-        let mut table = HeapTable::open_existing(table_id(), test_file.path())?;
+        let mut table = HeapTable::new(table_id());
         let mut storage_manager = storage_manager(&test_file);
         let error = table
             .get(row_id, &mut storage_manager)
@@ -340,13 +313,13 @@ mod tests {
 
     #[test]
     fn scan_재시작_테스트() -> Result<(), HeapTableError> {
-        let test_file = TestFile::new("scan-reopen");
+        let test_file = TestRelationFile::new("scan-reopen", "1.tbl");
         let row1 = Row::from_bytes(&vec![1; 8000]);
         let row2 = Row::from_bytes(&[2; 200]);
         let row3 = Row::from_bytes(&[3; 200]);
 
         let (row_id1, row_id3) = {
-            let mut table = HeapTable::open(table_id(), test_file.path())?;
+            let mut table = HeapTable::new(table_id());
             let mut storage_manager = storage_manager(&test_file);
             let row_id1 = table.insert(&row1, &mut storage_manager)?;
             let row_id2 = table.insert(&row2, &mut storage_manager)?;
@@ -355,7 +328,7 @@ mod tests {
             (row_id1, row_id3)
         };
 
-        let mut table = HeapTable::open(table_id(), test_file.path())?;
+        let mut table = HeapTable::new(table_id());
         let mut storage_manager = storage_manager(&test_file);
         let scans = table.scan(&mut storage_manager)?;
 

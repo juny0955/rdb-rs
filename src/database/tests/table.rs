@@ -1,6 +1,6 @@
 use crate::{
     catalog::metadata::{ColumnId, DataType, TableId},
-    database::{Database, DatabaseError},
+    database::{Database, DatabaseError, ExecuteResult},
     test_supports::TestDirectory,
 };
 
@@ -12,9 +12,12 @@ fn create_table은_table_file과_metadata를_생성하고_재시작후에도_유
     let directory = TestDirectory::new("database-create-table");
     let table_id = {
         let mut database = Database::open(directory.path(), "test")?;
-        let table_id = database.create_table(&users_table())?;
+        assert!(matches!(
+            database.create_table(&users_table())?,
+            ExecuteResult::Success
+        ));
+        let table_id = TableId::new(1);
 
-        assert_eq!(table_id, TableId::new(1));
         assert!(directory.path().join("1.tbl").exists());
         table_id
     };
@@ -39,7 +42,10 @@ fn create_table은_중복_이름일때_table_file을_남기지_않는다() -> Re
     let directory = TestDirectory::new("database-duplicate-table");
     let mut database = Database::open(directory.path(), "test")?;
 
-    database.create_table(&users_table())?;
+    assert!(matches!(
+        database.create_table(&users_table())?,
+        ExecuteResult::Success
+    ));
     let error = database
         .create_table(&users_table())
         .expect_err("중복 table 이름 오류가 발생해야 함");
@@ -58,25 +64,25 @@ fn get_or_open_table은_같은_table을_한번만_등록한다() -> Result<(), D
     let directory = TestDirectory::new("database-table-registry");
     let table_id = {
         let mut database = Database::open(directory.path(), "test")?;
-        database.create_table(&users_table())?
+        assert!(matches!(
+            database.create_table(&users_table())?,
+            ExecuteResult::Success
+        ));
+        TableId::new(1)
     };
 
     let mut database = Database::open(directory.path(), "reopened")?;
     {
-        let _ = database.table_cache.get_or_open_table(
-            &mut database.storage_manager,
-            database.data_dir.as_path(),
-            table_id,
-        )?;
+        let _ = database
+            .table_cache
+            .get_or_open_table(&mut database.storage_manager, table_id)?;
     }
     assert_eq!(database.table_cache.len(), 1);
 
     {
-        let _ = database.table_cache.get_or_open_table(
-            &mut database.storage_manager,
-            database.data_dir.as_path(),
-            table_id,
-        )?;
+        let _ = database
+            .table_cache
+            .get_or_open_table(&mut database.storage_manager, table_id)?;
     }
     assert_eq!(database.table_cache.len(), 1);
 

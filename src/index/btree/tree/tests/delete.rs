@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn root_leaf에서_entry를_삭제한_후_재시작해도_결과가_유지된다()
 -> Result<(), Box<dyn std::error::Error>> {
-    let index_file = TestFile::new("btree-delete-root-leaf");
+    let index_file = TestRelationFile::new("btree-delete-root-leaf", "1.idx");
     let index_id = IndexId::new(1);
     let root_page_id = PageId::new(0);
     let deleted_row_id = RowId::new(PageId::new(3), SlotId::new(7));
@@ -18,9 +18,8 @@ fn root_leaf에서_entry를_삭제한_후_재시작해도_결과가_유지된다
 
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
     {
-        let mut storage_manager = StorageManager::new(1);
-        storage_manager
-            .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+        let mut storage_manager = StorageManager::new(index_file.data_dir(), 1);
+        storage_manager.register_relation(RelationId::Index(index_id))?;
         tree.insert(&mut storage_manager, BTreeKey::Int(10), deleted_row_id)?;
         tree.insert(&mut storage_manager, BTreeKey::Int(20), remaining_row_id)?;
 
@@ -36,9 +35,8 @@ fn root_leaf에서_entry를_삭제한_후_재시작해도_결과가_유지된다
         );
     }
 
-    let mut reopened_buffer_pool = StorageManager::new(1);
-    reopened_buffer_pool
-        .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+    let mut reopened_buffer_pool = StorageManager::new(index_file.data_dir(), 1);
+    reopened_buffer_pool.register_relation(RelationId::Index(index_id))?;
     assert_eq!(
         tree.search(&mut reopened_buffer_pool, BTreeKey::Int(10))?,
         vec![]
@@ -54,7 +52,7 @@ fn root_leaf에서_entry를_삭제한_후_재시작해도_결과가_유지된다
 fn rightmost_leaf를_삭제하면_left_leaf와_병합되고_재시작후에도_유지된다()
 -> Result<(), Box<dyn std::error::Error>> {
     // Given
-    let index_file = TestFile::new("btree-merge-rightmost-leaf");
+    let index_file = TestRelationFile::new("btree-merge-rightmost-leaf", "1.idx");
     let index_id = IndexId::new(1);
     let root_page_id = PageId::new(0);
     let left_page_id = PageId::new(1);
@@ -94,9 +92,8 @@ fn rightmost_leaf를_삭제하면_left_leaf와_병합되고_재시작후에도_�
 
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
     {
-        let mut storage_manager = StorageManager::new(1);
-        storage_manager
-            .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+        let mut storage_manager = StorageManager::new(index_file.data_dir(), 1);
+        storage_manager.register_relation(RelationId::Index(index_id))?;
 
         // When
         assert!(tree.delete(&mut storage_manager, BTreeKey::Int(20), deleted_row_id)?);
@@ -112,9 +109,8 @@ fn rightmost_leaf를_삭제하면_left_leaf와_병합되고_재시작후에도_�
         );
     }
 
-    let mut reopened_buffer_pool = StorageManager::new(1);
-    reopened_buffer_pool
-        .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+    let mut reopened_buffer_pool = StorageManager::new(index_file.data_dir(), 1);
+    reopened_buffer_pool.register_relation(RelationId::Index(index_id))?;
     assert_eq!(
         tree.search(&mut reopened_buffer_pool, BTreeKey::Int(10))?,
         vec![left_row_id]

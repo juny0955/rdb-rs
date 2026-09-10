@@ -3,7 +3,7 @@ use crate::storage::file::RelationFileManagerError;
 
 #[test]
 fn dirty_unpinned_page를_evict하면_disk에_기록한다() -> Result<(), Box<dyn std::error::Error>> {
-    let test_file = NamedTempFile::new()?;
+    let test_file = TestRelationFile::new("manager-eviction", "1.tbl");
     let mut file = test_file.reopen()?;
     let first_page_id = allocate_page(&mut file)?;
     let second_page_id = allocate_page(&mut file)?;
@@ -29,7 +29,7 @@ fn dirty_unpinned_page를_evict하면_disk에_기록한다() -> Result<(), Box<d
 
 #[test]
 fn dirty_page의_flush가_실패하면_evict하지_않는다() -> Result<(), Box<dyn std::error::Error>> {
-    let test_file = NamedTempFile::new()?;
+    let test_file = TestRelationFile::new("manager-eviction-failure", "1.tbl");
     let mut file = test_file.reopen()?;
     let first_page_id = allocate_page(&mut file)?;
     let second_page_id = allocate_page(&mut file)?;

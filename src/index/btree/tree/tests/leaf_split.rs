@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn 가득찬_root_leaf를_split한_후_재시작해도_양쪽_key를_검색한다()
 -> Result<(), Box<dyn std::error::Error>> {
-    let index_file = TestFile::new("btree-root-leaf-split");
+    let index_file = TestRelationFile::new("btree-root-leaf-split", "1.idx");
     let index_id = IndexId::new(1);
     let root_page_id = PageId::new(0);
     let left_row_id = RowId::new(PageId::new(3), SlotId::new(7));
@@ -30,9 +30,8 @@ fn 가득찬_root_leaf를_split한_후_재시작해도_양쪽_key를_검색한�
 
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Varchar);
     {
-        let mut storage_manager = StorageManager::new(1);
-        storage_manager
-            .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+        let mut storage_manager = StorageManager::new(index_file.data_dir(), 1);
+        storage_manager.register_relation(RelationId::Index(index_id))?;
 
         tree.insert(&mut storage_manager, right_key.clone(), right_row_id)?;
         assert_eq!(
@@ -45,9 +44,8 @@ fn 가득찬_root_leaf를_split한_후_재시작해도_양쪽_key를_검색한�
         );
     }
 
-    let mut reopened_buffer_pool = StorageManager::new(1);
-    reopened_buffer_pool
-        .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+    let mut reopened_buffer_pool = StorageManager::new(index_file.data_dir(), 1);
+    reopened_buffer_pool.register_relation(RelationId::Index(index_id))?;
     assert_eq!(
         tree.search(&mut reopened_buffer_pool, left_key)?,
         vec![left_row_id]
@@ -62,7 +60,7 @@ fn 가득찬_root_leaf를_split한_후_재시작해도_양쪽_key를_검색한�
 #[test]
 fn 가득찬_rightmost_leaf를_split한_후_재시작해도_세_범위를_검색한다()
 -> Result<(), Box<dyn std::error::Error>> {
-    let index_file = TestFile::new("btree-rightmost-leaf-split");
+    let index_file = TestRelationFile::new("btree-rightmost-leaf-split", "1.idx");
     let index_id = IndexId::new(1);
     let root_page_id = PageId::new(0);
     let left_page_id = PageId::new(1);
@@ -111,9 +109,8 @@ fn 가득찬_rightmost_leaf를_split한_후_재시작해도_세_범위를_검색
 
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Varchar);
     {
-        let mut storage_manager = StorageManager::new(1);
-        storage_manager
-            .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+        let mut storage_manager = StorageManager::new(index_file.data_dir(), 1);
+        storage_manager.register_relation(RelationId::Index(index_id))?;
 
         tree.insert(
             &mut storage_manager,
@@ -134,9 +131,8 @@ fn 가득찬_rightmost_leaf를_split한_후_재시작해도_세_범위를_검색
         );
     }
 
-    let mut reopened_buffer_pool = StorageManager::new(1);
-    reopened_buffer_pool
-        .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+    let mut reopened_buffer_pool = StorageManager::new(index_file.data_dir(), 1);
+    reopened_buffer_pool.register_relation(RelationId::Index(index_id))?;
     assert_eq!(
         tree.search(&mut reopened_buffer_pool, left_key)?,
         vec![left_row_id]

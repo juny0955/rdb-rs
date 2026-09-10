@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn root_leaf에_insert한_후_새_buffer_pool로_검색한다() -> Result<(), Box<dyn std::error::Error>> {
-    let index_file = TestFile::new("btree-insert-root-leaf");
+    let index_file = TestRelationFile::new("btree-insert-root-leaf", "1.idx");
     let index_id = IndexId::new(1);
     let root_page_id = PageId::new(0);
     let row_id = RowId::new(PageId::new(3), SlotId::new(7));
@@ -16,15 +16,13 @@ fn root_leaf에_insert한_후_새_buffer_pool로_검색한다() -> Result<(), Bo
 
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
     {
-        let mut storage_manager = StorageManager::new(1);
-        storage_manager
-            .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+        let mut storage_manager = StorageManager::new(index_file.data_dir(), 1);
+        storage_manager.register_relation(RelationId::Index(index_id))?;
         tree.insert(&mut storage_manager, BTreeKey::Int(42), row_id)?;
     }
 
-    let mut reopened_buffer_pool = StorageManager::new(1);
-    reopened_buffer_pool
-        .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+    let mut reopened_buffer_pool = StorageManager::new(index_file.data_dir(), 1);
+    reopened_buffer_pool.register_relation(RelationId::Index(index_id))?;
     assert_eq!(
         tree.search(&mut reopened_buffer_pool, BTreeKey::Int(42))?,
         vec![row_id]
@@ -34,7 +32,7 @@ fn root_leaf에_insert한_후_새_buffer_pool로_검색한다() -> Result<(), Bo
 
 #[test]
 fn root_internal의_양쪽_leaf에_insert한_후_재검색한다() -> Result<(), Box<dyn std::error::Error>> {
-    let index_file = TestFile::new("btree-insert-root-internal");
+    let index_file = TestRelationFile::new("btree-insert-root-internal", "1.idx");
     let index_id = IndexId::new(1);
     let root_page_id = PageId::new(0);
     let left_page_id = PageId::new(1);
@@ -66,16 +64,14 @@ fn root_internal의_양쪽_leaf에_insert한_후_재검색한다() -> Result<(),
 
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
     {
-        let mut storage_manager = StorageManager::new(2);
-        storage_manager
-            .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+        let mut storage_manager = StorageManager::new(index_file.data_dir(), 2);
+        storage_manager.register_relation(RelationId::Index(index_id))?;
         tree.insert(&mut storage_manager, BTreeKey::Int(10), left_row_id)?;
         tree.insert(&mut storage_manager, BTreeKey::Int(50), right_row_id)?;
     }
 
-    let mut reopened_buffer_pool = StorageManager::new(2);
-    reopened_buffer_pool
-        .register_relation(RelationId::Index(index_id), index_file.path().to_path_buf());
+    let mut reopened_buffer_pool = StorageManager::new(index_file.data_dir(), 2);
+    reopened_buffer_pool.register_relation(RelationId::Index(index_id))?;
     assert_eq!(
         tree.search(&mut reopened_buffer_pool, BTreeKey::Int(10))?,
         vec![left_row_id]

@@ -1,7 +1,4 @@
-use std::{
-    io,
-    path::{Path, PathBuf},
-};
+use std::{io, path::Path};
 
 use crate::{
     binder::{Binder, BinderError, BoundStatement},
@@ -67,12 +64,11 @@ pub struct Database {
     catalog: Catalog,
     storage_manager: StorageManager,
     table_cache: TableCache,
-    data_dir: PathBuf,
 }
 
 impl Database {
     pub fn open(data_dir: &Path, name: &str) -> Result<Self, DatabaseError> {
-        let mut catalog = Catalog::open(&data_dir.join("catalog"))?;
+        let mut catalog = Catalog::open(data_dir)?;
 
         let metadata = match catalog.load() {
             Ok(metadata) => metadata,
@@ -87,19 +83,15 @@ impl Database {
         Ok(Self {
             metadata,
             catalog,
-            storage_manager: StorageManager::new(BUFFER_POOL_CAPACITY),
+            storage_manager: StorageManager::new(data_dir, BUFFER_POOL_CAPACITY),
             table_cache: TableCache::new(),
-            data_dir: data_dir.to_path_buf(),
         })
     }
 
     pub fn execute(&mut self, statement: &Statement) -> Result<ExecuteResult, DatabaseError> {
         let bound = Binder::new(&self.metadata).bind(statement)?;
         match bound {
-            BoundStatement::CreateTable(b) => {
-                let _ = self.create_table(&b)?;
-                Ok(ExecuteResult::Success)
-            }
+            BoundStatement::CreateTable(b) => self.create_table(&b),
             BoundStatement::CreateIndex(b) => self.create_index(&b),
             BoundStatement::Insert(b) => self.execute_insert(&b),
             BoundStatement::Select(b) => self.execute_select(&b),

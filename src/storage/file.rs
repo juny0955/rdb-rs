@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::HashSet,
     fs::{File, OpenOptions, create_dir_all},
     io::{self},
     path::{Path, PathBuf},
@@ -26,27 +26,34 @@ pub enum RelationFileManagerError {
 
 #[derive(Debug)]
 pub struct RelationFileManager {
-    paths: HashMap<RelationId, PathBuf>,
+    data_dir: PathBuf,
+    registered_relations: HashSet<RelationId>,
 }
 
 impl RelationFileManager {
-    pub fn new() -> Self {
+    pub fn new(data_dir: &Path) -> Self {
         Self {
-            paths: HashMap::new(),
+            data_dir: data_dir.to_path_buf(),
+            registered_relations: HashSet::new(),
         }
     }
 
-    pub fn register_relation(&mut self, relation_id: RelationId, path: PathBuf) {
-        self.paths.insert(relation_id, path);
+    pub fn register_relation(
+        &mut self,
+        relation_id: RelationId,
+    ) -> Result<(), RelationFileManagerError> {
+        open_rw(&self.relation_path(relation_id))?;
+        self.registered_relations.insert(relation_id);
+        Ok(())
     }
 
     pub fn create_relation(
         &mut self,
         relation_id: RelationId,
-        path: PathBuf,
     ) -> Result<(), RelationFileManagerError> {
+        let path = self.relation_path(relation_id);
         let _ = open_rw_create(&path)?;
-        self.paths.insert(relation_id, path);
+        self.registered_relations.insert(relation_id);
         Ok(())
     }
 
@@ -54,11 +61,10 @@ impl RelationFileManager {
         &self,
         relation_id: RelationId,
     ) -> Result<File, RelationFileManagerError> {
-        let path = self
-            .paths
-            .get(&relation_id)
-            .ok_or(RelationFileManagerError::RelationNotRegistered(relation_id))?;
-        Ok(open_rw(path)?)
+        if !self.registered_relations.contains(&relation_id) {
+            return Err(RelationFileManagerError::RelationNotRegistered(relation_id));
+        }
+        Ok(open_rw(&self.relation_path(relation_id))?)
     }
 
     pub fn read_page(
@@ -91,6 +97,13 @@ impl RelationFileManager {
     pub fn page_count(&self, relation_id: RelationId) -> Result<u64, RelationFileManagerError> {
         let file = &self.open_relation_file(relation_id)?;
         Ok(page_count(file)?)
+    }
+
+    fn relation_path(&self, relation_id: RelationId) -> PathBuf {
+        match relation_id {
+            RelationId::Heap(id) => self.data_dir.join(format!("{}.tbl", id.id())),
+            RelationId::Index(id) => self.data_dir.join(format!("{}.idx", id.id())),
+        }
     }
 }
 
