@@ -9,11 +9,8 @@ use crate::{
         ColumnId, ColumnMetadata, DataType, DatabaseMetadata, RelationId, TableId, TableMetadata,
     },
     storage::page::{PageError, PageId, RowId, SlotId},
-    storage::{
-        file::RelationFileManagerError,
-        heap::{HeapTable, HeapTableError},
-        manager::{StorageManager, StorageManagerError},
-    },
+    storage::{StorageError, StorageManager, file::RelationFileManagerError},
+    table::{TableError, heap::HeapTable},
     test_supports::TestDirectory,
     tuple::{Value, decode, encode},
 };
@@ -35,7 +32,7 @@ fn database(table_id: TableId) -> DatabaseMetadata {
 }
 
 fn storage_manager(table_id: TableId, path: &Path) -> StorageManager {
-    let mut storage_manager = StorageManager::new(
+    let mut storage_manager = StorageManager::with_capacity(
         path.parent()
             .expect("table path의 부모 디렉터리가 있어야 함"),
         16,
@@ -110,7 +107,7 @@ fn insert는_리터럴을_row로_변환해_테이블에_저장한다() {
 
     let mut table = HeapTable::new(table_id);
     let row = table
-        .get(row_id, &mut storage_manager)
+        .get(&mut storage_manager, row_id)
         .expect("삽입한 Row를 읽어야 함");
     let values = decode(&row, &columns).expect("Row를 값으로 변환해야 함");
 
@@ -174,7 +171,7 @@ fn update는_필터와_일치하는_row만_수정하고_재시작후에도_유�
 
         for result in &updated {
             heap_table
-                .update(result.row_id, &result.new_row, &mut storage_manager)
+                .update(&mut storage_manager, result.row_id, &result.new_row)
                 .expect("UPDATE 대상을 저장소에 반영해야 함");
         }
 
@@ -186,14 +183,14 @@ fn update는_필터와_일치하는_row만_수정하고_재시작후에도_유�
     let mut table = HeapTable::new(table_id);
     let kim = decode(
         &table
-            .get(kim_id, &mut storage_manager)
+            .get(&mut storage_manager, kim_id)
             .expect("수정한 Kim Row를 읽어야 함"),
         &columns,
     )
     .expect("Kim Row를 값으로 변환해야 함");
     let lee = decode(
         &table
-            .get(lee_id, &mut storage_manager)
+            .get(&mut storage_manager, lee_id)
             .expect("유지된 Lee Row를 읽어야 함"),
         &columns,
     )
@@ -259,7 +256,7 @@ fn delete는_필터와_일치하는_row만_삭제하고_재시작후에도_유�
 
         for result in &deleted {
             heap_table
-                .delete(result.row_id, &mut storage_manager)
+                .delete(&mut storage_manager, result.row_id)
                 .expect("DELETE 대상을 저장소에서 삭제해야 함");
         }
 
@@ -270,13 +267,13 @@ fn delete는_필터와_일치하는_row만_삭제하고_재시작후에도_유�
 
     let mut table = HeapTable::new(table_id);
     assert!(matches!(
-        table.get(kim_id, &mut storage_manager),
-        Err(HeapTableError::Page(PageError::SlotNotFound))
+        table.get(&mut storage_manager, kim_id),
+        Err(TableError::Page(PageError::SlotNotFound))
     ));
 
     let lee = decode(
         &table
-            .get(lee_id, &mut storage_manager)
+            .get(&mut storage_manager, lee_id)
             .expect("삭제하지 않은 Lee Row를 읽어야 함"),
         &columns,
     )
@@ -534,12 +531,12 @@ fn select는_메타데이터에_없는_테이블을_거부한다() {
 fn 없는_테이블_파일을_열어도_파일을_생성하지_않는다() {
     let table_id = TableId::new(1);
     let directory = TestDirectory::new("missing-file");
-    let mut storage_manager = StorageManager::new(directory.path(), 1);
+    let mut storage_manager = StorageManager::with_capacity(directory.path(), 1);
     let result = storage_manager.register_relation(RelationId::Heap(table_id));
 
     assert!(matches!(
         result,
-        Err(StorageManagerError::RelationFileManager(RelationFileManagerError::Io(error)))
+        Err(StorageError::RelationFileManager(RelationFileManagerError::Io(error)))
             if error.kind() == ErrorKind::NotFound
     ));
     assert!(!directory.path().join("1.tbl").exists());

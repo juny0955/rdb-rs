@@ -5,6 +5,7 @@ mod executor;
 mod index;
 pub mod sql;
 mod storage;
+mod table;
 mod tuple;
 
 #[cfg(test)]

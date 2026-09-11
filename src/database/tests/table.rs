@@ -24,7 +24,8 @@ fn create_table은_table_file과_metadata를_생성하고_재시작후에도_유
 
     let database = Database::open(directory.path(), "ignored")?;
     let table = database
-        .metadata
+        .catalog
+        .metadata()
         .table("users")
         .expect("재시작 후 users metadata가 있어야 함");
 
@@ -52,7 +53,9 @@ fn create_table은_중복_이름일때_table_file을_남기지_않는다() -> Re
 
     assert!(matches!(
         error,
-        DatabaseError::Schema(crate::catalog::metadata::SchemaError::DuplicateTableName(name))
+        DatabaseError::Catalog(crate::catalog::CatalogError::Schema(
+            crate::catalog::metadata::SchemaError::DuplicateTableName(name)
+        ))
             if name == "users"
     ));
     assert!(!directory.path().join("2.tbl").exists());
@@ -74,17 +77,17 @@ fn get_or_open_table은_같은_table을_한번만_등록한다() -> Result<(), D
     let mut database = Database::open(directory.path(), "reopened")?;
     {
         let _ = database
-            .table_cache
+            .table_manager
             .get_or_open_table(&mut database.storage_manager, table_id)?;
     }
-    assert_eq!(database.table_cache.len(), 1);
+    assert_eq!(database.table_manager.len(), 1);
 
     {
         let _ = database
-            .table_cache
+            .table_manager
             .get_or_open_table(&mut database.storage_manager, table_id)?;
     }
-    assert_eq!(database.table_cache.len(), 1);
+    assert_eq!(database.table_manager.len(), 1);
 
     Ok(())
 }

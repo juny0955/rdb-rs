@@ -74,5 +74,3 @@ pub struct BoundColumnDefinition {
     pub name: String,
     pub data_type: DataType,
 }
-
-impl BoundColumnDefinition {}

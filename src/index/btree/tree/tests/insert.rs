@@ -16,12 +16,12 @@ fn root_leaf에_insert한_후_새_buffer_pool로_검색한다() -> Result<(), Bo
 
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
     {
-        let mut storage_manager = StorageManager::new(index_file.data_dir(), 1);
+        let mut storage_manager = StorageManager::with_capacity(index_file.data_dir(), 1);
         storage_manager.register_relation(RelationId::Index(index_id))?;
         tree.insert(&mut storage_manager, BTreeKey::Int(42), row_id)?;
     }
 
-    let mut reopened_buffer_pool = StorageManager::new(index_file.data_dir(), 1);
+    let mut reopened_buffer_pool = StorageManager::with_capacity(index_file.data_dir(), 1);
     reopened_buffer_pool.register_relation(RelationId::Index(index_id))?;
     assert_eq!(
         tree.search(&mut reopened_buffer_pool, BTreeKey::Int(42))?,
@@ -64,13 +64,13 @@ fn root_internal의_양쪽_leaf에_insert한_후_재검색한다() -> Result<(),
 
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
     {
-        let mut storage_manager = StorageManager::new(index_file.data_dir(), 2);
+        let mut storage_manager = StorageManager::with_capacity(index_file.data_dir(), 2);
         storage_manager.register_relation(RelationId::Index(index_id))?;
         tree.insert(&mut storage_manager, BTreeKey::Int(10), left_row_id)?;
         tree.insert(&mut storage_manager, BTreeKey::Int(50), right_row_id)?;
     }
 
-    let mut reopened_buffer_pool = StorageManager::new(index_file.data_dir(), 2);
+    let mut reopened_buffer_pool = StorageManager::with_capacity(index_file.data_dir(), 2);
     reopened_buffer_pool.register_relation(RelationId::Index(index_id))?;
     assert_eq!(
         tree.search(&mut reopened_buffer_pool, BTreeKey::Int(10))?,

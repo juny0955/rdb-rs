@@ -43,7 +43,7 @@ fn root_internal에서_left와_right_leaf를검색한다() -> Result<(), Box<dyn
     write_page(&mut file, right_page_id, &right_page)?;
     drop(file);
 
-    let mut storage_manager = StorageManager::new(index_file.data_dir(), 2);
+    let mut storage_manager = StorageManager::with_capacity(index_file.data_dir(), 2);
     storage_manager.register_relation(RelationId::Index(index_id))?;
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
 
@@ -105,7 +105,7 @@ fn search은_다음_leaf의_중복_key까지_반환한다() -> Result<(), Box<dy
     drop(file);
 
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
-    let mut reopened_buffer_pool = StorageManager::new(index_file.data_dir(), 1);
+    let mut reopened_buffer_pool = StorageManager::with_capacity(index_file.data_dir(), 1);
     reopened_buffer_pool.register_relation(RelationId::Index(index_id))?;
 
     // When

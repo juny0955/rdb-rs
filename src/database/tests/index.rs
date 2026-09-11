@@ -1,10 +1,10 @@
 use crate::{
-    binder::BoundStatement,
+    binder::{BoundExpression, BoundStatement},
     catalog::metadata::{RelationId, TableId},
-    database::{Database, DatabaseError, ExecuteResult, index::search_index_row_ids},
-    index::btree::{
-        BTreeKey, BTreeKeyType,
-        tree::{BTree, BTreeError},
+    database::{Database, DatabaseError, ExecuteResult},
+    index::{
+        IndexManager,
+        btree::{BTreeKey, BTreeKeyType, tree::BTree},
     },
     storage::page::PageId,
     test_supports::TestDirectory,
@@ -27,7 +27,8 @@ fn create_index는_index_file과_metadata를_생성하고_재시작후에도_유
 
     let database = Database::open(directory.path(), "reopened")?;
     let index = database
-        .metadata
+        .catalog
+        .metadata()
         .index("idx_users_id")
         .expect("재시작 후 index metadata가 있어야 함");
 
@@ -72,21 +73,30 @@ fn indexed_equal_predicate는_index_candidate를_반환한다() -> Result<(), Da
     database.execute(&parse_sql("CREATE INDEX idx_users_id ON users(id);"))?;
     database.execute(&parse_sql("INSERT INTO users VALUES (42, 'Kim');"))?;
 
-    let BoundStatement::Select(bound) =
-        bind_sql("SELECT name FROM users WHERE id = 42;", &database.metadata)
-    else {
+    let BoundStatement::Select(bound) = bind_sql(
+        "SELECT name FROM users WHERE id = 42;",
+        database.catalog.metadata(),
+    ) else {
         panic!("SELECT 문이어야 함");
     };
 
-    let candidates =
-        search_index_row_ids(&database.metadata, &mut database.storage_manager, &bound)?;
+    let Some(BoundExpression::Equal { column_id, value }) = &bound.filter else {
+        panic!("equal filter여야 함");
+    };
+    let candidates = IndexManager::search_index_row_ids(
+        &mut database.storage_manager,
+        database.catalog.metadata().indexes(),
+        bound.table_id,
+        *column_id,
+        value,
+    )?;
 
     assert!(matches!(candidates, Some(row_ids) if row_ids.len() == 1));
     Ok(())
 }
 
 #[test]
-fn create_index는_재시작후_기존_행을_backfill한다() -> Result<(), DatabaseError> {
+fn create_index는_재시작후_기존_행을_backfill한다() -> Result<(), Box<dyn std::error::Error>> {
     let directory = TestDirectory::new("database-create-index-backfill");
     let indexed_row_id = {
         let mut database = Database::open(directory.path(), "test")?;
@@ -95,7 +105,7 @@ fn create_index는_재시작후_기존_행을_backfill한다() -> Result<(), Dat
         database.execute(&parse_sql("INSERT INTO users VALUES (NULL, 'Null');"))?;
 
         let heap_table = database
-            .table_cache
+            .table_manager
             .get_or_open_table(&mut database.storage_manager, TableId::new(1))?;
         heap_table
             .scan(&mut database.storage_manager)?
@@ -112,13 +122,13 @@ fn create_index는_재시작후_기존_행을_backfill한다() -> Result<(), Dat
 
     let mut database = Database::open(directory.path(), "reopened-again")?;
     let index = database
-        .metadata
+        .catalog
+        .metadata()
         .index("idx_users_id")
         .expect("index metadata가 있어야 함");
     database
         .storage_manager
-        .register_relation(RelationId::Index(index.id()))
-        .map_err(BTreeError::from)?;
+        .register_relation(RelationId::Index(index.id()))?;
     let btree = BTree::open(index.id(), index.root_page_id(), BTreeKeyType::BigInt);
 
     assert_eq!(
@@ -129,7 +139,7 @@ fn create_index는_재시작후_기존_행을_backfill한다() -> Result<(), Dat
 }
 
 #[test]
-fn insert는_생성된_index에_반영하고_재시작후_검색된다() -> Result<(), DatabaseError> {
+fn insert는_생성된_index에_반영하고_재시작후_검색된다() -> Result<(), Box<dyn std::error::Error>> {
     let directory = TestDirectory::new("database-insert-index-maintenance");
     let inserted_row_id = {
         let mut database = Database::open(directory.path(), "test")?;
@@ -138,7 +148,7 @@ fn insert는_생성된_index에_반영하고_재시작후_검색된다() -> Resu
         database.execute(&parse_sql("INSERT INTO users VALUES (42, 'Kim');"))?;
 
         let heap_table = database
-            .table_cache
+            .table_manager
             .get_or_open_table(&mut database.storage_manager, TableId::new(1))?;
         heap_table
             .scan(&mut database.storage_manager)?
@@ -150,13 +160,13 @@ fn insert는_생성된_index에_반영하고_재시작후_검색된다() -> Resu
 
     let mut database = Database::open(directory.path(), "reopened")?;
     let index = database
-        .metadata
+        .catalog
+        .metadata()
         .index("idx_users_id")
         .expect("index metadata가 있어야 함");
     database
         .storage_manager
-        .register_relation(RelationId::Index(index.id()))
-        .map_err(BTreeError::from)?;
+        .register_relation(RelationId::Index(index.id()))?;
     let btree = BTree::open(index.id(), index.root_page_id(), BTreeKeyType::BigInt);
 
     assert_eq!(
@@ -167,7 +177,8 @@ fn insert는_생성된_index에_반영하고_재시작후_검색된다() -> Resu
 }
 
 #[test]
-fn delete는_index_entry를_제거하고_재시작후_검색되지_않는다() -> Result<(), DatabaseError> {
+fn delete는_index_entry를_제거하고_재시작후_검색되지_않는다()
+-> Result<(), Box<dyn std::error::Error>> {
     let directory = TestDirectory::new("database-delete-index-maintenance");
     {
         let mut database = Database::open(directory.path(), "test")?;
@@ -179,13 +190,13 @@ fn delete는_index_entry를_제거하고_재시작후_검색되지_않는다() -
 
     let mut database = Database::open(directory.path(), "reopened")?;
     let index = database
-        .metadata
+        .catalog
+        .metadata()
         .index("idx_users_id")
         .expect("index metadata가 있어야 함");
     database
         .storage_manager
-        .register_relation(RelationId::Index(index.id()))
-        .map_err(BTreeError::from)?;
+        .register_relation(RelationId::Index(index.id()))?;
     let btree = BTree::open(index.id(), index.root_page_id(), BTreeKeyType::BigInt);
 
     assert_eq!(
@@ -220,7 +231,7 @@ fn indexed_null_value를_delete하면_index_entry_없음_오류가_발생하지_
 }
 
 #[test]
-fn update는_index_entry를_교체하고_재시작후_검색된다() -> Result<(), DatabaseError> {
+fn update는_index_entry를_교체하고_재시작후_검색된다() -> Result<(), Box<dyn std::error::Error>> {
     let directory = TestDirectory::new("database-update-index-maintenance");
     let row_id = {
         let mut database = Database::open(directory.path(), "test")?;
@@ -229,7 +240,7 @@ fn update는_index_entry를_교체하고_재시작후_검색된다() -> Result<(
         database.execute(&parse_sql("INSERT INTO users VALUES (42, 'Kim');"))?;
 
         let heap_table = database
-            .table_cache
+            .table_manager
             .get_or_open_table(&mut database.storage_manager, TableId::new(1))?;
         let row_id = heap_table
             .scan(&mut database.storage_manager)?
@@ -244,13 +255,13 @@ fn update는_index_entry를_교체하고_재시작후_검색된다() -> Result<(
 
     let mut database = Database::open(directory.path(), "reopened")?;
     let index = database
-        .metadata
+        .catalog
+        .metadata()
         .index("idx_users_id")
         .expect("index metadata가 있어야 함");
     database
         .storage_manager
-        .register_relation(RelationId::Index(index.id()))
-        .map_err(BTreeError::from)?;
+        .register_relation(RelationId::Index(index.id()))?;
     let btree = BTree::open(index.id(), index.root_page_id(), BTreeKeyType::BigInt);
 
     assert_eq!(

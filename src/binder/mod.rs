@@ -3,7 +3,8 @@ use crate::{
     sql::ast::{
         CreateIndexStatement, DeleteStatement,
         Expression::{self, Identifier},
-        InsertStatement, Literal, Projection, SelectStatement, Statement, UpdateStatement,
+        InsertStatement, Literal, Projection, SelectStatement, SqlDataType, Statement,
+        UpdateStatement,
     },
     tuple::Value,
 };
@@ -56,7 +57,7 @@ impl<'a> Binder<'a> {
                         .iter()
                         .map(|column| BoundColumnDefinition {
                             name: column.name.clone(),
-                            data_type: column.data_type.clone().into(),
+                            data_type: bind_data_type(column.data_type),
                         })
                         .collect(),
                 }))
@@ -251,6 +252,16 @@ fn bind_value(literal: &Literal, column: &ColumnMetadata) -> Result<Value, Binde
             });
         }
     })
+}
+
+fn bind_data_type(sql_data_type: SqlDataType) -> DataType {
+    match sql_data_type {
+        SqlDataType::Int => DataType::Int,
+        SqlDataType::BigInt => DataType::BigInt,
+        SqlDataType::Boolean => DataType::Boolean,
+        SqlDataType::Varchar => DataType::Varchar,
+        SqlDataType::Null => DataType::Null,
+    }
 }
 
 #[cfg(test)]

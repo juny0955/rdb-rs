@@ -21,7 +21,7 @@ fn page_key(page_id: PageId) -> PageKey {
 }
 
 fn storage_manager(test_file: &TestRelationFile, capacity: usize) -> StorageManager {
-    let mut storage_manager = StorageManager::new(test_file.data_dir(), capacity);
+    let mut storage_manager = StorageManager::with_capacity(test_file.data_dir(), capacity);
     storage_manager
         .register_relation(RelationId::Heap(TableId::new(1)))
         .expect("테스트 relation을 등록해야 함");

@@ -1,7 +1,8 @@
 use crate::{
-    binder::{BoundDelete, BoundInsert, BoundSelect, BoundUpdate},
-    database::{Database, DatabaseError, ExecuteResult, search_index_row_ids},
+    binder::{BoundDelete, BoundExpression, BoundInsert, BoundSelect, BoundUpdate},
+    database::{Database, DatabaseError, ExecuteResult},
     executor::Executor,
+    index::IndexManager,
 };
 
 impl Database {
@@ -9,14 +10,20 @@ impl Database {
         &mut self,
         bound: &BoundInsert,
     ) -> Result<ExecuteResult, DatabaseError> {
-        let heap_table = self
-            .table_cache
-            .get_or_open_table(&mut self.storage_manager, bound.table_id)?;
-
-        let executor = Executor::new(&self.metadata);
+        let executor = Executor::new(self.catalog.metadata());
         let row = executor.encode_insert(bound)?;
-        let row_id = heap_table.insert(&row, &mut self.storage_manager)?;
-        self.insert_row_into_indexes(bound.table_id, row_id, &bound.values)?;
+        let row_id =
+            self.table_manager
+                .insert_row(&mut self.storage_manager, bound.table_id, &row)?;
+
+        IndexManager::insert_row(
+            &mut self.storage_manager,
+            &self.catalog,
+            bound.table_id,
+            row_id,
+            &bound.values,
+        )?;
+
         Ok(ExecuteResult::Command { affected_rows: 1 })
     }
 
@@ -24,26 +31,29 @@ impl Database {
         &mut self,
         bound: &BoundSelect,
     ) -> Result<ExecuteResult, DatabaseError> {
-        let heap_table = self
-            .table_cache
-            .get_or_open_table(&mut self.storage_manager, bound.table_id)?;
-
-        let executor = Executor::new(&self.metadata);
-
-        let index_scan = search_index_row_ids(&self.metadata, &mut self.storage_manager, bound)?;
-
-        let rows = if let Some(row_ids) = index_scan {
-            let mut rows = Vec::new();
-            for row_id in row_ids {
-                let row = heap_table.get(row_id, &mut self.storage_manager)?;
-                rows.push((row_id, row));
+        let indexes = self.catalog.metadata().indexes();
+        let index_scan = match &bound.filter {
+            Some(BoundExpression::Equal { column_id, value }) => {
+                IndexManager::search_index_row_ids(
+                    &mut self.storage_manager,
+                    indexes,
+                    bound.table_id,
+                    *column_id,
+                    value,
+                )?
             }
-
-            rows
-        } else {
-            heap_table.scan(&mut self.storage_manager)?
+            None => None,
         };
 
+        let rows = if let Some(row_ids) = index_scan {
+            self.table_manager
+                .get_rows(&mut self.storage_manager, bound.table_id, row_ids)?
+        } else {
+            self.table_manager
+                .scan_rows(&mut self.storage_manager, bound.table_id)?
+        };
+
+        let executor = Executor::new(self.catalog.metadata());
         let results = executor.projection_and_filtered_rows(rows, bound)?;
         Ok(ExecuteResult::Rows(results))
     }
@@ -52,30 +62,35 @@ impl Database {
         &mut self,
         bound: &BoundUpdate,
     ) -> Result<ExecuteResult, DatabaseError> {
-        let heap_table = self
-            .table_cache
-            .get_or_open_table(&mut self.storage_manager, bound.table_id)?;
-        let executor = Executor::new(&self.metadata);
+        let executor = Executor::new(self.catalog.metadata());
 
-        let rows = heap_table.scan(&mut self.storage_manager)?;
+        let rows = self
+            .table_manager
+            .scan_rows(&mut self.storage_manager, bound.table_id)?;
         let prepared_updates = executor.prepare_update(bound, rows)?;
         let affected_rows = prepared_updates.len();
 
         for prepared_update in &prepared_updates {
-            heap_table.update(
+            self.table_manager.update_row(
+                &mut self.storage_manager,
+                bound.table_id,
                 prepared_update.row_id,
                 &prepared_update.new_row,
-                &mut self.storage_manager,
             )?;
         }
 
         for prepared_update in prepared_updates {
-            self.delete_row_from_indexes(
+            IndexManager::delete_row(
+                &mut self.storage_manager,
+                &self.catalog,
                 bound.table_id,
                 prepared_update.row_id,
                 &prepared_update.old_values,
             )?;
-            self.insert_row_into_indexes(
+
+            IndexManager::insert_row(
+                &mut self.storage_manager,
+                &self.catalog,
                 bound.table_id,
                 prepared_update.row_id,
                 &prepared_update.new_values,
@@ -88,21 +103,26 @@ impl Database {
         &mut self,
         bound: &BoundDelete,
     ) -> Result<ExecuteResult, DatabaseError> {
-        let heap_table = self
-            .table_cache
-            .get_or_open_table(&mut self.storage_manager, bound.table_id)?;
-        let executor = Executor::new(&self.metadata);
+        let executor = Executor::new(self.catalog.metadata());
 
-        let rows = heap_table.scan(&mut self.storage_manager)?;
+        let rows = self
+            .table_manager
+            .scan_rows(&mut self.storage_manager, bound.table_id)?;
         let prepared_deletes = executor.prepare_delete(bound, rows)?;
         let affected_rows = prepared_deletes.len();
 
         for prepared_delete in &prepared_deletes {
-            heap_table.delete(prepared_delete.row_id, &mut self.storage_manager)?;
+            self.table_manager.delete_row(
+                &mut self.storage_manager,
+                bound.table_id,
+                prepared_delete.row_id,
+            )?;
         }
 
         for prepared_delete in prepared_deletes {
-            self.delete_row_from_indexes(
+            IndexManager::delete_row(
+                &mut self.storage_manager,
+                &self.catalog,
                 bound.table_id,
                 prepared_delete.row_id,
                 &prepared_delete.values,

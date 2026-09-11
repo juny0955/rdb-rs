@@ -42,7 +42,7 @@ fn flush가_실패하면_dirty_상태를_유지한다() -> Result<(), Box<dyn st
 
     assert!(matches!(
         storage_manager.flush_page(page_key),
-        Err(StorageManagerError::RelationFileManager(
+        Err(StorageError::RelationFileManager(
             RelationFileManagerError::Pager(PagerError::PageNotAllocated(id))
         )) if id == page_id
     ));

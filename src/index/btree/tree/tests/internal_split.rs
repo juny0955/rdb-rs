@@ -65,7 +65,7 @@ fn 가득찬_root_internal을_split한_후_재시작해도_세_범위를_검색�
 
     let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Varchar);
     {
-        let mut storage_manager = StorageManager::new(index_file.data_dir(), 1);
+        let mut storage_manager = StorageManager::with_capacity(index_file.data_dir(), 1);
         storage_manager.register_relation(RelationId::Index(index_id))?;
 
         tree.insert(
@@ -87,7 +87,7 @@ fn 가득찬_root_internal을_split한_후_재시작해도_세_범위를_검색�
         );
     }
 
-    let mut reopened_buffer_pool = StorageManager::new(index_file.data_dir(), 1);
+    let mut reopened_buffer_pool = StorageManager::with_capacity(index_file.data_dir(), 1);
     reopened_buffer_pool.register_relation(RelationId::Index(index_id))?;
     assert_eq!(
         tree.search(&mut reopened_buffer_pool, left_key)?,

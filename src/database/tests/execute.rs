@@ -45,15 +45,16 @@ fn sql_crud는_parser부터_file까지_동작한다() -> Result<(), DatabaseErro
 
     let BoundStatement::CreateTable(bound) = bind_sql(
         "CREATE TABLE users (id BIGINT, name VARCHAR);",
-        &database.metadata,
+        database.catalog.metadata(),
     ) else {
         panic!("CREATE TABLE이 bind되어야 함");
     };
     database.create_table(&bound)?;
 
-    let BoundStatement::Insert(bound) =
-        bind_sql("INSERT INTO users VALUES (1, 'Kim');", &database.metadata)
-    else {
+    let BoundStatement::Insert(bound) = bind_sql(
+        "INSERT INTO users VALUES (1, 'Kim');",
+        database.catalog.metadata(),
+    ) else {
         panic!("INSERT가 bind되어야 함");
     };
     assert!(matches!(
@@ -61,9 +62,10 @@ fn sql_crud는_parser부터_file까지_동작한다() -> Result<(), DatabaseErro
         ExecuteResult::Command { affected_rows: 1 }
     ));
 
-    let BoundStatement::Select(bound) =
-        bind_sql("SELECT name FROM users WHERE id = 1;", &database.metadata)
-    else {
+    let BoundStatement::Select(bound) = bind_sql(
+        "SELECT name FROM users WHERE id = 1;",
+        database.catalog.metadata(),
+    ) else {
         panic!("SELECT가 bind되어야 함");
     };
     assert!(matches!(
@@ -73,7 +75,7 @@ fn sql_crud는_parser부터_file까지_동작한다() -> Result<(), DatabaseErro
 
     let BoundStatement::Update(bound) = bind_sql(
         "UPDATE users SET name = 'Lee' WHERE id = 1;",
-        &database.metadata,
+        database.catalog.metadata(),
     ) else {
         panic!("UPDATE가 bind되어야 함");
     };
@@ -82,7 +84,9 @@ fn sql_crud는_parser부터_file까지_동작한다() -> Result<(), DatabaseErro
         ExecuteResult::Command { affected_rows: 1 }
     ));
 
-    let BoundStatement::Select(bound) = bind_sql("SELECT * FROM users;", &database.metadata) else {
+    let BoundStatement::Select(bound) =
+        bind_sql("SELECT * FROM users;", database.catalog.metadata())
+    else {
         panic!("SELECT가 bind되어야 함");
     };
     assert!(matches!(
@@ -91,9 +95,10 @@ fn sql_crud는_parser부터_file까지_동작한다() -> Result<(), DatabaseErro
             if rows == vec![vec![Value::BigInt(1), Value::Varchar("Lee".to_owned())]]
     ));
 
-    let BoundStatement::Delete(bound) =
-        bind_sql("DELETE FROM users WHERE id = 1;", &database.metadata)
-    else {
+    let BoundStatement::Delete(bound) = bind_sql(
+        "DELETE FROM users WHERE id = 1;",
+        database.catalog.metadata(),
+    ) else {
         panic!("DELETE가 bind되어야 함");
     };
     assert!(matches!(
@@ -101,7 +106,9 @@ fn sql_crud는_parser부터_file까지_동작한다() -> Result<(), DatabaseErro
         ExecuteResult::Command { affected_rows: 1 }
     ));
 
-    let BoundStatement::Select(bound) = bind_sql("SELECT * FROM users;", &database.metadata) else {
+    let BoundStatement::Select(bound) =
+        bind_sql("SELECT * FROM users;", database.catalog.metadata())
+    else {
         panic!("SELECT가 bind되어야 함");
     };
     assert!(matches!(

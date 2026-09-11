@@ -92,11 +92,11 @@ pub enum Literal {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ColumnDefinition {
     pub name: String,
-    pub data_type: DataType,
+    pub data_type: SqlDataType,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DataType {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SqlDataType {
     Int,
     BigInt,
     Boolean,

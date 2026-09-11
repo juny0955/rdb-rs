@@ -46,7 +46,7 @@ fn dirty_page의_flush가_실패하면_evict하지_않는다() -> Result<(), Box
 
     assert!(matches!(
         storage_manager.fetch_page(second_page_key),
-        Err(StorageManagerError::RelationFileManager(
+        Err(StorageError::RelationFileManager(
             RelationFileManagerError::Pager(PagerError::PageNotAllocated(id))
         )) if id == first_page_id
     ));

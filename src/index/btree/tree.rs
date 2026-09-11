@@ -6,8 +6,8 @@ use crate::index::btree::internal::{InternalPageError, find_internal_child};
 use crate::index::btree::key::{BTreeKey, BTreeKeyType};
 use crate::index::btree::leaf::{LeafPageError, find_leaf_row_ids, initialize_leaf_page};
 use crate::storage::buffer::page_key::PageKey;
-use crate::storage::manager::{StorageManager, StorageManagerError};
 use crate::storage::page::{PageId, RowId};
+use crate::storage::{StorageError, StorageManager};
 
 mod delete;
 mod insert;
@@ -19,7 +19,7 @@ pub enum BTreeError {
     #[error("BTree page가 손상되었습니다: {0:?}")]
     InvalidPage(PageId),
     #[error(transparent)]
-    StorageManager(#[from] StorageManagerError),
+    Storage(#[from] StorageError),
     #[error(transparent)]
     Leaf(#[from] LeafPageError),
     #[error(transparent)]

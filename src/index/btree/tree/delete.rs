@@ -9,8 +9,8 @@ use crate::{
         tree::{BTree, BTreeError},
     },
     storage::{
+        StorageManager,
         buffer::page_key::PageKey,
-        manager::StorageManager,
         page::{Page, PageId, RowId},
     },
 };

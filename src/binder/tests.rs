@@ -1,9 +1,8 @@
 use crate::{
     catalog::metadata::{ColumnId, ColumnMetadata, DataType, TableId, TableMetadata},
     sql::ast::{
-        Assignment, ColumnDefinition, CreateIndexStatement, CreateTableStatement,
-        DataType as AstDataType, DeleteStatement, Expression, InsertStatement, Projection,
-        SelectStatement, UpdateStatement,
+        Assignment, ColumnDefinition, CreateIndexStatement, CreateTableStatement, DeleteStatement,
+        Expression, InsertStatement, Projection, SelectStatement, UpdateStatement,
     },
 };
 
@@ -559,7 +558,7 @@ fn create_table을_bound_statement로변환한다() {
     let binder = Binder::new(&database);
     let ast_columns = vec![ColumnDefinition {
         name: "id".to_owned(),
-        data_type: AstDataType::BigInt,
+        data_type: SqlDataType::BigInt,
     }];
     let statement = Statement::CreateTable(CreateTableStatement {
         table: "orders".to_owned(),

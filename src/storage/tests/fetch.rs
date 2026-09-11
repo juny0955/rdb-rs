@@ -4,11 +4,11 @@ use crate::storage::file::RelationFileManagerError;
 #[test]
 fn 등록되지_않은_table의_page를_fetch하면_오류다() {
     let directory = TestDirectory::new("manager-unregistered-fetch");
-    let mut storage_manager = StorageManager::new(directory.path(), 1);
+    let mut storage_manager = StorageManager::with_capacity(directory.path(), 1);
 
     assert!(matches!(
         storage_manager.fetch_page(key(0)),
-        Err(StorageManagerError::RelationFileManager(
+        Err(StorageError::RelationFileManager(
             RelationFileManagerError::RelationNotRegistered(id)
         ))
             if id == RelationId::Heap(TableId::new(1))
@@ -40,7 +40,7 @@ fn 다른_table의_같은_page_id는_서로_다른_frame에_저장된다() -> Re
     let second_relation = RelationId::Heap(second_table_id);
     let first_key = PageKey::new(first_relation, page_id);
     let second_key = PageKey::new(second_relation, page_id);
-    let mut storage_manager = StorageManager::new(directory.path(), 2);
+    let mut storage_manager = StorageManager::with_capacity(directory.path(), 2);
     storage_manager.register_relation(first_relation)?;
     storage_manager.register_relation(second_relation)?;
 
@@ -71,7 +71,7 @@ fn 다른_table의_dirty_victim을_evict하면_원래_file에_기록한다()
     let second_relation = RelationId::Heap(second_table_id);
     let first_key = PageKey::new(first_relation, page_id);
     let second_key = PageKey::new(second_relation, page_id);
-    let mut storage_manager = StorageManager::new(directory.path(), 1);
+    let mut storage_manager = StorageManager::with_capacity(directory.path(), 1);
     storage_manager.register_relation(first_relation)?;
     storage_manager.register_relation(second_relation)?;
 
