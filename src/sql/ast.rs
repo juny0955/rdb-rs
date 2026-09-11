@@ -80,6 +80,10 @@ pub enum Expression {
         left: Box<Expression>,
         right: Box<Expression>,
     },
+    And {
+        left: Box<Expression>,
+        right: Box<Expression>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

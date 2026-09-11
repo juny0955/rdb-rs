@@ -60,7 +60,14 @@ pub enum BoundProjection {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum BoundExpression {
-    Equal { column_id: ColumnId, value: Value },
+    Equal {
+        column_id: ColumnId,
+        value: Value,
+    },
+    And {
+        left: Box<BoundExpression>,
+        right: Box<BoundExpression>,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq)]

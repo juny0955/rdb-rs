@@ -486,6 +486,59 @@ fn 전달된_후보_row에_filter와_projection을적용한다() {
 }
 
 #[test]
+fn select는_and_filter의_두_조건에_일치하는_row만_반환한다() {
+    let table_id = TableId::new(1);
+    let database = database(table_id);
+    let columns = users_columns();
+    let both = encode(
+        &[Value::BigInt(1), Value::Varchar("Kim".to_owned())],
+        &columns,
+    )
+    .expect("두 조건에 일치하는 Row를 변환해야 함");
+    let left_only = encode(
+        &[Value::BigInt(1), Value::Varchar("Lee".to_owned())],
+        &columns,
+    )
+    .expect("왼쪽 조건에만 일치하는 Row를 변환해야 함");
+    let right_only = encode(
+        &[Value::BigInt(2), Value::Varchar("Kim".to_owned())],
+        &columns,
+    )
+    .expect("오른쪽 조건에만 일치하는 Row를 변환해야 함");
+    let bound = BoundSelect {
+        table_id,
+        projections: vec![BoundProjection::All],
+        filter: Some(BoundExpression::And {
+            left: Box::new(BoundExpression::Equal {
+                column_id: ColumnId::new(1),
+                value: Value::BigInt(1),
+            }),
+            right: Box::new(BoundExpression::Equal {
+                column_id: ColumnId::new(2),
+                value: Value::Varchar("Kim".to_owned()),
+            }),
+        }),
+    };
+    let executor = Executor::new(&database);
+
+    let rows = executor
+        .projection_and_filtered_rows(
+            vec![
+                (RowId::new(PageId::new(1), SlotId::new(1)), both),
+                (RowId::new(PageId::new(1), SlotId::new(2)), left_only),
+                (RowId::new(PageId::new(1), SlotId::new(3)), right_only),
+            ],
+            &bound,
+        )
+        .expect("AND 조건을 적용해야 함");
+
+    assert_eq!(
+        rows,
+        vec![vec![Value::BigInt(1), Value::Varchar("Kim".to_owned())]]
+    );
+}
+
+#[test]
 fn select에서_null_equal_filter는_row를_반환하지_않는다() {
     let table_id = TableId::new(1);
     let database = database(table_id);
