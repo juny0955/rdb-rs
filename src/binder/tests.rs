@@ -1,9 +1,9 @@
 use crate::{
-    parser::ast::{
-        Assignment, CreateTableStatement, DataType as AstDataType, DeleteStatement, Expression,
-        InsertStatement, Projection, SelectStatement, UpdateStatement,
+    catalog::metadata::{ColumnId, ColumnMetadata, DataType, TableId, TableMetadata},
+    sql::ast::{
+        Assignment, ColumnDefinition, CreateIndexStatement, CreateTableStatement, DeleteStatement,
+        Expression, InsertStatement, Projection, SelectStatement, UpdateStatement,
     },
-    schema::{ColumnId, ColumnMetadata, DataType, TableId, TableMetadata},
 };
 
 use super::*;
@@ -18,7 +18,7 @@ fn database() -> DatabaseMetadata {
         ],
     )
     .expect("테이블 생성 성공");
-    DatabaseMetadata::new("mydb".to_owned(), vec![users]).expect("데이터베이스 생성 성공")
+    DatabaseMetadata::new("mydb".to_owned(), vec![users], vec![]).expect("데이터베이스 생성 성공")
 }
 
 fn int_database() -> DatabaseMetadata {
@@ -32,7 +32,7 @@ fn int_database() -> DatabaseMetadata {
         )],
     )
     .expect("테이블 생성 성공");
-    DatabaseMetadata::new("mydb".to_owned(), vec![numbers]).expect("데이터베이스 생성 성공")
+    DatabaseMetadata::new("mydb".to_owned(), vec![numbers], vec![]).expect("데이터베이스 생성 성공")
 }
 
 #[test]
@@ -454,7 +454,7 @@ fn select을_bound_select으로변환한다() {
             projections: vec![BoundProjection::Column(ColumnId::new(2))],
             filter: Some(BoundExpression::Equal {
                 column_id: ColumnId::new(1),
-                value: Literal::Integer(1),
+                value: Value::BigInt(1),
             }),
         })
     );
@@ -491,7 +491,7 @@ fn insert를_bound_insert로변환한다() {
         binder.bind_insert(&statement),
         Ok(BoundInsert {
             table_id: TableId::new(1),
-            literals: vec![Literal::Integer(1), Literal::String("Kim".to_owned())],
+            values: vec![Value::BigInt(1), Value::Varchar("Kim".to_owned())],
         })
     );
 }
@@ -514,7 +514,7 @@ fn delete를_bound_delete로변환한다() {
             table_id: TableId::new(1),
             filter: Some(BoundExpression::Equal {
                 column_id: ColumnId::new(1),
-                value: Literal::Integer(1),
+                value: Value::BigInt(1),
             }),
         })
     );
@@ -542,11 +542,11 @@ fn update를_bound_update로변환한다() {
             table_id: TableId::new(1),
             assignments: vec![BoundAssignment {
                 column_id: ColumnId::new(2),
-                value: Literal::String("Lee".to_owned()),
+                value: Value::Varchar("Lee".to_owned()),
             }],
             filter: Some(BoundExpression::Equal {
                 column_id: ColumnId::new(1),
-                value: Literal::Integer(1),
+                value: Value::BigInt(1),
             }),
         })
     );
@@ -556,20 +556,78 @@ fn update를_bound_update로변환한다() {
 fn create_table을_bound_statement로변환한다() {
     let database = database();
     let binder = Binder::new(&database);
-    let columns = vec![crate::parser::ast::ColumnDefinition {
+    let ast_columns = vec![ColumnDefinition {
         name: "id".to_owned(),
-        data_type: AstDataType::BigInt,
+        data_type: SqlDataType::BigInt,
     }];
     let statement = Statement::CreateTable(CreateTableStatement {
         table: "orders".to_owned(),
-        columns: columns.clone(),
+        columns: ast_columns,
     });
 
     assert_eq!(
         binder.bind(&statement),
         Ok(BoundStatement::CreateTable(BoundCreateTable {
             table: "orders".to_owned(),
-            columns,
+            columns: vec![BoundColumnDefinition {
+                name: "id".to_owned(),
+                data_type: DataType::BigInt,
+            }],
         }))
+    );
+}
+
+#[test]
+fn create_index를_bound_statement로변환한다() {
+    let database = database();
+    let binder = Binder::new(&database);
+    let statement = Statement::CreateIndex(CreateIndexStatement {
+        index_name: "idx_users_id".to_owned(),
+        table: "users".to_owned(),
+        column_name: "id".to_owned(),
+    });
+
+    assert_eq!(
+        binder.bind(&statement),
+        Ok(BoundStatement::CreateIndex(BoundCreateIndex {
+            index_name: "idx_users_id".to_owned(),
+            table_id: TableId::new(1),
+            column_id: ColumnId::new(1),
+        }))
+    );
+}
+
+#[test]
+fn 존재하지_않는_테이블에_create_index하면_오류를_반환한다() {
+    let database = database();
+    let binder = Binder::new(&database);
+    let statement = Statement::CreateIndex(CreateIndexStatement {
+        index_name: "idx_orders_id".to_owned(),
+        table: "orders".to_owned(),
+        column_name: "id".to_owned(),
+    });
+
+    assert_eq!(
+        binder.bind(&statement),
+        Err(BinderError::TableNotFound("orders".to_owned()))
+    );
+}
+
+#[test]
+fn 존재하지_않는_컬럼에_create_index하면_오류를_반환한다() {
+    let database = database();
+    let binder = Binder::new(&database);
+    let statement = Statement::CreateIndex(CreateIndexStatement {
+        index_name: "idx_users_age".to_owned(),
+        table: "users".to_owned(),
+        column_name: "age".to_owned(),
+    });
+
+    assert_eq!(
+        binder.bind(&statement),
+        Err(BinderError::ColumnNotFound {
+            table: "users".to_owned(),
+            column: "age".to_owned(),
+        })
     );
 }

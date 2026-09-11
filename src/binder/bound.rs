@@ -1,11 +1,12 @@
 use crate::{
-    parser::ast::{ColumnDefinition, Literal},
-    schema::{ColumnId, TableId},
+    catalog::metadata::{ColumnId, DataType, TableId},
+    tuple::Value,
 };
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum BoundStatement {
     CreateTable(BoundCreateTable),
+    CreateIndex(BoundCreateIndex),
     Insert(BoundInsert),
     Select(BoundSelect),
     Update(BoundUpdate),
@@ -22,7 +23,7 @@ pub struct BoundSelect {
 #[derive(Debug, PartialEq, Eq)]
 pub struct BoundInsert {
     pub table_id: TableId,
-    pub literals: Vec<Literal>,
+    pub values: Vec<Value>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -41,7 +42,14 @@ pub struct BoundDelete {
 #[derive(Debug, PartialEq, Eq)]
 pub struct BoundCreateTable {
     pub table: String,
-    pub columns: Vec<ColumnDefinition>,
+    pub columns: Vec<BoundColumnDefinition>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct BoundCreateIndex {
+    pub index_name: String,
+    pub table_id: TableId,
+    pub column_id: ColumnId,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -52,11 +60,17 @@ pub enum BoundProjection {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum BoundExpression {
-    Equal { column_id: ColumnId, value: Literal },
+    Equal { column_id: ColumnId, value: Value },
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct BoundAssignment {
     pub column_id: ColumnId,
-    pub value: Literal,
+    pub value: Value,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct BoundColumnDefinition {
+    pub name: String,
+    pub data_type: DataType,
 }

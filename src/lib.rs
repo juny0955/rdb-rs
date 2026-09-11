@@ -1,12 +1,10 @@
-pub mod binder;
-pub(crate) mod buffer;
+mod binder;
 mod catalog;
 pub mod database;
-pub mod executor;
-mod file;
-mod page;
-pub mod parser;
-mod schema;
+mod executor;
+mod index;
+pub mod sql;
+mod storage;
 mod table;
 mod tuple;
 
