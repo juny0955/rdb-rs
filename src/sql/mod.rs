@@ -64,7 +64,7 @@ impl Parser {
 
         if self.current().kind == TokenKind::Where {
             self.expect(TokenKind::Where)?;
-            filter = Some(self.parse_and_expression()?);
+            filter = Some(self.parse_or_expression()?);
         }
 
         Ok(SelectStatement {
@@ -93,7 +93,7 @@ impl Parser {
 
         if self.current().kind == TokenKind::Where {
             self.expect(TokenKind::Where)?;
-            filter = Some(self.parse_and_expression()?);
+            filter = Some(self.parse_or_expression()?);
         }
 
         Ok(UpdateStatement {
@@ -110,7 +110,7 @@ impl Parser {
         let mut filter = None;
         if self.current().kind == TokenKind::Where {
             self.expect(TokenKind::Where)?;
-            filter = Some(self.parse_and_expression()?);
+            filter = Some(self.parse_or_expression()?);
         }
 
         Ok(DeleteStatement { table, filter })
@@ -174,6 +174,21 @@ impl Parser {
             }
             _ => Err(ParseError::UnexpectedToken(current.offset)),
         }
+    }
+
+    fn parse_or_expression(&mut self) -> Result<Expression, ParseError> {
+        let left = self.parse_and_expression()?;
+        if self.current().kind == TokenKind::Or {
+            self.expect(TokenKind::Or)?;
+            let right = self.parse_and_expression()?;
+
+            return Ok(Expression::Or {
+                left: Box::new(left),
+                right: Box::new(right),
+            });
+        }
+
+        Ok(left)
     }
 
     fn parse_and_expression(&mut self) -> Result<Expression, ParseError> {

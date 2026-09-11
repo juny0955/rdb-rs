@@ -11,26 +11,37 @@ pub(super) fn filter_rows(
     table: &TableMetadata,
     filter: &BoundExpression,
 ) -> Result<Vec<(RowId, Row)>, ExecutorError> {
-    match filter {
-        BoundExpression::And { left, right } => {
-            let left_rows = filter_rows(rows, table, left)?;
-            filter_rows(left_rows, table, right)
+    let mut results = Vec::new();
+    for (row_id, row) in rows {
+        let values = decode(&row, table.columns())?;
+        if row_matches_filter(&values, table, filter)? {
+            results.push((row_id, row));
         }
+    }
+
+    Ok(results)
+}
+
+fn row_matches_filter(
+    values: &[Value],
+    table: &TableMetadata,
+    filter: &BoundExpression,
+) -> Result<bool, ExecutorError> {
+    match filter {
         BoundExpression::Equal { column_id, value } => {
             let column_index = table
                 .column_index(*column_id)
                 .ok_or(ExecutorError::ColumnNotFound(*column_id))?;
 
-            let mut results = Vec::new();
-            for (row_id, row) in rows {
-                let values = decode(&row, table.columns())?;
-
-                if sql_equals(&values[column_index], value) {
-                    results.push((row_id, row));
-                }
-            }
-
-            Ok(results)
+            Ok(sql_equals(&values[column_index], value))
+        }
+        BoundExpression::And { left, right } => {
+            Ok(row_matches_filter(values, table, left)?
+                && row_matches_filter(values, table, right)?)
+        }
+        BoundExpression::Or { left, right } => {
+            Ok(row_matches_filter(values, table, left)?
+                || row_matches_filter(values, table, right)?)
         }
     }
 }

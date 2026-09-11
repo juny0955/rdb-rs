@@ -204,39 +204,37 @@ impl<'a> Binder<'a> {
 }
 
 fn bind_filter(table: &TableMetadata, filter: &Expression) -> Result<BoundExpression, BinderError> {
-    if let Expression::And { left, right } = filter {
-        let left = bind_filter(table, left)?;
-        let right = bind_filter(table, right)?;
+    match filter {
+        Expression::And { left, right } => Ok(BoundExpression::And {
+            left: Box::new(bind_filter(table, left)?),
+            right: Box::new(bind_filter(table, right)?),
+        }),
+        Expression::Or { left, right } => Ok(BoundExpression::Or {
+            left: Box::new(bind_filter(table, left)?),
+            right: Box::new(bind_filter(table, right)?),
+        }),
+        Expression::Equal { left, right } => {
+            let (Expression::Identifier(column_name), Expression::Literal(literal)) =
+                (left.as_ref(), right.as_ref())
+            else {
+                return Err(BinderError::InvalidFilterExpression);
+            };
 
-        return Ok(BoundExpression::And {
-            left: Box::new(left),
-            right: Box::new(right),
-        });
+            let Some(column) = table.column(column_name) else {
+                return Err(BinderError::ColumnNotFound {
+                    table: table.name().to_owned(),
+                    column: column_name.to_owned(),
+                });
+            };
+
+            let value = bind_value(literal, column)?;
+            Ok(BoundExpression::Equal {
+                column_id: column.id(),
+                value,
+            })
+        }
+        _ => Err(BinderError::InvalidFilterExpression),
     }
-
-    let Expression::Equal { left, right } = filter else {
-        return Err(BinderError::InvalidFilterExpression);
-    };
-
-    let Expression::Identifier(column_name) = left.as_ref() else {
-        return Err(BinderError::InvalidFilterExpression);
-    };
-    let Expression::Literal(literal) = right.as_ref() else {
-        return Err(BinderError::InvalidFilterExpression);
-    };
-
-    let Some(column) = table.column(column_name) else {
-        return Err(BinderError::ColumnNotFound {
-            table: table.name().to_owned(),
-            column: column_name.to_owned(),
-        });
-    };
-
-    let value = bind_value(literal, column)?;
-    Ok(BoundExpression::Equal {
-        column_id: column.id(),
-        value,
-    })
 }
 
 fn bind_value(literal: &Literal, column: &ColumnMetadata) -> Result<Value, BinderError> {

@@ -539,6 +539,69 @@ fn select는_and_filter의_두_조건에_일치하는_row만_반환한다() {
 }
 
 #[test]
+fn select는_or_filter의_한_조건에_일치하는_row를_중복없이_반환한다() {
+    let table_id = TableId::new(1);
+    let database = database(table_id);
+    let columns = users_columns();
+    let left_only = encode(
+        &[Value::BigInt(1), Value::Varchar("Lee".to_owned())],
+        &columns,
+    )
+    .expect("왼쪽 조건에만 일치하는 Row를 변환해야 함");
+    let right_only = encode(
+        &[Value::BigInt(2), Value::Varchar("Kim".to_owned())],
+        &columns,
+    )
+    .expect("오른쪽 조건에만 일치하는 Row를 변환해야 함");
+    let both = encode(
+        &[Value::BigInt(1), Value::Varchar("Kim".to_owned())],
+        &columns,
+    )
+    .expect("두 조건에 일치하는 Row를 변환해야 함");
+    let neither = encode(
+        &[Value::BigInt(2), Value::Varchar("Park".to_owned())],
+        &columns,
+    )
+    .expect("어느 조건에도 일치하지 않는 Row를 변환해야 함");
+    let bound = BoundSelect {
+        table_id,
+        projections: vec![BoundProjection::All],
+        filter: Some(BoundExpression::Or {
+            left: Box::new(BoundExpression::Equal {
+                column_id: ColumnId::new(1),
+                value: Value::BigInt(1),
+            }),
+            right: Box::new(BoundExpression::Equal {
+                column_id: ColumnId::new(2),
+                value: Value::Varchar("Kim".to_owned()),
+            }),
+        }),
+    };
+    let executor = Executor::new(&database);
+
+    let rows = executor
+        .projection_and_filtered_rows(
+            vec![
+                (RowId::new(PageId::new(1), SlotId::new(1)), left_only),
+                (RowId::new(PageId::new(1), SlotId::new(2)), right_only),
+                (RowId::new(PageId::new(1), SlotId::new(3)), both),
+                (RowId::new(PageId::new(1), SlotId::new(4)), neither),
+            ],
+            &bound,
+        )
+        .expect("OR 조건을 적용해야 함");
+
+    assert_eq!(
+        rows,
+        vec![
+            vec![Value::BigInt(1), Value::Varchar("Lee".to_owned())],
+            vec![Value::BigInt(2), Value::Varchar("Kim".to_owned())],
+            vec![Value::BigInt(1), Value::Varchar("Kim".to_owned())],
+        ]
+    );
+}
+
+#[test]
 fn select에서_null_equal_filter는_row를_반환하지_않는다() {
     let table_id = TableId::new(1);
     let database = database(table_id);

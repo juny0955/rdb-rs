@@ -42,7 +42,7 @@ impl Database {
                     value,
                 )?
             }
-            Some(BoundExpression::And { .. }) => None,
+            Some(_) => None,
             None => None,
         };
 

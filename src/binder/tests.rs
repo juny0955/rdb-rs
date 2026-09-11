@@ -499,6 +499,44 @@ fn and_where_조건을_bound_expression으로변환한다() {
 }
 
 #[test]
+fn or_where_조건을_bound_expression으로변환한다() {
+    let database = database();
+    let binder = Binder::new(&database);
+    let statement = SelectStatement {
+        projections: vec![Projection::All],
+        table: "users".to_owned(),
+        filter: Some(Expression::Or {
+            left: Box::new(Expression::Equal {
+                left: Box::new(Expression::Identifier("id".to_owned())),
+                right: Box::new(Expression::Literal(Literal::Integer(1))),
+            }),
+            right: Box::new(Expression::Equal {
+                left: Box::new(Expression::Identifier("name".to_owned())),
+                right: Box::new(Expression::Literal(Literal::String("Kim".to_owned()))),
+            }),
+        }),
+    };
+
+    assert_eq!(
+        binder.bind_select(&statement),
+        Ok(BoundSelect {
+            table_id: TableId::new(1),
+            projections: vec![BoundProjection::All],
+            filter: Some(BoundExpression::Or {
+                left: Box::new(BoundExpression::Equal {
+                    column_id: ColumnId::new(1),
+                    value: Value::BigInt(1),
+                }),
+                right: Box::new(BoundExpression::Equal {
+                    column_id: ColumnId::new(2),
+                    value: Value::Varchar("Kim".to_owned()),
+                }),
+            }),
+        })
+    );
+}
+
+#[test]
 fn 잘못된_projection_expression은_오류를_반환한다() {
     let database = database();
     let binder = Binder::new(&database);

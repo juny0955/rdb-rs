@@ -68,6 +68,10 @@ pub enum BoundExpression {
         left: Box<BoundExpression>,
         right: Box<BoundExpression>,
     },
+    Or {
+        left: Box<BoundExpression>,
+        right: Box<BoundExpression>,
+    },
 }
 
 #[derive(Debug, PartialEq, Eq)]

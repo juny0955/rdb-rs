@@ -45,6 +45,7 @@ pub enum TokenKind {
     Asterisk,
     Eq,
     And,
+    Or,
 
     Eof,
 }
@@ -70,6 +71,7 @@ impl From<&str> for TokenKind {
             "BOOLEAN" => Self::Boolean,
             "VARCHAR" => Self::Varchar,
             "AND" => Self::And,
+            "OR" => Self::Or,
             "NULL" => Self::Null,
             _ => Self::Identifier(value.to_owned()),
         }
