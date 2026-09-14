@@ -1,5 +1,5 @@
 use crate::{
-    binder::{BoundExpression, BoundStatement},
+    binder::{BoundExpression, BoundOperator, BoundStatement},
     catalog::metadata::{RelationId, TableId},
     database::{Database, DatabaseError, ExecuteResult},
     index::{
@@ -80,7 +80,12 @@ fn indexed_equal_predicate는_index_candidate를_반환한다() -> Result<(), Da
         panic!("SELECT 문이어야 함");
     };
 
-    let Some(BoundExpression::Equal { column_id, value }) = &bound.filter else {
+    let Some(BoundExpression::Comparison {
+        column_id,
+        operator: BoundOperator::Equal,
+        value,
+    }) = &bound.filter
+    else {
         panic!("equal filter여야 함");
     };
     let candidates = IndexManager::search_index_row_ids(

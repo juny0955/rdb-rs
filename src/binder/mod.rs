@@ -1,7 +1,7 @@
 use crate::{
     catalog::metadata::{ColumnMetadata, DataType, DatabaseMetadata, TableMetadata},
     sql::ast::{
-        CreateIndexStatement, DeleteStatement,
+        ComparisonOperator, CreateIndexStatement, DeleteStatement,
         Expression::{self, Identifier},
         InsertStatement, Literal, Projection, SelectStatement, SqlDataType, Statement,
         UpdateStatement,
@@ -213,7 +213,11 @@ fn bind_filter(table: &TableMetadata, filter: &Expression) -> Result<BoundExpres
             left: Box::new(bind_filter(table, left)?),
             right: Box::new(bind_filter(table, right)?),
         }),
-        Expression::Equal { left, right } => {
+        Expression::Comparison {
+            left,
+            operator,
+            right,
+        } => {
             let (Expression::Identifier(column_name), Expression::Literal(literal)) =
                 (left.as_ref(), right.as_ref())
             else {
@@ -228,8 +232,9 @@ fn bind_filter(table: &TableMetadata, filter: &Expression) -> Result<BoundExpres
             };
 
             let value = bind_value(literal, column)?;
-            Ok(BoundExpression::Equal {
+            Ok(BoundExpression::Comparison {
                 column_id: column.id(),
+                operator: bind_operator(*operator),
                 value,
             })
         }
@@ -266,6 +271,17 @@ fn bind_data_type(sql_data_type: SqlDataType) -> DataType {
         SqlDataType::Boolean => DataType::Boolean,
         SqlDataType::Varchar => DataType::Varchar,
         SqlDataType::Null => DataType::Null,
+    }
+}
+
+fn bind_operator(ast_operator: ComparisonOperator) -> BoundOperator {
+    match ast_operator {
+        ComparisonOperator::Equal => BoundOperator::Equal,
+        ComparisonOperator::NotEqual => BoundOperator::NotEqual,
+        ComparisonOperator::LessThan => BoundOperator::LessThan,
+        ComparisonOperator::GreaterThan => BoundOperator::GreaterThan,
+        ComparisonOperator::LessThanOrEqual => BoundOperator::LessThanOrEqual,
+        ComparisonOperator::GreaterThanOrEqual => BoundOperator::GreaterThanOrEqual,
     }
 }
 

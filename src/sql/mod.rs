@@ -1,8 +1,8 @@
 use crate::sql::{
     ast::{
-        Assignment, ColumnDefinition, CreateIndexStatement, CreateTableStatement, DeleteStatement,
-        Expression, InsertStatement, Literal, Projection, SelectStatement, SqlDataType, Statement,
-        UpdateStatement,
+        Assignment, ColumnDefinition, ComparisonOperator, CreateIndexStatement,
+        CreateTableStatement, DeleteStatement, Expression, InsertStatement, Literal, Projection,
+        SelectStatement, SqlDataType, Statement, UpdateStatement,
     },
     token::{Token, TokenKind},
 };
@@ -192,10 +192,10 @@ impl Parser {
     }
 
     fn parse_and_expression(&mut self) -> Result<Expression, ParseError> {
-        let left = self.parse_equal_expression()?;
+        let left = self.parse_comparison_expression()?;
         if self.current().kind == TokenKind::And {
             self.expect(TokenKind::And)?;
-            let right = self.parse_equal_expression()?;
+            let right = self.parse_comparison_expression()?;
 
             return Ok(Expression::And {
                 left: Box::new(left),
@@ -206,13 +206,23 @@ impl Parser {
         Ok(left)
     }
 
-    fn parse_equal_expression(&mut self) -> Result<Expression, ParseError> {
+    fn parse_comparison_expression(&mut self) -> Result<Expression, ParseError> {
         let identifier = Expression::Identifier(self.expect_identifier()?);
-        self.expect(TokenKind::Eq)?;
+        let operator = match self.current().kind {
+            TokenKind::Eq => ComparisonOperator::Equal,
+            TokenKind::NotEq => ComparisonOperator::NotEqual,
+            TokenKind::Lt => ComparisonOperator::LessThan,
+            TokenKind::Gt => ComparisonOperator::GreaterThan,
+            TokenKind::LtEq => ComparisonOperator::LessThanOrEqual,
+            TokenKind::GtEq => ComparisonOperator::GreaterThanOrEqual,
+            _ => return Err(ParseError::UnexpectedToken(self.position)),
+        };
+        self.advance();
         let literal = Expression::Literal(self.expect_literal()?);
 
-        Ok(Expression::Equal {
+        Ok(Expression::Comparison {
             left: Box::new(identifier),
+            operator,
             right: Box::new(literal),
         })
     }

@@ -37,15 +37,22 @@ pub enum TokenKind {
     Integer(i64),
     StringLiteral(String),
 
-    // symbol / operator
+    // symbol
     LeftParen,
     RightParen,
     Comma,
     Semicolon,
     Asterisk,
-    Eq,
     And,
     Or,
+
+    // operator
+    Eq,
+    NotEq,
+    Lt,
+    Gt,
+    LtEq,
+    GtEq,
 
     Eof,
 }

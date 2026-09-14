@@ -28,12 +28,16 @@ fn row_matches_filter(
     filter: &BoundExpression,
 ) -> Result<bool, ExecutorError> {
     match filter {
-        BoundExpression::Equal { column_id, value } => {
+        BoundExpression::Comparison {
+            column_id,
+            operator,
+            value,
+        } => {
             let column_index = table
                 .column_index(*column_id)
                 .ok_or(ExecutorError::ColumnNotFound(*column_id))?;
 
-            Ok(sql_equals(&values[column_index], value))
+            Ok(values[column_index].compare(operator, value))
         }
         BoundExpression::And { left, right } => {
             Ok(row_matches_filter(values, table, left)?
@@ -44,12 +48,4 @@ fn row_matches_filter(
                 || row_matches_filter(values, table, right)?)
         }
     }
-}
-
-pub(super) fn sql_equals(left: &Value, right: &Value) -> bool {
-    if left == &Value::Null || right == &Value::Null {
-        return false;
-    }
-
-    left == right
 }

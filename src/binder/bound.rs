@@ -59,9 +59,20 @@ pub enum BoundProjection {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub enum BoundOperator {
+    Equal,
+    NotEqual,
+    LessThan,
+    GreaterThan,
+    LessThanOrEqual,
+    GreaterThanOrEqual,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub enum BoundExpression {
-    Equal {
+    Comparison {
         column_id: ColumnId,
+        operator: BoundOperator,
         value: Value,
     },
     And {

@@ -1,8 +1,10 @@
 use crate::{
+    binder::BoundOperator,
     catalog::metadata::{ColumnId, ColumnMetadata, DataType, TableId, TableMetadata},
     sql::ast::{
-        Assignment, ColumnDefinition, CreateIndexStatement, CreateTableStatement, DeleteStatement,
-        Expression, InsertStatement, Projection, SelectStatement, UpdateStatement,
+        Assignment, ColumnDefinition, ComparisonOperator, CreateIndexStatement,
+        CreateTableStatement, DeleteStatement, Expression, InsertStatement, Projection,
+        SelectStatement, UpdateStatement,
     },
 };
 
@@ -361,8 +363,9 @@ fn 컬럼_타입에_맞는_where_조건을_select에서_bind한다() {
     let statement = Statement::Select(SelectStatement {
         projections: vec![Projection::All],
         table: "users".to_owned(),
-        filter: Some(Expression::Equal {
+        filter: Some(Expression::Comparison {
             left: Box::new(Expression::Identifier("id".to_owned())),
+            operator: ComparisonOperator::Equal,
             right: Box::new(Expression::Literal(Literal::Integer(1))),
         }),
     });
@@ -380,8 +383,9 @@ fn 컬럼_타입과_다른_where_조건을_update하면_오류를_반환한다()
             column: "name".to_owned(),
             value: Literal::String("Lee".to_owned()),
         }],
-        filter: Some(Expression::Equal {
+        filter: Some(Expression::Comparison {
             left: Box::new(Expression::Identifier("id".to_owned())),
+            operator: ComparisonOperator::Equal,
             right: Box::new(Expression::Literal(Literal::String("one".to_owned()))),
         }),
     });
@@ -401,8 +405,9 @@ fn 존재하지_않는_where_컬럼으로_delete하면_오류를_반환한다() 
     let binder = Binder::new(&database);
     let statement = Statement::Delete(DeleteStatement {
         table: "users".to_owned(),
-        filter: Some(Expression::Equal {
+        filter: Some(Expression::Comparison {
             left: Box::new(Expression::Identifier("age".to_owned())),
+            operator: ComparisonOperator::Equal,
             right: Box::new(Expression::Literal(Literal::Integer(1))),
         }),
     });
@@ -441,8 +446,9 @@ fn select을_bound_select으로변환한다() {
             "name".to_owned(),
         ))],
         table: "users".to_owned(),
-        filter: Some(Expression::Equal {
+        filter: Some(Expression::Comparison {
             left: Box::new(Expression::Identifier("id".to_owned())),
+            operator: ComparisonOperator::Equal,
             right: Box::new(Expression::Literal(Literal::Integer(1))),
         }),
     };
@@ -452,8 +458,9 @@ fn select을_bound_select으로변환한다() {
         Ok(BoundSelect {
             table_id: TableId::new(1),
             projections: vec![BoundProjection::Column(ColumnId::new(2))],
-            filter: Some(BoundExpression::Equal {
+            filter: Some(BoundExpression::Comparison {
                 column_id: ColumnId::new(1),
+                operator: BoundOperator::Equal,
                 value: Value::BigInt(1),
             }),
         })
@@ -468,12 +475,14 @@ fn and_where_조건을_bound_expression으로변환한다() {
         projections: vec![Projection::All],
         table: "users".to_owned(),
         filter: Some(Expression::And {
-            left: Box::new(Expression::Equal {
+            left: Box::new(Expression::Comparison {
                 left: Box::new(Expression::Identifier("id".to_owned())),
+                operator: ComparisonOperator::Equal,
                 right: Box::new(Expression::Literal(Literal::Integer(1))),
             }),
-            right: Box::new(Expression::Equal {
+            right: Box::new(Expression::Comparison {
                 left: Box::new(Expression::Identifier("name".to_owned())),
+                operator: ComparisonOperator::Equal,
                 right: Box::new(Expression::Literal(Literal::String("Kim".to_owned()))),
             }),
         }),
@@ -485,12 +494,14 @@ fn and_where_조건을_bound_expression으로변환한다() {
             table_id: TableId::new(1),
             projections: vec![BoundProjection::All],
             filter: Some(BoundExpression::And {
-                left: Box::new(BoundExpression::Equal {
+                left: Box::new(BoundExpression::Comparison {
                     column_id: ColumnId::new(1),
+                    operator: BoundOperator::Equal,
                     value: Value::BigInt(1),
                 }),
-                right: Box::new(BoundExpression::Equal {
+                right: Box::new(BoundExpression::Comparison {
                     column_id: ColumnId::new(2),
+                    operator: BoundOperator::Equal,
                     value: Value::Varchar("Kim".to_owned()),
                 }),
             }),
@@ -506,12 +517,14 @@ fn or_where_조건을_bound_expression으로변환한다() {
         projections: vec![Projection::All],
         table: "users".to_owned(),
         filter: Some(Expression::Or {
-            left: Box::new(Expression::Equal {
+            left: Box::new(Expression::Comparison {
                 left: Box::new(Expression::Identifier("id".to_owned())),
+                operator: ComparisonOperator::Equal,
                 right: Box::new(Expression::Literal(Literal::Integer(1))),
             }),
-            right: Box::new(Expression::Equal {
+            right: Box::new(Expression::Comparison {
                 left: Box::new(Expression::Identifier("name".to_owned())),
+                operator: ComparisonOperator::Equal,
                 right: Box::new(Expression::Literal(Literal::String("Kim".to_owned()))),
             }),
         }),
@@ -523,12 +536,14 @@ fn or_where_조건을_bound_expression으로변환한다() {
             table_id: TableId::new(1),
             projections: vec![BoundProjection::All],
             filter: Some(BoundExpression::Or {
-                left: Box::new(BoundExpression::Equal {
+                left: Box::new(BoundExpression::Comparison {
                     column_id: ColumnId::new(1),
+                    operator: BoundOperator::Equal,
                     value: Value::BigInt(1),
                 }),
-                right: Box::new(BoundExpression::Equal {
+                right: Box::new(BoundExpression::Comparison {
                     column_id: ColumnId::new(2),
+                    operator: BoundOperator::Equal,
                     value: Value::Varchar("Kim".to_owned()),
                 }),
             }),
@@ -578,8 +593,9 @@ fn delete를_bound_delete로변환한다() {
     let binder = Binder::new(&database);
     let statement = DeleteStatement {
         table: "users".to_owned(),
-        filter: Some(Expression::Equal {
+        filter: Some(Expression::Comparison {
             left: Box::new(Expression::Identifier("id".to_owned())),
+            operator: ComparisonOperator::Equal,
             right: Box::new(Expression::Literal(Literal::Integer(1))),
         }),
     };
@@ -588,8 +604,9 @@ fn delete를_bound_delete로변환한다() {
         binder.bind_delete(&statement),
         Ok(BoundDelete {
             table_id: TableId::new(1),
-            filter: Some(BoundExpression::Equal {
+            filter: Some(BoundExpression::Comparison {
                 column_id: ColumnId::new(1),
+                operator: BoundOperator::Equal,
                 value: Value::BigInt(1),
             }),
         })
@@ -606,8 +623,9 @@ fn update를_bound_update로변환한다() {
             column: "name".to_owned(),
             value: Literal::String("Lee".to_owned()),
         }],
-        filter: Some(Expression::Equal {
+        filter: Some(Expression::Comparison {
             left: Box::new(Expression::Identifier("id".to_owned())),
+            operator: ComparisonOperator::Equal,
             right: Box::new(Expression::Literal(Literal::Integer(1))),
         }),
     };
@@ -620,8 +638,9 @@ fn update를_bound_update로변환한다() {
                 column_id: ColumnId::new(2),
                 value: Value::Varchar("Lee".to_owned()),
             }],
-            filter: Some(BoundExpression::Equal {
+            filter: Some(BoundExpression::Comparison {
                 column_id: ColumnId::new(1),
+                operator: BoundOperator::Equal,
                 value: Value::BigInt(1),
             }),
         })

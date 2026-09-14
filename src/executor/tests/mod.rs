@@ -2,8 +2,8 @@ use std::{io::ErrorKind, path::Path};
 
 use crate::{
     binder::{
-        BoundAssignment, BoundDelete, BoundExpression, BoundInsert, BoundProjection, BoundSelect,
-        BoundUpdate,
+        BoundAssignment, BoundDelete, BoundExpression, BoundInsert, BoundOperator, BoundProjection,
+        BoundSelect, BoundUpdate,
     },
     catalog::metadata::{
         ColumnId, ColumnMetadata, DataType, DatabaseMetadata, RelationId, TableId, TableMetadata,
@@ -74,8 +74,9 @@ fn select_name_equals(table_id: TableId, value: Value) -> BoundSelect {
     BoundSelect {
         table_id,
         projections: vec![BoundProjection::All],
-        filter: Some(BoundExpression::Equal {
+        filter: Some(BoundExpression::Comparison {
             column_id: ColumnId::new(2),
+            operator: BoundOperator::Equal,
             value,
         }),
     }
@@ -153,8 +154,9 @@ fn update는_필터와_일치하는_row만_수정하고_재시작후에도_유�
             column_id: ColumnId::new(2),
             value: Value::Varchar("Park".to_owned()),
         }],
-        filter: Some(BoundExpression::Equal {
+        filter: Some(BoundExpression::Comparison {
             column_id: ColumnId::new(1),
+            operator: BoundOperator::Equal,
             value: Value::BigInt(1),
         }),
     };
@@ -238,8 +240,9 @@ fn delete는_필터와_일치하는_row만_삭제하고_재시작후에도_유�
 
     let bound = BoundDelete {
         table_id,
-        filter: Some(BoundExpression::Equal {
+        filter: Some(BoundExpression::Comparison {
             column_id: ColumnId::new(1),
+            operator: BoundOperator::Equal,
             value: Value::BigInt(1),
         }),
     };
@@ -463,8 +466,9 @@ fn 전달된_후보_row에_filter와_projection을적용한다() {
     let bound = BoundSelect {
         table_id,
         projections: vec![BoundProjection::Column(ColumnId::new(2))],
-        filter: Some(BoundExpression::Equal {
+        filter: Some(BoundExpression::Comparison {
             column_id: ColumnId::new(1),
+            operator: BoundOperator::Equal,
             value: Value::BigInt(1),
         }),
     };
@@ -509,12 +513,14 @@ fn select는_and_filter의_두_조건에_일치하는_row만_반환한다() {
         table_id,
         projections: vec![BoundProjection::All],
         filter: Some(BoundExpression::And {
-            left: Box::new(BoundExpression::Equal {
+            left: Box::new(BoundExpression::Comparison {
                 column_id: ColumnId::new(1),
+                operator: BoundOperator::Equal,
                 value: Value::BigInt(1),
             }),
-            right: Box::new(BoundExpression::Equal {
+            right: Box::new(BoundExpression::Comparison {
                 column_id: ColumnId::new(2),
+                operator: BoundOperator::Equal,
                 value: Value::Varchar("Kim".to_owned()),
             }),
         }),
@@ -567,12 +573,14 @@ fn select는_or_filter의_한_조건에_일치하는_row를_중복없이_반환�
         table_id,
         projections: vec![BoundProjection::All],
         filter: Some(BoundExpression::Or {
-            left: Box::new(BoundExpression::Equal {
+            left: Box::new(BoundExpression::Comparison {
                 column_id: ColumnId::new(1),
+                operator: BoundOperator::Equal,
                 value: Value::BigInt(1),
             }),
-            right: Box::new(BoundExpression::Equal {
+            right: Box::new(BoundExpression::Comparison {
                 column_id: ColumnId::new(2),
+                operator: BoundOperator::Equal,
                 value: Value::Varchar("Kim".to_owned()),
             }),
         }),
@@ -629,6 +637,103 @@ fn select에서_null_equal_filter는_row를_반환하지_않는다() {
         .expect("SELECT가 성공해야 함");
 
     assert!(rows.is_empty());
+}
+
+#[test]
+fn select에서_null_not_equal_filter는_null_row를_반환하지_않는다() {
+    let table_id = TableId::new(1);
+    let database = database(table_id);
+    let columns = users_columns();
+    let null_id = encode(&[Value::Null, Value::Varchar("Null".to_owned())], &columns)
+        .expect("NULL Row를 변환해야 함");
+    let equal = encode(
+        &[Value::BigInt(1), Value::Varchar("Kim".to_owned())],
+        &columns,
+    )
+    .expect("일치하는 Row를 변환해야 함");
+    let not_equal = encode(
+        &[Value::BigInt(2), Value::Varchar("Lee".to_owned())],
+        &columns,
+    )
+    .expect("일치하지 않는 Row를 변환해야 함");
+    let bound = BoundSelect {
+        table_id,
+        projections: vec![BoundProjection::All],
+        filter: Some(BoundExpression::Comparison {
+            column_id: ColumnId::new(1),
+            operator: BoundOperator::NotEqual,
+            value: Value::BigInt(1),
+        }),
+    };
+
+    let rows = Executor::new(&database)
+        .projection_and_filtered_rows(
+            vec![
+                (RowId::new(PageId::new(1), SlotId::new(1)), null_id),
+                (RowId::new(PageId::new(1), SlotId::new(2)), equal),
+                (RowId::new(PageId::new(1), SlotId::new(3)), not_equal),
+            ],
+            &bound,
+        )
+        .expect("SELECT가 성공해야 함");
+
+    assert_eq!(
+        rows,
+        vec![vec![Value::BigInt(2), Value::Varchar("Lee".to_owned())]]
+    );
+}
+
+#[test]
+fn select에서_less_than_filter는_더_작은_non_null_row만_반환한다() {
+    // Given
+    let table_id = TableId::new(1);
+    let database = database(table_id);
+    let columns = users_columns();
+    let less = encode(
+        &[Value::BigInt(9), Value::Varchar("Kim".to_owned())],
+        &columns,
+    )
+    .expect("더 작은 Row를 변환해야 함");
+    let equal = encode(
+        &[Value::BigInt(10), Value::Varchar("Lee".to_owned())],
+        &columns,
+    )
+    .expect("같은 값의 Row를 변환해야 함");
+    let greater = encode(
+        &[Value::BigInt(11), Value::Varchar("Park".to_owned())],
+        &columns,
+    )
+    .expect("더 큰 Row를 변환해야 함");
+    let null = encode(&[Value::Null, Value::Varchar("Null".to_owned())], &columns)
+        .expect("NULL Row를 변환해야 함");
+    let bound = BoundSelect {
+        table_id,
+        projections: vec![BoundProjection::All],
+        filter: Some(BoundExpression::Comparison {
+            column_id: ColumnId::new(1),
+            operator: BoundOperator::LessThan,
+            value: Value::BigInt(10),
+        }),
+    };
+
+    // When
+    let rows = Executor::new(&database)
+        .projection_and_filtered_rows(
+            vec![
+                (RowId::new(PageId::new(1), SlotId::new(1)), less),
+                (RowId::new(PageId::new(1), SlotId::new(2)), equal),
+                (RowId::new(PageId::new(1), SlotId::new(3)), greater),
+                (RowId::new(PageId::new(1), SlotId::new(4)), null),
+            ],
+            &bound,
+        )
+        .expect("SELECT가 성공해야 함");
+
+    // Then
+    assert_eq!(
+        rows,
+        vec![vec![Value::BigInt(9), Value::Varchar("Kim".to_owned())]]
+    );
 }
 
 #[test]

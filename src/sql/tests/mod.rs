@@ -17,8 +17,34 @@ fn select_where_문을_ast로_파싱한다() {
                 "name".to_owned()
             ))],
             table: "users".to_owned(),
-            filter: Some(Expression::Equal {
+            filter: Some(Expression::Comparison {
                 left: Box::new(Expression::Identifier("id".to_owned())),
+                operator: ComparisonOperator::Equal,
+                right: Box::new(Expression::Literal(Literal::Integer(10))),
+            }),
+        })
+    );
+}
+
+#[test]
+fn select_where_less_than_문을_ast로_파싱한다() {
+    // Given
+    let mut lexer = Lexer::new("SELECT * FROM users WHERE id < 10;");
+    let tokens = lexer.tokenize().unwrap();
+    let mut parser = Parser::new(tokens);
+
+    // When
+    let statement = parser.parse().unwrap();
+
+    // Then
+    assert_eq!(
+        statement,
+        Statement::Select(SelectStatement {
+            projections: vec![Projection::All],
+            table: "users".to_owned(),
+            filter: Some(Expression::Comparison {
+                left: Box::new(Expression::Identifier("id".to_owned())),
+                operator: ComparisonOperator::LessThan,
                 right: Box::new(Expression::Literal(Literal::Integer(10))),
             }),
         })
@@ -39,12 +65,14 @@ fn select_where_and_문을_ast로_파싱한다() {
             projections: vec![Projection::All],
             table: "users".to_owned(),
             filter: Some(Expression::And {
-                left: Box::new(Expression::Equal {
+                left: Box::new(Expression::Comparison {
                     left: Box::new(Expression::Identifier("id".to_owned())),
+                    operator: ComparisonOperator::Equal,
                     right: Box::new(Expression::Literal(Literal::Integer(1))),
                 }),
-                right: Box::new(Expression::Equal {
+                right: Box::new(Expression::Comparison {
                     left: Box::new(Expression::Identifier("name".to_owned())),
+                    operator: ComparisonOperator::Equal,
                     right: Box::new(Expression::Literal(Literal::String("Kim".to_owned()))),
                 }),
             }),
@@ -66,12 +94,14 @@ fn select_where_or_문을_ast로_파싱한다() {
             projections: vec![Projection::All],
             table: "users".to_owned(),
             filter: Some(Expression::Or {
-                left: Box::new(Expression::Equal {
+                left: Box::new(Expression::Comparison {
                     left: Box::new(Expression::Identifier("id".to_owned())),
+                    operator: ComparisonOperator::Equal,
                     right: Box::new(Expression::Literal(Literal::Integer(1))),
                 }),
-                right: Box::new(Expression::Equal {
+                right: Box::new(Expression::Comparison {
                     left: Box::new(Expression::Identifier("name".to_owned())),
+                    operator: ComparisonOperator::Equal,
                     right: Box::new(Expression::Literal(Literal::String("Kim".to_owned()))),
                 }),
             }),
@@ -93,17 +123,20 @@ fn select_where에서_and는_or보다_높은_우선순위를_가진다() {
             projections: vec![Projection::All],
             table: "users".to_owned(),
             filter: Some(Expression::Or {
-                left: Box::new(Expression::Equal {
+                left: Box::new(Expression::Comparison {
                     left: Box::new(Expression::Identifier("id".to_owned())),
+                    operator: ComparisonOperator::Equal,
                     right: Box::new(Expression::Literal(Literal::Integer(1))),
                 }),
                 right: Box::new(Expression::And {
-                    left: Box::new(Expression::Equal {
+                    left: Box::new(Expression::Comparison {
                         left: Box::new(Expression::Identifier("name".to_owned())),
+                        operator: ComparisonOperator::Equal,
                         right: Box::new(Expression::Literal(Literal::String("Kim".to_owned()))),
                     }),
-                    right: Box::new(Expression::Equal {
+                    right: Box::new(Expression::Comparison {
                         left: Box::new(Expression::Identifier("id".to_owned())),
+                        operator: ComparisonOperator::Equal,
                         right: Box::new(Expression::Literal(Literal::Integer(2))),
                     }),
                 }),
@@ -193,8 +226,9 @@ fn update_문을_ast로_파싱한다() {
                 column: "name".to_owned(),
                 value: Literal::String("Lee".to_owned()),
             }],
-            filter: Some(Expression::Equal {
+            filter: Some(Expression::Comparison {
                 left: Box::new(Expression::Identifier("id".to_owned())),
+                operator: ComparisonOperator::Equal,
                 right: Box::new(Expression::Literal(Literal::Integer(1))),
             }),
         })
@@ -213,8 +247,9 @@ fn delete_문을_ast로_파싱한다() {
         statement,
         Statement::Delete(DeleteStatement {
             table: "users".to_owned(),
-            filter: Some(Expression::Equal {
+            filter: Some(Expression::Comparison {
                 left: Box::new(Expression::Identifier("id".to_owned())),
+                operator: ComparisonOperator::Equal,
                 right: Box::new(Expression::Literal(Literal::Integer(1))),
             }),
         })

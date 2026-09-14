@@ -482,8 +482,8 @@ Heap Table
 ### 구현
 
 * [x] `AND`
-* [ ] `OR`
-* [ ] Comparison Expression
+* [x] `OR`
+* [x] Comparison Expression
 * [ ] `ORDER BY`
 * [ ] `LIMIT`
 * [ ] Aggregate

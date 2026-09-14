@@ -1,5 +1,5 @@
 use crate::{
-    binder::{BoundDelete, BoundExpression, BoundInsert, BoundSelect, BoundUpdate},
+    binder::{BoundDelete, BoundExpression, BoundInsert, BoundOperator, BoundSelect, BoundUpdate},
     database::{Database, DatabaseError, ExecuteResult},
     executor::Executor,
     index::IndexManager,
@@ -33,15 +33,17 @@ impl Database {
     ) -> Result<ExecuteResult, DatabaseError> {
         let indexes = self.catalog.metadata().indexes();
         let index_scan = match &bound.filter {
-            Some(BoundExpression::Equal { column_id, value }) => {
-                IndexManager::search_index_row_ids(
-                    &mut self.storage_manager,
-                    indexes,
-                    bound.table_id,
-                    *column_id,
-                    value,
-                )?
-            }
+            Some(BoundExpression::Comparison {
+                column_id,
+                operator,
+                value,
+            }) if *operator == BoundOperator::Equal => IndexManager::search_index_row_ids(
+                &mut self.storage_manager,
+                indexes,
+                bound.table_id,
+                *column_id,
+                value,
+            )?,
             Some(_) => None,
             None => None,
         };

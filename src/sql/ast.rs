@@ -72,12 +72,23 @@ pub enum Projection {
     Expression(Expression),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComparisonOperator {
+    Equal,
+    NotEqual,
+    LessThan,
+    GreaterThan,
+    LessThanOrEqual,
+    GreaterThanOrEqual,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expression {
     Identifier(String),
     Literal(Literal),
-    Equal {
+    Comparison {
         left: Box<Expression>,
+        operator: ComparisonOperator,
         right: Box<Expression>,
     },
     And {
