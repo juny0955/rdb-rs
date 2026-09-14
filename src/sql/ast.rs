@@ -27,6 +27,7 @@ pub struct SelectStatement {
     pub table: String,
     pub filter: Option<Expression>,
     pub order_by: Option<OrderBy>,
+    pub limit: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

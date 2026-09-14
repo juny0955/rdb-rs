@@ -129,7 +129,7 @@ impl<'a> Executor<'a> {
 
     pub fn select_rows(
         &self,
-        rows: Vec<(RowId, Row)>,
+        mut rows: Vec<(RowId, Row)>,
         bound: &BoundSelect,
     ) -> Result<Vec<Vec<Value>>, ExecutorError> {
         let table = self
@@ -137,19 +137,19 @@ impl<'a> Executor<'a> {
             .table_by_id(bound.table_id)
             .ok_or(ExecutorError::TableNotFound(bound.table_id))?;
 
-        let filtered_rows = if let Some(filter) = bound.filter.as_ref() {
-            filter_rows(rows, table, filter)?
-        } else {
-            rows
-        };
+        if let Some(filter) = bound.filter.as_ref() {
+            rows = filter_rows(rows, table, filter)?;
+        }
 
-        let ordered_rows = if let Some(order) = bound.order_by.as_ref() {
-            order_rows(filtered_rows, table, order)?
-        } else {
-            filtered_rows
-        };
+        if let Some(order) = bound.order_by.as_ref() {
+            rows = order_rows(rows, table, order)?;
+        }
 
-        project_rows(ordered_rows, table, &bound.projections)
+        if let Some(limit) = bound.limit {
+            rows.truncate(limit);
+        }
+
+        project_rows(rows, table, &bound.projections)
     }
 }
 

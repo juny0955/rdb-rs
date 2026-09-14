@@ -74,11 +74,18 @@ impl Parser {
             order_by = Some(self.parse_order_by()?);
         }
 
+        let mut limit = None;
+        if self.current().kind == TokenKind::Limit {
+            self.expect(TokenKind::Limit)?;
+            limit = Some(self.parse_limit()?);
+        }
+
         Ok(SelectStatement {
             projections,
             table,
             filter,
             order_by,
+            limit,
         })
     }
 
@@ -198,6 +205,21 @@ impl Parser {
         }
 
         Ok(OrderBy { column, direction })
+    }
+
+    fn parse_limit(&mut self) -> Result<usize, ParseError> {
+        let literal = self.expect_literal()?;
+
+        match literal {
+            Literal::Integer(v) => {
+                if v.is_negative() {
+                    return Err(ParseError::UnexpectedToken(self.position));
+                }
+
+                Ok(v as usize)
+            }
+            _ => Err(ParseError::UnexpectedToken(self.position)),
+        }
     }
 
     fn parse_or_expression(&mut self) -> Result<Expression, ParseError> {

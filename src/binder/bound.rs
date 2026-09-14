@@ -19,6 +19,7 @@ pub struct BoundSelect {
     pub projections: Vec<BoundProjection>,
     pub filter: Option<BoundExpression>,
     pub order_by: Option<BoundOrderBy>,
+    pub limit: Option<usize>,
 }
 
 #[derive(Debug, PartialEq, Eq)]

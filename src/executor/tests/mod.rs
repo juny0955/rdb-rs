@@ -49,6 +49,7 @@ fn select_all(table_id: TableId) -> BoundSelect {
         projections: vec![BoundProjection::All],
         filter: None,
         order_by: None,
+        limit: None,
     }
 }
 
@@ -58,6 +59,7 @@ fn select_name(table_id: TableId) -> BoundSelect {
         projections: vec![BoundProjection::Column(ColumnId::new(2))],
         filter: None,
         order_by: None,
+        limit: None,
     }
 }
 
@@ -70,6 +72,7 @@ fn select_name_then_all(table_id: TableId) -> BoundSelect {
         ],
         filter: None,
         order_by: None,
+        limit: None,
     }
 }
 
@@ -83,6 +86,7 @@ fn select_name_equals(table_id: TableId, value: Value) -> BoundSelect {
             value,
         }),
         order_by: None,
+        limit: None,
     }
 }
 
@@ -476,6 +480,7 @@ fn 전달된_후보_row에_filter와_projection을적용한다() {
             value: Value::BigInt(1),
         }),
         order_by: None,
+        limit: None,
     };
     let executor = Executor::new(&database);
 
@@ -530,6 +535,7 @@ fn select는_and_filter의_두_조건에_일치하는_row만_반환한다() {
             }),
         }),
         order_by: None,
+        limit: None,
     };
     let executor = Executor::new(&database);
 
@@ -591,6 +597,7 @@ fn select는_or_filter의_한_조건에_일치하는_row를_중복없이_반환�
             }),
         }),
         order_by: None,
+        limit: None,
     };
     let executor = Executor::new(&database);
 
@@ -672,6 +679,7 @@ fn select에서_null_not_equal_filter는_null_row를_반환하지_않는다() {
             value: Value::BigInt(1),
         }),
         order_by: None,
+        limit: None,
     };
 
     let rows = Executor::new(&database)
@@ -723,6 +731,7 @@ fn select에서_less_than_filter는_더_작은_non_null_row만_반환한다() {
             value: Value::BigInt(10),
         }),
         order_by: None,
+        limit: None,
     };
 
     // When
@@ -793,6 +802,7 @@ fn select는_filter후_order_by_asc로_null을_마지막에_정렬한다() {
             column_id: ColumnId::new(2),
             direction: BoundSortedDirection::Asc,
         }),
+        limit: None,
     };
 
     // When
@@ -855,6 +865,7 @@ fn select는_order_by_desc로_null을_처음에_정렬한다() {
             column_id: ColumnId::new(2),
             direction: BoundSortedDirection::Desc,
         }),
+        limit: None,
     };
 
     // When
@@ -906,6 +917,7 @@ fn select_projection에_없는_order_by_컬럼으로_정렬한다() {
             column_id: ColumnId::new(2),
             direction: BoundSortedDirection::Asc,
         }),
+        limit: None,
     };
 
     // When
@@ -915,6 +927,107 @@ fn select_projection에_없는_order_by_컬럼으로_정렬한다() {
 
     // Then
     assert_eq!(rows, vec![vec![Value::BigInt(1)], vec![Value::BigInt(2)]]);
+}
+
+#[test]
+fn select는_filter와_order_by후_limit을_적용한다() {
+    // Given
+    let table_id = TableId::new(1);
+    let database = database(table_id);
+    let columns = users_columns();
+    let rows = vec![
+        (
+            RowId::new(PageId::new(1), SlotId::new(1)),
+            encode(
+                &[Value::BigInt(1), Value::Varchar("Ahn".to_owned())],
+                &columns,
+            )
+            .expect("Ahn Row를 변환해야 함"),
+        ),
+        (
+            RowId::new(PageId::new(1), SlotId::new(2)),
+            encode(
+                &[Value::BigInt(2), Value::Varchar("Lee".to_owned())],
+                &columns,
+            )
+            .expect("Lee Row를 변환해야 함"),
+        ),
+        (
+            RowId::new(PageId::new(1), SlotId::new(3)),
+            encode(
+                &[Value::BigInt(3), Value::Varchar("Kim".to_owned())],
+                &columns,
+            )
+            .expect("Kim Row를 변환해야 함"),
+        ),
+        (
+            RowId::new(PageId::new(1), SlotId::new(4)),
+            encode(
+                &[Value::BigInt(4), Value::Varchar("Park".to_owned())],
+                &columns,
+            )
+            .expect("Park Row를 변환해야 함"),
+        ),
+    ];
+    let bound = BoundSelect {
+        table_id,
+        projections: vec![BoundProjection::Column(ColumnId::new(2))],
+        filter: Some(BoundExpression::Comparison {
+            column_id: ColumnId::new(1),
+            operator: BoundOperator::GreaterThan,
+            value: Value::BigInt(1),
+        }),
+        order_by: Some(BoundOrderBy {
+            column_id: ColumnId::new(2),
+            direction: BoundSortedDirection::Asc,
+        }),
+        limit: Some(2),
+    };
+
+    // When
+    let rows = Executor::new(&database)
+        .select_rows(rows, &bound)
+        .expect("SELECT가 성공해야 함");
+
+    // Then
+    assert_eq!(
+        rows,
+        vec![
+            vec![Value::Varchar("Kim".to_owned())],
+            vec![Value::Varchar("Lee".to_owned())],
+        ]
+    );
+}
+
+#[test]
+fn select는_limit_zero이면_빈_결과를_반환한다() {
+    // Given
+    let table_id = TableId::new(1);
+    let database = database(table_id);
+    let columns = users_columns();
+    let rows = vec![(
+        RowId::new(PageId::new(1), SlotId::new(1)),
+        encode(
+            &[Value::BigInt(1), Value::Varchar("Kim".to_owned())],
+            &columns,
+        )
+        .expect("Kim Row를 변환해야 함"),
+    )];
+    let bound = BoundSelect {
+        table_id,
+        projections: vec![BoundProjection::All],
+        filter: None,
+        order_by: None,
+        limit: Some(0),
+    };
+
+    // When
+    let rows = Executor::new(&database)
+        .select_rows(rows, &bound)
+        .expect("SELECT가 성공해야 함");
+
+    // Then
+    assert!(rows.is_empty());
 }
 
 #[test]

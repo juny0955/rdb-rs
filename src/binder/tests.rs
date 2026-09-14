@@ -46,6 +46,7 @@ fn 존재하는_테이블을_조회하는_statement를_bind한다() {
         table: "users".to_owned(),
         filter: None,
         order_by: None,
+        limit: None,
     });
 
     assert!(binder.bind(&statement).is_ok());
@@ -60,6 +61,7 @@ fn 존재하지_않는_테이블을_조회하면_오류를_반환한다() {
         table: "orders".to_owned(),
         filter: None,
         order_by: None,
+        limit: None,
     });
 
     assert_eq!(
@@ -79,6 +81,7 @@ fn 존재하는_projection_컬럼을_bind한다() {
         table: "users".to_owned(),
         filter: None,
         order_by: None,
+        limit: None,
     });
 
     assert!(binder.bind(&statement).is_ok());
@@ -95,6 +98,7 @@ fn 존재하지_않는_projection_컬럼은_오류를_반환한다() {
         table: "users".to_owned(),
         filter: None,
         order_by: None,
+        limit: None,
     });
 
     assert_eq!(
@@ -373,6 +377,7 @@ fn 컬럼_타입에_맞는_where_조건을_select에서_bind한다() {
             right: Box::new(Expression::Literal(Literal::Integer(1))),
         }),
         order_by: None,
+        limit: None,
     });
 
     assert!(binder.bind(&statement).is_ok());
@@ -435,6 +440,7 @@ fn 잘못된_형태의_where_조건은_오류를_반환한다() {
         table: "users".to_owned(),
         filter: Some(Expression::Literal(Literal::Integer(1))),
         order_by: None,
+        limit: None,
     });
 
     assert_eq!(
@@ -458,6 +464,7 @@ fn select을_bound_select으로변환한다() {
             right: Box::new(Expression::Literal(Literal::Integer(1))),
         }),
         order_by: None,
+        limit: None,
     };
 
     assert_eq!(
@@ -471,6 +478,7 @@ fn select을_bound_select으로변환한다() {
                 value: Value::BigInt(1),
             }),
             order_by: None,
+            limit: None,
         })
     );
 }
@@ -488,6 +496,7 @@ fn order_by_desc를_bound_order_by로_변환한다() {
             column: "name".to_owned(),
             direction: SortDirection::Desc,
         }),
+        limit: None,
     };
 
     // When
@@ -504,6 +513,7 @@ fn order_by_desc를_bound_order_by로_변환한다() {
                 column_id: ColumnId::new(2),
                 direction: BoundSortedDirection::Desc,
             }),
+            limit: None,
         })
     );
 }
@@ -521,6 +531,7 @@ fn 존재하지_않는_order_by_컬럼은_오류를_반환한다() {
             column: "age".to_owned(),
             direction: SortDirection::Asc,
         }),
+        limit: None,
     };
 
     // When
@@ -556,6 +567,7 @@ fn and_where_조건을_bound_expression으로변환한다() {
             }),
         }),
         order_by: None,
+        limit: None,
     };
 
     assert_eq!(
@@ -576,6 +588,7 @@ fn and_where_조건을_bound_expression으로변환한다() {
                 }),
             }),
             order_by: None,
+            limit: None,
         })
     );
 }
@@ -600,6 +613,7 @@ fn or_where_조건을_bound_expression으로변환한다() {
             }),
         }),
         order_by: None,
+        limit: None,
     };
 
     assert_eq!(
@@ -620,6 +634,7 @@ fn or_where_조건을_bound_expression으로변환한다() {
                 }),
             }),
             order_by: None,
+            limit: None,
         })
     );
 }
@@ -635,6 +650,7 @@ fn 잘못된_projection_expression은_오류를_반환한다() {
         table: "users".to_owned(),
         filter: None,
         order_by: None,
+        limit: None,
     });
 
     assert_eq!(

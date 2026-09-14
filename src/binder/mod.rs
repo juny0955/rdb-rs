@@ -110,6 +110,7 @@ impl<'a> Binder<'a> {
             projections,
             filter,
             order_by,
+            limit: statement.limit,
         })
     }
 

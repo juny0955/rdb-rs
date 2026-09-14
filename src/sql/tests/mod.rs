@@ -23,6 +23,7 @@ fn select_where_문을_ast로_파싱한다() {
                 right: Box::new(Expression::Literal(Literal::Integer(10))),
             }),
             order_by: None,
+            limit: None,
         })
     );
 }
@@ -49,6 +50,7 @@ fn select_where_less_than_문을_ast로_파싱한다() {
                 right: Box::new(Expression::Literal(Literal::Integer(10))),
             }),
             order_by: None,
+            limit: None,
         })
     );
 }
@@ -79,6 +81,7 @@ fn select_where_and_문을_ast로_파싱한다() {
                 }),
             }),
             order_by: None,
+            limit: None,
         })
     );
 }
@@ -109,6 +112,7 @@ fn select_where_or_문을_ast로_파싱한다() {
                 }),
             }),
             order_by: None,
+            limit: None,
         })
     );
 }
@@ -146,6 +150,7 @@ fn select_where에서_and는_or보다_높은_우선순위를_가진다() {
                 }),
             }),
             order_by: None,
+            limit: None,
         })
     );
 }
@@ -171,6 +176,7 @@ fn select_order_by_방향이_없으면_asc로_파싱한다() {
                 column: "name".to_owned(),
                 direction: SortDirection::Asc,
             }),
+            limit: None,
         })
     );
 }
@@ -196,6 +202,7 @@ fn select_order_by_desc를_ast로_파싱한다() {
                 column: "name".to_owned(),
                 direction: SortDirection::Desc,
             }),
+            limit: None,
         })
     );
 }
