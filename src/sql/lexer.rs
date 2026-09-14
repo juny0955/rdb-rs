@@ -232,6 +232,58 @@ mod tests {
     }
 
     #[test]
+    fn select_order_by_desc_토큰화() {
+        // Given
+        let mut lexer = Lexer::new("SELECT * FROM users ORDER BY name DESC;");
+
+        // When
+        let tokens = lexer.tokenize().unwrap();
+
+        // Then
+        assert_eq!(
+            tokens,
+            vec![
+                Token::new(TokenKind::Select, 0),
+                Token::new(TokenKind::Asterisk, 7),
+                Token::new(TokenKind::From, 9),
+                Token::new(TokenKind::Identifier("users".to_owned()), 14),
+                Token::new(TokenKind::Order, 20),
+                Token::new(TokenKind::By, 26),
+                Token::new(TokenKind::Identifier("name".to_owned()), 29),
+                Token::new(TokenKind::Desc, 34),
+                Token::new(TokenKind::Semicolon, 38),
+                Token::new(TokenKind::Eof, 39),
+            ]
+        );
+    }
+
+    #[test]
+    fn select_order_by_asc_토큰화() {
+        // Given
+        let mut lexer = Lexer::new("SELECT * FROM users ORDER BY id ASC;");
+
+        // When
+        let tokens = lexer.tokenize().unwrap();
+
+        // Then
+        assert_eq!(
+            tokens,
+            vec![
+                Token::new(TokenKind::Select, 0),
+                Token::new(TokenKind::Asterisk, 7),
+                Token::new(TokenKind::From, 9),
+                Token::new(TokenKind::Identifier("users".to_owned()), 14),
+                Token::new(TokenKind::Order, 20),
+                Token::new(TokenKind::By, 26),
+                Token::new(TokenKind::Identifier("id".to_owned()), 29),
+                Token::new(TokenKind::Asc, 32),
+                Token::new(TokenKind::Semicolon, 35),
+                Token::new(TokenKind::Eof, 36),
+            ]
+        );
+    }
+
+    #[test]
     fn 단독_느낌표는_예상하지_않은_문자_오류다() {
         let mut lexer = Lexer::new("!");
 

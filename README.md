@@ -484,7 +484,7 @@ Heap Table
 * [x] `AND`
 * [x] `OR`
 * [x] Comparison Expression
-* [ ] `ORDER BY`
+* [x] `ORDER BY`
 * [ ] `LIMIT`
 * [ ] Aggregate
 * [ ] `COUNT`

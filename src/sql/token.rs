@@ -26,6 +26,12 @@ pub enum TokenKind {
     Update,
     Set,
     Delete,
+    Order,
+    By,
+    Asc,
+    Desc,
+
+    // datatype
     Int,
     BigInt,
     Boolean,
@@ -80,6 +86,10 @@ impl From<&str> for TokenKind {
             "AND" => Self::And,
             "OR" => Self::Or,
             "NULL" => Self::Null,
+            "ORDER" => Self::Order,
+            "BY" => Self::By,
+            "ASC" => Self::Asc,
+            "DESC" => Self::Desc,
             _ => Self::Identifier(value.to_owned()),
         }
     }

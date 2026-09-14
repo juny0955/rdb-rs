@@ -1,7 +1,10 @@
 use crate::{
     binder::{BoundDelete, BoundInsert, BoundSelect, BoundUpdate},
     catalog::metadata::{ColumnId, DatabaseMetadata, TableId},
-    executor::{predicate::filter_rows, projection::project_rows},
+    executor::{
+        predicate::{filter_rows, order_rows},
+        projection::project_rows,
+    },
     storage::page::{Row, RowId},
     tuple::{TupleError, Value, decode, encode},
 };
@@ -124,7 +127,7 @@ impl<'a> Executor<'a> {
         Ok(results)
     }
 
-    pub fn projection_and_filtered_rows(
+    pub fn select_rows(
         &self,
         rows: Vec<(RowId, Row)>,
         bound: &BoundSelect,
@@ -134,13 +137,19 @@ impl<'a> Executor<'a> {
             .table_by_id(bound.table_id)
             .ok_or(ExecutorError::TableNotFound(bound.table_id))?;
 
-        let projections = &bound.projections;
-        let Some(filter) = bound.filter.as_ref() else {
-            return project_rows(rows, table, projections);
+        let filtered_rows = if let Some(filter) = bound.filter.as_ref() {
+            filter_rows(rows, table, filter)?
+        } else {
+            rows
         };
 
-        let filtered_rows = filter_rows(rows, table, filter)?;
-        project_rows(filtered_rows, table, projections)
+        let ordered_rows = if let Some(order) = bound.order_by.as_ref() {
+            order_rows(filtered_rows, table, order)?
+        } else {
+            filtered_rows
+        };
+
+        project_rows(ordered_rows, table, &bound.projections)
     }
 }
 

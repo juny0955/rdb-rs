@@ -57,7 +57,7 @@ impl Database {
         };
 
         let executor = Executor::new(self.catalog.metadata());
-        let results = executor.projection_and_filtered_rows(rows, bound)?;
+        let results = executor.select_rows(rows, bound)?;
         Ok(ExecuteResult::Rows(results))
     }
 

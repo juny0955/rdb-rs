@@ -1,8 +1,8 @@
 use crate::sql::{
     ast::{
         Assignment, ColumnDefinition, ComparisonOperator, CreateIndexStatement,
-        CreateTableStatement, DeleteStatement, Expression, InsertStatement, Literal, Projection,
-        SelectStatement, SqlDataType, Statement, UpdateStatement,
+        CreateTableStatement, DeleteStatement, Expression, InsertStatement, Literal, OrderBy,
+        Projection, SelectStatement, SortDirection, SqlDataType, Statement, UpdateStatement,
     },
     token::{Token, TokenKind},
 };
@@ -60,17 +60,25 @@ impl Parser {
         let projections = self.parse_projections()?;
         self.expect(TokenKind::From)?;
         let table = self.expect_identifier()?;
-        let mut filter = None;
 
+        let mut filter = None;
         if self.current().kind == TokenKind::Where {
             self.expect(TokenKind::Where)?;
             filter = Some(self.parse_or_expression()?);
+        }
+
+        let mut order_by = None;
+        if self.current().kind == TokenKind::Order {
+            self.expect(TokenKind::Order)?;
+            self.expect(TokenKind::By)?;
+            order_by = Some(self.parse_order_by()?);
         }
 
         Ok(SelectStatement {
             projections,
             table,
             filter,
+            order_by,
         })
     }
 
@@ -174,6 +182,22 @@ impl Parser {
             }
             _ => Err(ParseError::UnexpectedToken(current.offset)),
         }
+    }
+
+    fn parse_order_by(&mut self) -> Result<OrderBy, ParseError> {
+        let column = self.expect_identifier()?;
+        let mut direction = SortDirection::Asc;
+
+        match self.current().kind {
+            TokenKind::Asc => self.expect(TokenKind::Asc)?,
+            TokenKind::Desc => {
+                self.expect(TokenKind::Desc)?;
+                direction = SortDirection::Desc;
+            }
+            _ => {}
+        }
+
+        Ok(OrderBy { column, direction })
     }
 
     fn parse_or_expression(&mut self) -> Result<Expression, ParseError> {

@@ -2,8 +2,8 @@ use std::{io::ErrorKind, path::Path};
 
 use crate::{
     binder::{
-        BoundAssignment, BoundDelete, BoundExpression, BoundInsert, BoundOperator, BoundProjection,
-        BoundSelect, BoundUpdate,
+        BoundAssignment, BoundDelete, BoundExpression, BoundInsert, BoundOperator, BoundOrderBy,
+        BoundProjection, BoundSelect, BoundSortedDirection, BoundUpdate,
     },
     catalog::metadata::{
         ColumnId, ColumnMetadata, DataType, DatabaseMetadata, RelationId, TableId, TableMetadata,
@@ -48,6 +48,7 @@ fn select_all(table_id: TableId) -> BoundSelect {
         table_id,
         projections: vec![BoundProjection::All],
         filter: None,
+        order_by: None,
     }
 }
 
@@ -56,6 +57,7 @@ fn select_name(table_id: TableId) -> BoundSelect {
         table_id,
         projections: vec![BoundProjection::Column(ColumnId::new(2))],
         filter: None,
+        order_by: None,
     }
 }
 
@@ -67,6 +69,7 @@ fn select_name_then_all(table_id: TableId) -> BoundSelect {
             BoundProjection::All,
         ],
         filter: None,
+        order_by: None,
     }
 }
 
@@ -79,6 +82,7 @@ fn select_name_equals(table_id: TableId, value: Value) -> BoundSelect {
             operator: BoundOperator::Equal,
             value,
         }),
+        order_by: None,
     }
 }
 
@@ -316,7 +320,7 @@ fn select는_테이블의_모든_row를_반환한다() {
         .scan(&mut storage_manager)
         .expect("테이블을 scan해야 함");
     let rows = executor
-        .projection_and_filtered_rows(scanned_rows, &select_all(table_id))
+        .select_rows(scanned_rows, &select_all(table_id))
         .expect("SELECT가 성공해야 함");
 
     assert_eq!(rows, vec![first_values, second_values]);
@@ -357,7 +361,7 @@ fn select는_지정한_컬럼만_반환한다() {
         .scan(&mut storage_manager)
         .expect("테이블을 scan해야 함");
     let rows = executor
-        .projection_and_filtered_rows(scanned_rows, &select_name(table_id))
+        .select_rows(scanned_rows, &select_name(table_id))
         .expect("SELECT가 성공해야 함");
 
     assert_eq!(
@@ -396,7 +400,7 @@ fn select는_projection_목록_순서대로_값을_반환한다() {
         .scan(&mut storage_manager)
         .expect("테이블을 scan해야 함");
     let rows = executor
-        .projection_and_filtered_rows(scanned_rows, &select_name_then_all(table_id))
+        .select_rows(scanned_rows, &select_name_then_all(table_id))
         .expect("SELECT가 성공해야 함");
 
     assert_eq!(
@@ -438,7 +442,7 @@ fn select는_equal_filter와_일치하는_row만_반환한다() {
         .scan(&mut storage_manager)
         .expect("테이블을 scan해야 함");
     let rows = executor
-        .projection_and_filtered_rows(
+        .select_rows(
             scanned_rows,
             &select_name_equals(table_id, Value::Varchar("Kim".to_owned())),
         )
@@ -471,12 +475,13 @@ fn 전달된_후보_row에_filter와_projection을적용한다() {
             operator: BoundOperator::Equal,
             value: Value::BigInt(1),
         }),
+        order_by: None,
     };
     let executor = Executor::new(&database);
 
     // When
     let rows = executor
-        .projection_and_filtered_rows(
+        .select_rows(
             vec![
                 (RowId::new(PageId::new(1), SlotId::new(1)), kim),
                 (RowId::new(PageId::new(1), SlotId::new(2)), lee),
@@ -524,11 +529,12 @@ fn select는_and_filter의_두_조건에_일치하는_row만_반환한다() {
                 value: Value::Varchar("Kim".to_owned()),
             }),
         }),
+        order_by: None,
     };
     let executor = Executor::new(&database);
 
     let rows = executor
-        .projection_and_filtered_rows(
+        .select_rows(
             vec![
                 (RowId::new(PageId::new(1), SlotId::new(1)), both),
                 (RowId::new(PageId::new(1), SlotId::new(2)), left_only),
@@ -584,11 +590,12 @@ fn select는_or_filter의_한_조건에_일치하는_row를_중복없이_반환�
                 value: Value::Varchar("Kim".to_owned()),
             }),
         }),
+        order_by: None,
     };
     let executor = Executor::new(&database);
 
     let rows = executor
-        .projection_and_filtered_rows(
+        .select_rows(
             vec![
                 (RowId::new(PageId::new(1), SlotId::new(1)), left_only),
                 (RowId::new(PageId::new(1), SlotId::new(2)), right_only),
@@ -633,7 +640,7 @@ fn select에서_null_equal_filter는_row를_반환하지_않는다() {
         .scan(&mut storage_manager)
         .expect("테이블을 scan해야 함");
     let rows = executor
-        .projection_and_filtered_rows(scanned_rows, &select_name_equals(table_id, Value::Null))
+        .select_rows(scanned_rows, &select_name_equals(table_id, Value::Null))
         .expect("SELECT가 성공해야 함");
 
     assert!(rows.is_empty());
@@ -664,10 +671,11 @@ fn select에서_null_not_equal_filter는_null_row를_반환하지_않는다() {
             operator: BoundOperator::NotEqual,
             value: Value::BigInt(1),
         }),
+        order_by: None,
     };
 
     let rows = Executor::new(&database)
-        .projection_and_filtered_rows(
+        .select_rows(
             vec![
                 (RowId::new(PageId::new(1), SlotId::new(1)), null_id),
                 (RowId::new(PageId::new(1), SlotId::new(2)), equal),
@@ -714,11 +722,12 @@ fn select에서_less_than_filter는_더_작은_non_null_row만_반환한다() {
             operator: BoundOperator::LessThan,
             value: Value::BigInt(10),
         }),
+        order_by: None,
     };
 
     // When
     let rows = Executor::new(&database)
-        .projection_and_filtered_rows(
+        .select_rows(
             vec![
                 (RowId::new(PageId::new(1), SlotId::new(1)), less),
                 (RowId::new(PageId::new(1), SlotId::new(2)), equal),
@@ -737,13 +746,185 @@ fn select에서_less_than_filter는_더_작은_non_null_row만_반환한다() {
 }
 
 #[test]
+fn select는_filter후_order_by_asc로_null을_마지막에_정렬한다() {
+    // Given
+    let table_id = TableId::new(1);
+    let database = database(table_id);
+    let columns = users_columns();
+    let rows = vec![
+        (
+            RowId::new(PageId::new(1), SlotId::new(1)),
+            encode(
+                &[Value::BigInt(1), Value::Varchar("Lee".to_owned())],
+                &columns,
+            )
+            .expect("Lee Row를 변환해야 함"),
+        ),
+        (
+            RowId::new(PageId::new(1), SlotId::new(2)),
+            encode(&[Value::BigInt(2), Value::Null], &columns).expect("NULL Row를 변환해야 함"),
+        ),
+        (
+            RowId::new(PageId::new(1), SlotId::new(3)),
+            encode(
+                &[Value::BigInt(3), Value::Varchar("Kim".to_owned())],
+                &columns,
+            )
+            .expect("Kim Row를 변환해야 함"),
+        ),
+        (
+            RowId::new(PageId::new(1), SlotId::new(4)),
+            encode(
+                &[Value::BigInt(4), Value::Varchar("Park".to_owned())],
+                &columns,
+            )
+            .expect("Park Row를 변환해야 함"),
+        ),
+    ];
+    let bound = BoundSelect {
+        table_id,
+        projections: vec![BoundProjection::Column(ColumnId::new(2))],
+        filter: Some(BoundExpression::Comparison {
+            column_id: ColumnId::new(1),
+            operator: BoundOperator::GreaterThan,
+            value: Value::BigInt(1),
+        }),
+        order_by: Some(BoundOrderBy {
+            column_id: ColumnId::new(2),
+            direction: BoundSortedDirection::Asc,
+        }),
+    };
+
+    // When
+    let rows = Executor::new(&database)
+        .select_rows(rows, &bound)
+        .expect("SELECT가 성공해야 함");
+
+    // Then
+    assert_eq!(
+        rows,
+        vec![
+            vec![Value::Varchar("Kim".to_owned())],
+            vec![Value::Varchar("Park".to_owned())],
+            vec![Value::Null],
+        ]
+    );
+}
+
+#[test]
+fn select는_order_by_desc로_null을_처음에_정렬한다() {
+    // Given
+    let table_id = TableId::new(1);
+    let database = database(table_id);
+    let columns = users_columns();
+    let rows = vec![
+        (
+            RowId::new(PageId::new(1), SlotId::new(1)),
+            encode(
+                &[Value::BigInt(1), Value::Varchar("Lee".to_owned())],
+                &columns,
+            )
+            .expect("Lee Row를 변환해야 함"),
+        ),
+        (
+            RowId::new(PageId::new(1), SlotId::new(2)),
+            encode(&[Value::BigInt(2), Value::Null], &columns).expect("NULL Row를 변환해야 함"),
+        ),
+        (
+            RowId::new(PageId::new(1), SlotId::new(3)),
+            encode(
+                &[Value::BigInt(3), Value::Varchar("Park".to_owned())],
+                &columns,
+            )
+            .expect("Park Row를 변환해야 함"),
+        ),
+        (
+            RowId::new(PageId::new(1), SlotId::new(4)),
+            encode(
+                &[Value::BigInt(4), Value::Varchar("Kim".to_owned())],
+                &columns,
+            )
+            .expect("Kim Row를 변환해야 함"),
+        ),
+    ];
+    let bound = BoundSelect {
+        table_id,
+        projections: vec![BoundProjection::Column(ColumnId::new(2))],
+        filter: None,
+        order_by: Some(BoundOrderBy {
+            column_id: ColumnId::new(2),
+            direction: BoundSortedDirection::Desc,
+        }),
+    };
+
+    // When
+    let rows = Executor::new(&database)
+        .select_rows(rows, &bound)
+        .expect("SELECT가 성공해야 함");
+
+    // Then
+    assert_eq!(
+        rows,
+        vec![
+            vec![Value::Null],
+            vec![Value::Varchar("Park".to_owned())],
+            vec![Value::Varchar("Lee".to_owned())],
+            vec![Value::Varchar("Kim".to_owned())],
+        ]
+    );
+}
+
+#[test]
+fn select_projection에_없는_order_by_컬럼으로_정렬한다() {
+    // Given
+    let table_id = TableId::new(1);
+    let database = database(table_id);
+    let columns = users_columns();
+    let rows = vec![
+        (
+            RowId::new(PageId::new(1), SlotId::new(1)),
+            encode(
+                &[Value::BigInt(2), Value::Varchar("Lee".to_owned())],
+                &columns,
+            )
+            .expect("Lee Row를 변환해야 함"),
+        ),
+        (
+            RowId::new(PageId::new(1), SlotId::new(2)),
+            encode(
+                &[Value::BigInt(1), Value::Varchar("Kim".to_owned())],
+                &columns,
+            )
+            .expect("Kim Row를 변환해야 함"),
+        ),
+    ];
+    let bound = BoundSelect {
+        table_id,
+        projections: vec![BoundProjection::Column(ColumnId::new(1))],
+        filter: None,
+        order_by: Some(BoundOrderBy {
+            column_id: ColumnId::new(2),
+            direction: BoundSortedDirection::Asc,
+        }),
+    };
+
+    // When
+    let rows = Executor::new(&database)
+        .select_rows(rows, &bound)
+        .expect("SELECT가 성공해야 함");
+
+    // Then
+    assert_eq!(rows, vec![vec![Value::BigInt(1)], vec![Value::BigInt(2)]]);
+}
+
+#[test]
 fn select는_메타데이터에_없는_테이블을_거부한다() {
     let table_id = TableId::new(1);
     let database = DatabaseMetadata::new("test".to_owned(), vec![], vec![])
         .expect("빈 데이터베이스 메타데이터가 유효해야 함");
     let executor = Executor::new(&database);
 
-    let result = executor.projection_and_filtered_rows(vec![], &select_all(table_id));
+    let result = executor.select_rows(vec![], &select_all(table_id));
 
     assert!(matches!(result, Err(ExecutorError::TableNotFound(id)) if id == table_id));
 }

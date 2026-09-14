@@ -3,8 +3,8 @@ use crate::{
     sql::ast::{
         ComparisonOperator, CreateIndexStatement, DeleteStatement,
         Expression::{self, Identifier},
-        InsertStatement, Literal, Projection, SelectStatement, SqlDataType, Statement,
-        UpdateStatement,
+        InsertStatement, Literal, OrderBy, Projection, SelectStatement, SortDirection, SqlDataType,
+        Statement, UpdateStatement,
     },
     tuple::Value,
 };
@@ -99,10 +99,17 @@ impl<'a> Binder<'a> {
             None
         };
 
+        let order_by = if let Some(order) = &statement.order_by {
+            Some(bind_order_by(table, order)?)
+        } else {
+            None
+        };
+
         Ok(BoundSelect {
             table_id,
             projections,
             filter,
+            order_by,
         })
     }
 
@@ -203,6 +210,20 @@ impl<'a> Binder<'a> {
     }
 }
 
+fn bind_order_by(table: &TableMetadata, order: &OrderBy) -> Result<BoundOrderBy, BinderError> {
+    let Some(column) = table.column(&order.column) else {
+        return Err(BinderError::ColumnNotFound {
+            table: table.name().to_owned(),
+            column: order.column.to_owned(),
+        });
+    };
+
+    Ok(BoundOrderBy {
+        column_id: column.id(),
+        direction: bind_sorted_direction(order.direction),
+    })
+}
+
 fn bind_filter(table: &TableMetadata, filter: &Expression) -> Result<BoundExpression, BinderError> {
     match filter {
         Expression::And { left, right } => Ok(BoundExpression::And {
@@ -282,6 +303,13 @@ fn bind_operator(ast_operator: ComparisonOperator) -> BoundOperator {
         ComparisonOperator::GreaterThan => BoundOperator::GreaterThan,
         ComparisonOperator::LessThanOrEqual => BoundOperator::LessThanOrEqual,
         ComparisonOperator::GreaterThanOrEqual => BoundOperator::GreaterThanOrEqual,
+    }
+}
+
+fn bind_sorted_direction(ast_direction: SortDirection) -> BoundSortedDirection {
+    match ast_direction {
+        SortDirection::Asc => BoundSortedDirection::Asc,
+        SortDirection::Desc => BoundSortedDirection::Desc,
     }
 }
 

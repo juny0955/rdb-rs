@@ -26,6 +26,7 @@ pub struct SelectStatement {
     pub projections: Vec<Projection>,
     pub table: String,
     pub filter: Option<Expression>,
+    pub order_by: Option<OrderBy>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,6 +103,12 @@ pub enum Expression {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrderBy {
+    pub column: String,
+    pub direction: SortDirection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Literal {
     Integer(i64),
     String(String),
@@ -121,4 +128,10 @@ pub enum SqlDataType {
     Boolean,
     Varchar,
     Null,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortDirection {
+    Asc,
+    Desc,
 }

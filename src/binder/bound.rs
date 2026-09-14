@@ -18,6 +18,7 @@ pub struct BoundSelect {
     pub table_id: TableId,
     pub projections: Vec<BoundProjection>,
     pub filter: Option<BoundExpression>,
+    pub order_by: Option<BoundOrderBy>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -95,4 +96,16 @@ pub struct BoundAssignment {
 pub struct BoundColumnDefinition {
     pub name: String,
     pub data_type: DataType,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct BoundOrderBy {
+    pub column_id: ColumnId,
+    pub direction: BoundSortedDirection,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum BoundSortedDirection {
+    Asc,
+    Desc,
 }
