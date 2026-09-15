@@ -1,5 +1,5 @@
 use crate::{
-    binder::{BoundDelete, BoundInsert, BoundSelect, BoundUpdate},
+    binder::{BoundDelete, BoundInsert, BoundProjection, BoundSelect, BoundUpdate},
     catalog::metadata::{ColumnId, DatabaseMetadata, TableId},
     executor::{
         predicate::{filter_rows, order_rows},
@@ -21,6 +21,10 @@ pub enum ExecutorError {
     TableNotFound(TableId),
     #[error("컬럼을 찾을 수 없습니다: {0:?}")]
     ColumnNotFound(ColumnId),
+    #[error("count overflow")]
+    CountOutOfRange { count: usize },
+    #[error("지원하지 않습니다")]
+    Unsupported,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -139,6 +143,18 @@ impl<'a> Executor<'a> {
 
         if let Some(filter) = bound.filter.as_ref() {
             rows = filter_rows(rows, table, filter)?;
+        }
+
+        if bound.projections[0] == BoundProjection::CountAll {
+            let mut result = vec![vec![Value::BigInt(
+                i64::try_from(rows.len()).map_err(|_| ExecutorError::CountOutOfRange { count: rows.len() })?,
+            )]];
+
+            if let Some(limit) = bound.limit {
+                result.truncate(limit);
+            }
+
+            return Ok(result);
         }
 
         if let Some(order) = bound.order_by.as_ref() {

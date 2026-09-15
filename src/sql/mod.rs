@@ -187,6 +187,13 @@ impl Parser {
                 let expression = Expression::Identifier(self.expect_identifier()?);
                 Ok(Projection::Expression(expression))
             }
+            TokenKind::Count => {
+                self.expect(TokenKind::Count)?;
+                self.expect(TokenKind::LeftParen)?;
+                self.expect(TokenKind::Asterisk)?;
+                self.expect(TokenKind::RightParen)?;
+                Ok(Projection::CountAll)
+            }
             _ => Err(ParseError::UnexpectedToken(current.offset)),
         }
     }

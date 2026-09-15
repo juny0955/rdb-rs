@@ -57,6 +57,7 @@ pub struct BoundCreateIndex {
 #[derive(Debug, PartialEq, Eq)]
 pub enum BoundProjection {
     All,
+    CountAll,
     Column(ColumnId),
 }
 

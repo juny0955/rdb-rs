@@ -80,6 +80,7 @@ impl<'a> Binder<'a> {
         for projection in &statement.projections {
             match projection {
                 Projection::All => projections.push(BoundProjection::All),
+                Projection::CountAll => projections.push(BoundProjection::CountAll),
                 Projection::Expression(Identifier(column)) => match table.column(column) {
                     Some(column) => projections.push(BoundProjection::Column(column.id())),
                     None => {

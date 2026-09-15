@@ -17,6 +17,8 @@ use crate::{
 
 use super::{Executor, ExecutorError};
 
+mod count;
+
 fn users_columns() -> Vec<ColumnMetadata> {
     vec![
         ColumnMetadata::new(ColumnId::new(1), "id".to_owned(), DataType::BigInt),

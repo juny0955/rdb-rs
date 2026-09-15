@@ -31,6 +31,7 @@ pub enum TokenKind {
     Asc,
     Desc,
     Limit,
+    Count,
 
     // datatype
     Int,
@@ -92,6 +93,7 @@ impl From<&str> for TokenKind {
             "ASC" => Self::Asc,
             "DESC" => Self::Desc,
             "LIMIT" => Self::Limit,
+            "COUNT" => Self::Count,
             _ => Self::Identifier(value.to_owned()),
         }
     }

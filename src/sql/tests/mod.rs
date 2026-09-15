@@ -2,6 +2,8 @@ use crate::sql::lexer::Lexer;
 
 use super::*;
 
+mod count;
+
 #[test]
 fn select_where_문을_ast로_파싱한다() {
     let mut lexer = Lexer::new("SELECT name FROM users WHERE id = 10;");

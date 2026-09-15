@@ -71,6 +71,7 @@ pub struct Assignment {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Projection {
     All,
+    CountAll,
     Expression(Expression),
 }
 

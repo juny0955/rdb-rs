@@ -26,6 +26,7 @@ pub(super) fn project_rows(
                         .ok_or(ExecutorError::ColumnNotFound(*column_id))?;
                     projection_values.push(values[column_index].clone());
                 }
+                BoundProjection::CountAll => return Err(ExecutorError::Unsupported),
             }
         }
 
