@@ -1,12 +1,16 @@
-use crate::sql::{
-    ast::{
-        Assignment, ColumnDefinition, ComparisonOperator, CreateIndexStatement,
-        CreateTableStatement, DeleteStatement, Expression, InsertStatement, Literal, OrderBy,
-        Projection, SelectStatement, SortDirection, SqlDataType, Statement, UpdateStatement,
-    },
-    token::{Token, TokenKind},
-};
 use thiserror::Error;
+
+use crate::query::{
+    common::{ComparisonOperator, SortDirection},
+    sql::{
+        ast::{
+            Aggregate, Assignment, ColumnDefinition, CreateIndexStatement, CreateTableStatement,
+            DeleteStatement, Expression, InsertStatement, Literal, OrderBy, Projection,
+            SelectStatement, SqlDataType, Statement, UpdateStatement,
+        },
+        token::{Token, TokenKind},
+    },
+};
 
 pub mod ast;
 pub mod lexer;
@@ -192,7 +196,14 @@ impl Parser {
                 self.expect(TokenKind::LeftParen)?;
                 self.expect(TokenKind::Asterisk)?;
                 self.expect(TokenKind::RightParen)?;
-                Ok(Projection::CountAll)
+                Ok(Projection::Aggregate(Aggregate::CountAll))
+            }
+            TokenKind::Sum => {
+                self.expect(TokenKind::Sum)?;
+                self.expect(TokenKind::LeftParen)?;
+                let column = self.expect_identifier()?;
+                self.expect(TokenKind::RightParen)?;
+                Ok(Projection::Aggregate(Aggregate::Sum(column)))
             }
             _ => Err(ParseError::UnexpectedToken(current.offset)),
         }

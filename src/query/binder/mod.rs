@@ -1,10 +1,10 @@
 use crate::{
     catalog::metadata::{ColumnMetadata, DataType, DatabaseMetadata, TableMetadata},
-    sql::ast::{
-        ComparisonOperator, CreateIndexStatement, DeleteStatement,
+    query::sql::ast::{
+        Aggregate, CreateIndexStatement, DeleteStatement,
         Expression::{self, Identifier},
-        InsertStatement, Literal, OrderBy, Projection, SelectStatement, SortDirection, SqlDataType,
-        Statement, UpdateStatement,
+        InsertStatement, Literal, OrderBy, Projection, SelectStatement, SqlDataType, Statement,
+        UpdateStatement,
     },
     tuple::Value,
 };
@@ -29,6 +29,8 @@ pub enum BinderError {
     InvalidFilterExpression,
     #[error("SELECT projection이 올바르지 않습니다")]
     InvalidProjectionExpression,
+    #[error("지원하지 않는 aggregate type 입니다")]
+    UnsupportedAggregateType,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,15 +82,34 @@ impl<'a> Binder<'a> {
         for projection in &statement.projections {
             match projection {
                 Projection::All => projections.push(BoundProjection::All),
-                Projection::CountAll => projections.push(BoundProjection::CountAll),
-                Projection::Expression(Identifier(column)) => match table.column(column) {
-                    Some(column) => projections.push(BoundProjection::Column(column.id())),
-                    None => {
-                        return Err(BinderError::ColumnNotFound {
-                            table: statement.table.to_owned(),
-                            column: column.to_owned(),
-                        });
+                Projection::Expression(Identifier(column_name)) => {
+                    match table.column(column_name) {
+                        Some(column) => projections.push(BoundProjection::Column(column.id())),
+                        None => {
+                            return Err(BinderError::ColumnNotFound {
+                                table: statement.table.to_owned(),
+                                column: column_name.to_owned(),
+                            });
+                        }
                     }
+                }
+                Projection::Aggregate(aggreate) => match aggreate {
+                    Aggregate::CountAll => {
+                        projections.push(BoundProjection::Aggregate(BoundAggregate::CountAll))
+                    }
+                    Aggregate::Sum(column_name) => match table.column(column_name) {
+                        Some(column) => match column.data_type() {
+                            DataType::Int | DataType::BigInt => projections
+                                .push(BoundProjection::Aggregate(BoundAggregate::Sum(column.id()))),
+                            _ => return Err(BinderError::UnsupportedAggregateType),
+                        },
+                        None => {
+                            return Err(BinderError::ColumnNotFound {
+                                table: statement.table.to_owned(),
+                                column: column_name.to_owned(),
+                            });
+                        }
+                    },
                 },
                 Projection::Expression(_) => return Err(BinderError::InvalidProjectionExpression),
             }
@@ -222,7 +243,7 @@ fn bind_order_by(table: &TableMetadata, order: &OrderBy) -> Result<BoundOrderBy,
 
     Ok(BoundOrderBy {
         column_id: column.id(),
-        direction: bind_sorted_direction(order.direction),
+        direction: order.direction,
     })
 }
 
@@ -257,7 +278,7 @@ fn bind_filter(table: &TableMetadata, filter: &Expression) -> Result<BoundExpres
             let value = bind_value(literal, column)?;
             Ok(BoundExpression::Comparison {
                 column_id: column.id(),
-                operator: bind_operator(*operator),
+                operator: *operator,
                 value,
             })
         }
@@ -294,24 +315,6 @@ fn bind_data_type(sql_data_type: SqlDataType) -> DataType {
         SqlDataType::Boolean => DataType::Boolean,
         SqlDataType::Varchar => DataType::Varchar,
         SqlDataType::Null => DataType::Null,
-    }
-}
-
-fn bind_operator(ast_operator: ComparisonOperator) -> BoundOperator {
-    match ast_operator {
-        ComparisonOperator::Equal => BoundOperator::Equal,
-        ComparisonOperator::NotEqual => BoundOperator::NotEqual,
-        ComparisonOperator::LessThan => BoundOperator::LessThan,
-        ComparisonOperator::GreaterThan => BoundOperator::GreaterThan,
-        ComparisonOperator::LessThanOrEqual => BoundOperator::LessThanOrEqual,
-        ComparisonOperator::GreaterThanOrEqual => BoundOperator::GreaterThanOrEqual,
-    }
-}
-
-fn bind_sorted_direction(ast_direction: SortDirection) -> BoundSortedDirection {
-    match ast_direction {
-        SortDirection::Asc => BoundSortedDirection::Asc,
-        SortDirection::Desc => BoundSortedDirection::Desc,
     }
 }
 

@@ -1,3 +1,5 @@
+use crate::query::common::{ComparisonOperator, SortDirection};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Statement {
     Select(SelectStatement),
@@ -71,18 +73,14 @@ pub struct Assignment {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Projection {
     All,
-    CountAll,
     Expression(Expression),
+    Aggregate(Aggregate),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ComparisonOperator {
-    Equal,
-    NotEqual,
-    LessThan,
-    GreaterThan,
-    LessThanOrEqual,
-    GreaterThanOrEqual,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Aggregate {
+    CountAll,
+    Sum(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,10 +128,4 @@ pub enum SqlDataType {
     Boolean,
     Varchar,
     Null,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SortDirection {
-    Asc,
-    Desc,
 }

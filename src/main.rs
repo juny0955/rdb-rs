@@ -5,7 +5,7 @@ use std::{
 
 use rdb_rs::{
     database::Database,
-    sql::{Parser, lexer::Lexer},
+    query::sql::{Parser, lexer::Lexer},
 };
 
 fn main() {

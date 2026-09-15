@@ -1,9 +1,11 @@
 use crate::{
-    binder::{BoundDelete, BoundInsert, BoundProjection, BoundSelect, BoundUpdate},
     catalog::metadata::{ColumnId, DatabaseMetadata, TableId},
     executor::{
         predicate::{filter_rows, order_rows},
-        projection::project_rows,
+        projection::{project_rows, sum_rows},
+    },
+    query::binder::{
+        BoundAggregate, BoundDelete, BoundInsert, BoundProjection, BoundSelect, BoundUpdate,
     },
     storage::page::{Row, RowId},
     tuple::{TupleError, Value, decode, encode},
@@ -23,6 +25,8 @@ pub enum ExecutorError {
     ColumnNotFound(ColumnId),
     #[error("count overflow")]
     CountOutOfRange { count: usize },
+    #[error("sum overflow")]
+    SumOverflow,
     #[error("지원하지 않습니다")]
     Unsupported,
 }
@@ -145,16 +149,23 @@ impl<'a> Executor<'a> {
             rows = filter_rows(rows, table, filter)?;
         }
 
-        if bound.projections[0] == BoundProjection::CountAll {
-            let mut result = vec![vec![Value::BigInt(
-                i64::try_from(rows.len()).map_err(|_| ExecutorError::CountOutOfRange { count: rows.len() })?,
-            )]];
+        match bound.projections[0] {
+            BoundProjection::Aggregate(BoundAggregate::CountAll) => {
+                let mut result = vec![vec![Value::BigInt(
+                    i64::try_from(rows.len())
+                        .map_err(|_| ExecutorError::CountOutOfRange { count: rows.len() })?,
+                )]];
 
-            if let Some(limit) = bound.limit {
-                result.truncate(limit);
+                if let Some(limit) = bound.limit {
+                    result.truncate(limit);
+                }
+
+                return Ok(result);
             }
-
-            return Ok(result);
+            BoundProjection::Aggregate(BoundAggregate::Sum(column_id)) => {
+                return sum_rows(rows, table, column_id, bound.limit);
+            }
+            _ => {}
         }
 
         if let Some(order) = bound.order_by.as_ref() {

@@ -1,10 +1,13 @@
 use crate::{
-    binder::{BoundExpression, BoundOperator, BoundStatement},
     catalog::metadata::{RelationId, TableId},
     database::{Database, DatabaseError, ExecuteResult},
     index::{
         IndexManager,
         btree::{BTreeKey, BTreeKeyType, tree::BTree},
+    },
+    query::{
+        binder::{BoundExpression, BoundStatement},
+        common::ComparisonOperator,
     },
     storage::page::PageId,
     test_supports::TestDirectory,
@@ -82,7 +85,7 @@ fn indexed_equal_predicate는_index_candidate를_반환한다() -> Result<(), Da
 
     let Some(BoundExpression::Comparison {
         column_id,
-        operator: BoundOperator::Equal,
+        operator: ComparisonOperator::Equal,
         value,
     }) = &bound.filter
     else {

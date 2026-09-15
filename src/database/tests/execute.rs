@@ -1,6 +1,6 @@
 use crate::{
-    binder::BoundStatement,
     database::{Database, DatabaseError, ExecuteResult},
+    query::binder::BoundStatement,
     test_supports::TestDirectory,
     tuple::Value,
 };
@@ -34,6 +34,27 @@ fn 두번째_select는_cache된_page를_사용한다() -> Result<(), DatabaseErr
     assert!(matches!(
         database.execute(&select)?,
         ExecuteResult::Rows(rows) if rows == expected
+    ));
+    Ok(())
+}
+
+#[test]
+fn select_sum은_sql부터_heap_scan까지_합계를_반환한다() -> Result<(), DatabaseError> {
+    // Given
+    let directory = TestDirectory::new("database-select-sum");
+    let mut database = Database::open(directory.path(), "test")?;
+    database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (10, 'Kim');"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (3, 'Lee');"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (NULL, 'Park');"))?;
+
+    // When
+    let result = database.execute(&parse_sql("SELECT SUM(id) FROM users;"))?;
+
+    // Then
+    assert!(matches!(
+        result,
+        ExecuteResult::Rows(rows) if rows == vec![vec![Value::BigInt(13)]]
     ));
     Ok(())
 }

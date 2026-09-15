@@ -1,9 +1,12 @@
 use std::cmp::Ordering;
 
 use crate::{
-    binder::{BoundExpression, BoundOrderBy, BoundSortedDirection},
     catalog::metadata::TableMetadata,
     executor::ExecutorError,
+    query::{
+        binder::{BoundExpression, BoundOrderBy},
+        common::SortDirection,
+    },
     storage::page::{Row, RowId},
     tuple::{Value, decode},
 };
@@ -51,7 +54,7 @@ pub(super) fn order_rows(
         _ => Ordering::Equal,
     });
 
-    if order.direction == BoundSortedDirection::Desc {
+    if order.direction == SortDirection::Desc {
         keyed_rows.reverse();
     }
 

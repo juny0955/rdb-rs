@@ -1,8 +1,8 @@
-use crate::sql::lexer::Lexer;
+use crate::query::sql::lexer::Lexer;
 
 use super::*;
 
-mod count;
+mod aggregate;
 
 #[test]
 fn select_where_문을_ast로_파싱한다() {

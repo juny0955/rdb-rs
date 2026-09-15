@@ -1,13 +1,14 @@
 use std::{io::ErrorKind, path::Path};
 
 use crate::{
-    binder::{
-        BoundAssignment, BoundDelete, BoundExpression, BoundInsert, BoundOperator, BoundOrderBy,
-        BoundProjection, BoundSelect, BoundSortedDirection, BoundUpdate,
-    },
     catalog::metadata::{
         ColumnId, ColumnMetadata, DataType, DatabaseMetadata, RelationId, TableId, TableMetadata,
     },
+    query::binder::{
+        BoundAssignment, BoundDelete, BoundExpression, BoundInsert, BoundOrderBy, BoundProjection,
+        BoundSelect, BoundUpdate,
+    },
+    query::common::{ComparisonOperator, SortDirection},
     storage::page::{PageError, PageId, RowId, SlotId},
     storage::{StorageError, StorageManager, file::RelationFileManagerError},
     table::{TableError, heap::HeapTable},
@@ -17,7 +18,7 @@ use crate::{
 
 use super::{Executor, ExecutorError};
 
-mod count;
+mod aggregate;
 
 fn users_columns() -> Vec<ColumnMetadata> {
     vec![
@@ -84,7 +85,7 @@ fn select_name_equals(table_id: TableId, value: Value) -> BoundSelect {
         projections: vec![BoundProjection::All],
         filter: Some(BoundExpression::Comparison {
             column_id: ColumnId::new(2),
-            operator: BoundOperator::Equal,
+            operator: ComparisonOperator::Equal,
             value,
         }),
         order_by: None,
@@ -166,7 +167,7 @@ fn update는_필터와_일치하는_row만_수정하고_재시작후에도_유�
         }],
         filter: Some(BoundExpression::Comparison {
             column_id: ColumnId::new(1),
-            operator: BoundOperator::Equal,
+            operator: ComparisonOperator::Equal,
             value: Value::BigInt(1),
         }),
     };
@@ -252,7 +253,7 @@ fn delete는_필터와_일치하는_row만_삭제하고_재시작후에도_유�
         table_id,
         filter: Some(BoundExpression::Comparison {
             column_id: ColumnId::new(1),
-            operator: BoundOperator::Equal,
+            operator: ComparisonOperator::Equal,
             value: Value::BigInt(1),
         }),
     };
@@ -478,7 +479,7 @@ fn 전달된_후보_row에_filter와_projection을적용한다() {
         projections: vec![BoundProjection::Column(ColumnId::new(2))],
         filter: Some(BoundExpression::Comparison {
             column_id: ColumnId::new(1),
-            operator: BoundOperator::Equal,
+            operator: ComparisonOperator::Equal,
             value: Value::BigInt(1),
         }),
         order_by: None,
@@ -527,12 +528,12 @@ fn select는_and_filter의_두_조건에_일치하는_row만_반환한다() {
         filter: Some(BoundExpression::And {
             left: Box::new(BoundExpression::Comparison {
                 column_id: ColumnId::new(1),
-                operator: BoundOperator::Equal,
+                operator: ComparisonOperator::Equal,
                 value: Value::BigInt(1),
             }),
             right: Box::new(BoundExpression::Comparison {
                 column_id: ColumnId::new(2),
-                operator: BoundOperator::Equal,
+                operator: ComparisonOperator::Equal,
                 value: Value::Varchar("Kim".to_owned()),
             }),
         }),
@@ -589,12 +590,12 @@ fn select는_or_filter의_한_조건에_일치하는_row를_중복없이_반환�
         filter: Some(BoundExpression::Or {
             left: Box::new(BoundExpression::Comparison {
                 column_id: ColumnId::new(1),
-                operator: BoundOperator::Equal,
+                operator: ComparisonOperator::Equal,
                 value: Value::BigInt(1),
             }),
             right: Box::new(BoundExpression::Comparison {
                 column_id: ColumnId::new(2),
-                operator: BoundOperator::Equal,
+                operator: ComparisonOperator::Equal,
                 value: Value::Varchar("Kim".to_owned()),
             }),
         }),
@@ -677,7 +678,7 @@ fn select에서_null_not_equal_filter는_null_row를_반환하지_않는다() {
         projections: vec![BoundProjection::All],
         filter: Some(BoundExpression::Comparison {
             column_id: ColumnId::new(1),
-            operator: BoundOperator::NotEqual,
+            operator: ComparisonOperator::NotEqual,
             value: Value::BigInt(1),
         }),
         order_by: None,
@@ -729,7 +730,7 @@ fn select에서_less_than_filter는_더_작은_non_null_row만_반환한다() {
         projections: vec![BoundProjection::All],
         filter: Some(BoundExpression::Comparison {
             column_id: ColumnId::new(1),
-            operator: BoundOperator::LessThan,
+            operator: ComparisonOperator::LessThan,
             value: Value::BigInt(10),
         }),
         order_by: None,
@@ -797,12 +798,12 @@ fn select는_filter후_order_by_asc로_null을_마지막에_정렬한다() {
         projections: vec![BoundProjection::Column(ColumnId::new(2))],
         filter: Some(BoundExpression::Comparison {
             column_id: ColumnId::new(1),
-            operator: BoundOperator::GreaterThan,
+            operator: ComparisonOperator::GreaterThan,
             value: Value::BigInt(1),
         }),
         order_by: Some(BoundOrderBy {
             column_id: ColumnId::new(2),
-            direction: BoundSortedDirection::Asc,
+            direction: SortDirection::Asc,
         }),
         limit: None,
     };
@@ -865,7 +866,7 @@ fn select는_order_by_desc로_null을_처음에_정렬한다() {
         filter: None,
         order_by: Some(BoundOrderBy {
             column_id: ColumnId::new(2),
-            direction: BoundSortedDirection::Desc,
+            direction: SortDirection::Desc,
         }),
         limit: None,
     };
@@ -917,7 +918,7 @@ fn select_projection에_없는_order_by_컬럼으로_정렬한다() {
         filter: None,
         order_by: Some(BoundOrderBy {
             column_id: ColumnId::new(2),
-            direction: BoundSortedDirection::Asc,
+            direction: SortDirection::Asc,
         }),
         limit: None,
     };
@@ -976,12 +977,12 @@ fn select는_filter와_order_by후_limit을_적용한다() {
         projections: vec![BoundProjection::Column(ColumnId::new(2))],
         filter: Some(BoundExpression::Comparison {
             column_id: ColumnId::new(1),
-            operator: BoundOperator::GreaterThan,
+            operator: ComparisonOperator::GreaterThan,
             value: Value::BigInt(1),
         }),
         order_by: Some(BoundOrderBy {
             column_id: ColumnId::new(2),
-            direction: BoundSortedDirection::Asc,
+            direction: SortDirection::Asc,
         }),
         limit: Some(2),
     };

@@ -1,10 +1,10 @@
 use crate::{
-    binder::BoundOperator,
     catalog::metadata::{ColumnId, ColumnMetadata, DataType, TableId, TableMetadata},
-    sql::ast::{
-        Assignment, ColumnDefinition, ComparisonOperator, CreateIndexStatement,
-        CreateTableStatement, DeleteStatement, Expression, InsertStatement, OrderBy, Projection,
-        SelectStatement, SortDirection, UpdateStatement,
+    query::common::{ComparisonOperator, SortDirection},
+    query::sql::ast::{
+        Aggregate, Assignment, ColumnDefinition, CreateIndexStatement, CreateTableStatement,
+        DeleteStatement, Expression, InsertStatement, OrderBy, Projection, SelectStatement,
+        UpdateStatement,
     },
 };
 
@@ -103,6 +103,71 @@ fn 존재하지_않는_projection_컬럼은_오류를_반환한다() {
 
     assert_eq!(
         binder.bind(&statement),
+        Err(BinderError::ColumnNotFound {
+            table: "users".to_owned(),
+            column: "age".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn sum_숫자형_컬럼을_aggregate로_bind한다() {
+    let database = database();
+    let binder = Binder::new(&database);
+    let statement = SelectStatement {
+        projections: vec![Projection::Aggregate(Aggregate::Sum("id".to_owned()))],
+        table: "users".to_owned(),
+        filter: None,
+        order_by: None,
+        limit: None,
+    };
+
+    assert_eq!(
+        binder.bind_select(&statement),
+        Ok(BoundSelect {
+            table_id: TableId::new(1),
+            projections: vec![BoundProjection::Aggregate(BoundAggregate::Sum(
+                ColumnId::new(1)
+            ))],
+            filter: None,
+            order_by: None,
+            limit: None,
+        })
+    );
+}
+
+#[test]
+fn sum_비숫자형_컬럼을_거부한다() {
+    let database = database();
+    let binder = Binder::new(&database);
+    let statement = SelectStatement {
+        projections: vec![Projection::Aggregate(Aggregate::Sum("name".to_owned()))],
+        table: "users".to_owned(),
+        filter: None,
+        order_by: None,
+        limit: None,
+    };
+
+    assert_eq!(
+        binder.bind_select(&statement),
+        Err(BinderError::UnsupportedAggregateType)
+    );
+}
+
+#[test]
+fn sum_없는_컬럼을_거부한다() {
+    let database = database();
+    let binder = Binder::new(&database);
+    let statement = SelectStatement {
+        projections: vec![Projection::Aggregate(Aggregate::Sum("age".to_owned()))],
+        table: "users".to_owned(),
+        filter: None,
+        order_by: None,
+        limit: None,
+    };
+
+    assert_eq!(
+        binder.bind_select(&statement),
         Err(BinderError::ColumnNotFound {
             table: "users".to_owned(),
             column: "age".to_owned(),
@@ -474,7 +539,7 @@ fn select을_bound_select으로변환한다() {
             projections: vec![BoundProjection::Column(ColumnId::new(2))],
             filter: Some(BoundExpression::Comparison {
                 column_id: ColumnId::new(1),
-                operator: BoundOperator::Equal,
+                operator: ComparisonOperator::Equal,
                 value: Value::BigInt(1),
             }),
             order_by: None,
@@ -511,7 +576,7 @@ fn order_by_desc를_bound_order_by로_변환한다() {
             filter: None,
             order_by: Some(BoundOrderBy {
                 column_id: ColumnId::new(2),
-                direction: BoundSortedDirection::Desc,
+                direction: SortDirection::Desc,
             }),
             limit: None,
         })
@@ -578,12 +643,12 @@ fn and_where_조건을_bound_expression으로변환한다() {
             filter: Some(BoundExpression::And {
                 left: Box::new(BoundExpression::Comparison {
                     column_id: ColumnId::new(1),
-                    operator: BoundOperator::Equal,
+                    operator: ComparisonOperator::Equal,
                     value: Value::BigInt(1),
                 }),
                 right: Box::new(BoundExpression::Comparison {
                     column_id: ColumnId::new(2),
-                    operator: BoundOperator::Equal,
+                    operator: ComparisonOperator::Equal,
                     value: Value::Varchar("Kim".to_owned()),
                 }),
             }),
@@ -624,12 +689,12 @@ fn or_where_조건을_bound_expression으로변환한다() {
             filter: Some(BoundExpression::Or {
                 left: Box::new(BoundExpression::Comparison {
                     column_id: ColumnId::new(1),
-                    operator: BoundOperator::Equal,
+                    operator: ComparisonOperator::Equal,
                     value: Value::BigInt(1),
                 }),
                 right: Box::new(BoundExpression::Comparison {
                     column_id: ColumnId::new(2),
-                    operator: BoundOperator::Equal,
+                    operator: ComparisonOperator::Equal,
                     value: Value::Varchar("Kim".to_owned()),
                 }),
             }),
@@ -696,7 +761,7 @@ fn delete를_bound_delete로변환한다() {
             table_id: TableId::new(1),
             filter: Some(BoundExpression::Comparison {
                 column_id: ColumnId::new(1),
-                operator: BoundOperator::Equal,
+                operator: ComparisonOperator::Equal,
                 value: Value::BigInt(1),
             }),
         })
@@ -730,7 +795,7 @@ fn update를_bound_update로변환한다() {
             }],
             filter: Some(BoundExpression::Comparison {
                 column_id: ColumnId::new(1),
-                operator: BoundOperator::Equal,
+                operator: ComparisonOperator::Equal,
                 value: Value::BigInt(1),
             }),
         })

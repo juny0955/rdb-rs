@@ -1,6 +1,6 @@
 use crate::{
-    binder::BoundOperator,
     catalog::metadata::{ColumnMetadata, DataType},
+    query::common::ComparisonOperator,
     storage::page::Row,
 };
 use std::str::from_utf8;
@@ -42,36 +42,36 @@ pub enum Value {
 }
 
 impl Value {
-    pub fn compare(&self, operator: &BoundOperator, other: &Value) -> bool {
+    pub fn compare(&self, operator: &ComparisonOperator, other: &Value) -> bool {
         if matches!(self, Value::Null) || matches!(other, Value::Null) {
             return false;
         }
 
         match operator {
-            BoundOperator::Equal => self == other,
-            BoundOperator::NotEqual => self != other,
-            BoundOperator::LessThan => match (self, other) {
+            ComparisonOperator::Equal => self == other,
+            ComparisonOperator::NotEqual => self != other,
+            ComparisonOperator::LessThan => match (self, other) {
                 (Value::Int(a), Value::Int(b)) => a < b,
                 (Value::BigInt(a), Value::BigInt(b)) => a < b,
                 (Value::Varchar(a), Value::Varchar(b)) => a < b,
                 (Value::Boolean(a), Value::Boolean(b)) => a < b,
                 _ => false,
             },
-            BoundOperator::GreaterThan => match (self, other) {
+            ComparisonOperator::GreaterThan => match (self, other) {
                 (Value::Int(a), Value::Int(b)) => a > b,
                 (Value::BigInt(a), Value::BigInt(b)) => a > b,
                 (Value::Varchar(a), Value::Varchar(b)) => a > b,
                 (Value::Boolean(a), Value::Boolean(b)) => a > b,
                 _ => false,
             },
-            BoundOperator::LessThanOrEqual => match (self, other) {
+            ComparisonOperator::LessThanOrEqual => match (self, other) {
                 (Value::Int(a), Value::Int(b)) => a <= b,
                 (Value::BigInt(a), Value::BigInt(b)) => a <= b,
                 (Value::Varchar(a), Value::Varchar(b)) => a <= b,
                 (Value::Boolean(a), Value::Boolean(b)) => a <= b,
                 _ => false,
             },
-            BoundOperator::GreaterThanOrEqual => match (self, other) {
+            ComparisonOperator::GreaterThanOrEqual => match (self, other) {
                 (Value::Int(a), Value::Int(b)) => a >= b,
                 (Value::BigInt(a), Value::BigInt(b)) => a >= b,
                 (Value::Varchar(a), Value::Varchar(b)) => a >= b,

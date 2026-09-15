@@ -1,5 +1,6 @@
 use crate::{
     catalog::metadata::{ColumnId, DataType, TableId},
+    query::common::{ComparisonOperator, SortDirection},
     tuple::Value,
 };
 
@@ -57,25 +58,21 @@ pub struct BoundCreateIndex {
 #[derive(Debug, PartialEq, Eq)]
 pub enum BoundProjection {
     All,
-    CountAll,
     Column(ColumnId),
+    Aggregate(BoundAggregate),
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum BoundOperator {
-    Equal,
-    NotEqual,
-    LessThan,
-    GreaterThan,
-    LessThanOrEqual,
-    GreaterThanOrEqual,
+pub enum BoundAggregate {
+    CountAll,
+    Sum(ColumnId),
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum BoundExpression {
     Comparison {
         column_id: ColumnId,
-        operator: BoundOperator,
+        operator: ComparisonOperator,
         value: Value,
     },
     And {
@@ -103,11 +100,5 @@ pub struct BoundColumnDefinition {
 #[derive(Debug, PartialEq, Eq)]
 pub struct BoundOrderBy {
     pub column_id: ColumnId,
-    pub direction: BoundSortedDirection,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum BoundSortedDirection {
-    Asc,
-    Desc,
+    pub direction: SortDirection,
 }

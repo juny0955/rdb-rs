@@ -1,8 +1,11 @@
 use crate::{
-    binder::{BoundDelete, BoundExpression, BoundInsert, BoundOperator, BoundSelect, BoundUpdate},
     database::{Database, DatabaseError, ExecuteResult},
     executor::Executor,
     index::IndexManager,
+    query::{
+        binder::{BoundDelete, BoundExpression, BoundInsert, BoundSelect, BoundUpdate},
+        common::ComparisonOperator,
+    },
 };
 
 impl Database {
@@ -37,7 +40,7 @@ impl Database {
                 column_id,
                 operator,
                 value,
-            }) if *operator == BoundOperator::Equal => IndexManager::search_index_row_ids(
+            }) if *operator == ComparisonOperator::Equal => IndexManager::search_index_row_ids(
                 &mut self.storage_manager,
                 indexes,
                 bound.table_id,
