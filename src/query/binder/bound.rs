@@ -19,6 +19,7 @@ pub struct BoundSelect {
     pub table_id: TableId,
     pub projections: Vec<BoundProjection>,
     pub filter: Option<BoundExpression>,
+    pub group_by: Option<Vec<ColumnId>>,
     pub order_by: Option<BoundOrderBy>,
     pub limit: Option<usize>,
 }

@@ -51,6 +51,7 @@ fn select_all(table_id: TableId) -> BoundSelect {
         table_id,
         projections: vec![BoundProjection::All],
         filter: None,
+        group_by: None,
         order_by: None,
         limit: None,
     }
@@ -61,6 +62,7 @@ fn select_name(table_id: TableId) -> BoundSelect {
         table_id,
         projections: vec![BoundProjection::Column(ColumnId::new(2))],
         filter: None,
+        group_by: None,
         order_by: None,
         limit: None,
     }
@@ -74,6 +76,7 @@ fn select_name_then_all(table_id: TableId) -> BoundSelect {
             BoundProjection::All,
         ],
         filter: None,
+        group_by: None,
         order_by: None,
         limit: None,
     }
@@ -88,6 +91,7 @@ fn select_name_equals(table_id: TableId, value: Value) -> BoundSelect {
             operator: ComparisonOperator::Equal,
             value,
         }),
+        group_by: None,
         order_by: None,
         limit: None,
     }
@@ -482,6 +486,7 @@ fn 전달된_후보_row에_filter와_projection을적용한다() {
             operator: ComparisonOperator::Equal,
             value: Value::BigInt(1),
         }),
+        group_by: None,
         order_by: None,
         limit: None,
     };
@@ -537,6 +542,7 @@ fn select는_and_filter의_두_조건에_일치하는_row만_반환한다() {
                 value: Value::Varchar("Kim".to_owned()),
             }),
         }),
+        group_by: None,
         order_by: None,
         limit: None,
     };
@@ -599,6 +605,7 @@ fn select는_or_filter의_한_조건에_일치하는_row를_중복없이_반환�
                 value: Value::Varchar("Kim".to_owned()),
             }),
         }),
+        group_by: None,
         order_by: None,
         limit: None,
     };
@@ -681,6 +688,7 @@ fn select에서_null_not_equal_filter는_null_row를_반환하지_않는다() {
             operator: ComparisonOperator::NotEqual,
             value: Value::BigInt(1),
         }),
+        group_by: None,
         order_by: None,
         limit: None,
     };
@@ -733,6 +741,7 @@ fn select에서_less_than_filter는_더_작은_non_null_row만_반환한다() {
             operator: ComparisonOperator::LessThan,
             value: Value::BigInt(10),
         }),
+        group_by: None,
         order_by: None,
         limit: None,
     };
@@ -801,6 +810,7 @@ fn select는_filter후_order_by_asc로_null을_마지막에_정렬한다() {
             operator: ComparisonOperator::GreaterThan,
             value: Value::BigInt(1),
         }),
+        group_by: None,
         order_by: Some(BoundOrderBy {
             column_id: ColumnId::new(2),
             direction: SortDirection::Asc,
@@ -864,6 +874,7 @@ fn select는_order_by_desc로_null을_처음에_정렬한다() {
         table_id,
         projections: vec![BoundProjection::Column(ColumnId::new(2))],
         filter: None,
+        group_by: None,
         order_by: Some(BoundOrderBy {
             column_id: ColumnId::new(2),
             direction: SortDirection::Desc,
@@ -916,6 +927,7 @@ fn select_projection에_없는_order_by_컬럼으로_정렬한다() {
         table_id,
         projections: vec![BoundProjection::Column(ColumnId::new(1))],
         filter: None,
+        group_by: None,
         order_by: Some(BoundOrderBy {
             column_id: ColumnId::new(2),
             direction: SortDirection::Asc,
@@ -980,6 +992,7 @@ fn select는_filter와_order_by후_limit을_적용한다() {
             operator: ComparisonOperator::GreaterThan,
             value: Value::BigInt(1),
         }),
+        group_by: None,
         order_by: Some(BoundOrderBy {
             column_id: ColumnId::new(2),
             direction: SortDirection::Asc,
@@ -1020,6 +1033,7 @@ fn select는_limit_zero이면_빈_결과를_반환한다() {
         table_id,
         projections: vec![BoundProjection::All],
         filter: None,
+        group_by: None,
         order_by: None,
         limit: Some(0),
     };

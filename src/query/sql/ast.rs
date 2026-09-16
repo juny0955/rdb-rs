@@ -28,6 +28,7 @@ pub struct SelectStatement {
     pub projections: Vec<Projection>,
     pub table: String,
     pub filter: Option<Expression>,
+    pub group_by: Option<Vec<String>>,
     pub order_by: Option<OrderBy>,
     pub limit: Option<usize>,
 }

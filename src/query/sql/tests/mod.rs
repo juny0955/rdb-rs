@@ -24,6 +24,7 @@ fn select_where_문을_ast로_파싱한다() {
                 operator: ComparisonOperator::Equal,
                 right: Box::new(Expression::Literal(Literal::Integer(10))),
             }),
+            group_by: None,
             order_by: None,
             limit: None,
         })
@@ -51,6 +52,7 @@ fn select_where_less_than_문을_ast로_파싱한다() {
                 operator: ComparisonOperator::LessThan,
                 right: Box::new(Expression::Literal(Literal::Integer(10))),
             }),
+            group_by: None,
             order_by: None,
             limit: None,
         })
@@ -82,6 +84,7 @@ fn select_where_and_문을_ast로_파싱한다() {
                     right: Box::new(Expression::Literal(Literal::String("Kim".to_owned()))),
                 }),
             }),
+            group_by: None,
             order_by: None,
             limit: None,
         })
@@ -113,6 +116,7 @@ fn select_where_or_문을_ast로_파싱한다() {
                     right: Box::new(Expression::Literal(Literal::String("Kim".to_owned()))),
                 }),
             }),
+            group_by: None,
             order_by: None,
             limit: None,
         })
@@ -151,6 +155,7 @@ fn select_where에서_and는_or보다_높은_우선순위를_가진다() {
                     }),
                 }),
             }),
+            group_by: None,
             order_by: None,
             limit: None,
         })
@@ -174,6 +179,7 @@ fn select_order_by_방향이_없으면_asc로_파싱한다() {
             projections: vec![Projection::All],
             table: "users".to_owned(),
             filter: None,
+            group_by: None,
             order_by: Some(OrderBy {
                 column: "name".to_owned(),
                 direction: SortDirection::Asc,
@@ -200,6 +206,7 @@ fn select_order_by_desc를_ast로_파싱한다() {
             projections: vec![Projection::All],
             table: "users".to_owned(),
             filter: None,
+            group_by: None,
             order_by: Some(OrderBy {
                 column: "name".to_owned(),
                 direction: SortDirection::Desc,

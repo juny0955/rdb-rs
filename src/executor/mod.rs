@@ -1,12 +1,10 @@
 use crate::{
     catalog::metadata::{ColumnId, DatabaseMetadata, TableId},
     executor::{
-        predicate::{filter_rows, order_rows},
-        projection::{project_rows, sum_rows},
+        predicate::{filter_rows, order_groups, order_rows},
+        projection::{aggregate, aggregate_groups, group_rows, project_rows},
     },
-    query::binder::{
-        BoundAggregate, BoundDelete, BoundInsert, BoundProjection, BoundSelect, BoundUpdate,
-    },
+    query::binder::{BoundDelete, BoundInsert, BoundProjection, BoundSelect, BoundUpdate},
     storage::page::{Row, RowId},
     tuple::{TupleError, Value, decode, encode},
 };
@@ -23,11 +21,11 @@ pub enum ExecutorError {
     TableNotFound(TableId),
     #[error("컬럼을 찾을 수 없습니다: {0:?}")]
     ColumnNotFound(ColumnId),
-    #[error("count overflow")]
+    #[error("COUNT 결과가 BIGINT 범위를 초과했습니다: {count}")]
     CountOutOfRange { count: usize },
-    #[error("sum overflow")]
+    #[error("SUM 결과가 BIGINT 범위를 초과했습니다")]
     SumOverflow,
-    #[error("지원하지 않습니다")]
+    #[error("현재 쿼리 형태는 실행기에서 지원하지 않습니다")]
     Unsupported,
 }
 
@@ -149,34 +147,33 @@ impl<'a> Executor<'a> {
             rows = filter_rows(rows, table, filter)?;
         }
 
-        match bound.projections[0] {
-            BoundProjection::Aggregate(BoundAggregate::CountAll) => {
-                let mut result = vec![vec![Value::BigInt(
-                    i64::try_from(rows.len())
-                        .map_err(|_| ExecutorError::CountOutOfRange { count: rows.len() })?,
-                )]];
+        if let Some(group_by) = bound.group_by.as_ref() {
+            let mut groups = group_rows(rows, table, group_by)?;
 
-                if let Some(limit) = bound.limit {
-                    result.truncate(limit);
-                }
+            if let Some(order) = bound.order_by.as_ref() {
+                groups = order_groups(groups, group_by, order)?;
+            }
 
-                return Ok(result);
+            return aggregate_groups(groups, group_by, table, &bound.projections, bound.limit);
+        }
+
+        if bound
+            .projections
+            .iter()
+            .any(|projection| matches!(projection, BoundProjection::Aggregate(_)))
+        {
+            if bound.order_by.is_some() {
+                return Err(ExecutorError::Unsupported);
             }
-            BoundProjection::Aggregate(BoundAggregate::Sum(column_id)) => {
-                return sum_rows(rows, table, column_id, bound.limit);
-            }
-            _ => {}
+
+            return aggregate(rows, table, &bound.projections, bound.limit);
         }
 
         if let Some(order) = bound.order_by.as_ref() {
             rows = order_rows(rows, table, order)?;
         }
 
-        if let Some(limit) = bound.limit {
-            rows.truncate(limit);
-        }
-
-        project_rows(rows, table, &bound.projections)
+        project_rows(rows, table, &bound.projections, bound.limit)
     }
 }
 

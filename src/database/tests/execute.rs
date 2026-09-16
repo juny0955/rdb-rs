@@ -60,6 +60,60 @@ fn select_sum은_sql부터_heap_scan까지_합계를_반환한다() -> Result<()
 }
 
 #[test]
+fn select_count_all_group_by는_sql부터_heap_scan까지_그룹별_개수를_반환한다()
+-> Result<(), DatabaseError> {
+    // Given
+    let directory = TestDirectory::new("database-select-count-group-by");
+    let mut database = Database::open(directory.path(), "test")?;
+    database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (1, 'Kim');"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (2, 'Lee');"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (3, 'Kim');"))?;
+
+    // When
+    let result = database.execute(&parse_sql(
+        "SELECT name, COUNT(*) FROM users GROUP BY name;",
+    ))?;
+
+    // Then
+    assert!(matches!(
+        result,
+        ExecuteResult::Rows(rows)
+            if rows == vec![
+                vec![Value::Varchar("Kim".to_owned()), Value::BigInt(2)],
+                vec![Value::Varchar("Lee".to_owned()), Value::BigInt(1)],
+            ]
+    ));
+    Ok(())
+}
+
+#[test]
+fn select_sum_group_by는_sql부터_heap_scan까지_그룹별_합계를_반환한다() -> Result<(), DatabaseError>
+{
+    // Given
+    let directory = TestDirectory::new("database-select-sum-group-by");
+    let mut database = Database::open(directory.path(), "test")?;
+    database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (10, 'Kim');"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (3, 'Lee');"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (NULL, 'Kim');"))?;
+
+    // When
+    let result = database.execute(&parse_sql("SELECT name, SUM(id) FROM users GROUP BY name;"))?;
+
+    // Then
+    assert!(matches!(
+        result,
+        ExecuteResult::Rows(rows)
+            if rows == vec![
+                vec![Value::Varchar("Kim".to_owned()), Value::BigInt(10)],
+                vec![Value::Varchar("Lee".to_owned()), Value::BigInt(3)],
+            ]
+    ));
+    Ok(())
+}
+
+#[test]
 fn less_than_select는_더_작은_row만_반환한다() -> Result<(), DatabaseError> {
     // Given
     let directory = TestDirectory::new("database-less-than-select");

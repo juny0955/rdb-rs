@@ -71,6 +71,13 @@ impl Parser {
             filter = Some(self.parse_or_expression()?);
         }
 
+        let mut group_by = None;
+        if self.current().kind == TokenKind::Group {
+            self.expect(TokenKind::Group)?;
+            self.expect(TokenKind::By)?;
+            group_by = Some(self.parse_group_by()?);
+        }
+
         let mut order_by = None;
         if self.current().kind == TokenKind::Order {
             self.expect(TokenKind::Order)?;
@@ -88,6 +95,7 @@ impl Parser {
             projections,
             table,
             filter,
+            group_by,
             order_by,
             limit,
         })
@@ -207,6 +215,18 @@ impl Parser {
             }
             _ => Err(ParseError::UnexpectedToken(current.offset)),
         }
+    }
+
+    fn parse_group_by(&mut self) -> Result<Vec<String>, ParseError> {
+        let mut identifiers = Vec::new();
+        identifiers.push(self.expect_identifier()?);
+
+        while self.current().kind == TokenKind::Comma {
+            self.expect(TokenKind::Comma)?;
+            identifiers.push(self.expect_identifier()?);
+        }
+
+        Ok(identifiers)
     }
 
     fn parse_order_by(&mut self) -> Result<OrderBy, ParseError> {

@@ -45,6 +45,7 @@ fn 존재하는_테이블을_조회하는_statement를_bind한다() {
         projections: vec![Projection::All],
         table: "users".to_owned(),
         filter: None,
+        group_by: None,
         order_by: None,
         limit: None,
     });
@@ -60,6 +61,7 @@ fn 존재하지_않는_테이블을_조회하면_오류를_반환한다() {
         projections: vec![Projection::All],
         table: "orders".to_owned(),
         filter: None,
+        group_by: None,
         order_by: None,
         limit: None,
     });
@@ -80,6 +82,7 @@ fn 존재하는_projection_컬럼을_bind한다() {
         ))],
         table: "users".to_owned(),
         filter: None,
+        group_by: None,
         order_by: None,
         limit: None,
     });
@@ -97,6 +100,7 @@ fn 존재하지_않는_projection_컬럼은_오류를_반환한다() {
         ))],
         table: "users".to_owned(),
         filter: None,
+        group_by: None,
         order_by: None,
         limit: None,
     });
@@ -118,6 +122,7 @@ fn sum_숫자형_컬럼을_aggregate로_bind한다() {
         projections: vec![Projection::Aggregate(Aggregate::Sum("id".to_owned()))],
         table: "users".to_owned(),
         filter: None,
+        group_by: None,
         order_by: None,
         limit: None,
     };
@@ -130,6 +135,7 @@ fn sum_숫자형_컬럼을_aggregate로_bind한다() {
                 ColumnId::new(1)
             ))],
             filter: None,
+            group_by: None,
             order_by: None,
             limit: None,
         })
@@ -144,6 +150,7 @@ fn sum_비숫자형_컬럼을_거부한다() {
         projections: vec![Projection::Aggregate(Aggregate::Sum("name".to_owned()))],
         table: "users".to_owned(),
         filter: None,
+        group_by: None,
         order_by: None,
         limit: None,
     };
@@ -162,6 +169,7 @@ fn sum_없는_컬럼을_거부한다() {
         projections: vec![Projection::Aggregate(Aggregate::Sum("age".to_owned()))],
         table: "users".to_owned(),
         filter: None,
+        group_by: None,
         order_by: None,
         limit: None,
     };
@@ -172,6 +180,125 @@ fn sum_없는_컬럼을_거부한다() {
             table: "users".to_owned(),
             column: "age".to_owned(),
         })
+    );
+}
+
+#[test]
+fn group_by_컬럼들을_column_id로_bind한다() {
+    let database = database();
+    let binder = Binder::new(&database);
+    let statement = SelectStatement {
+        projections: vec![
+            Projection::Expression(Expression::Identifier("id".to_owned())),
+            Projection::Expression(Expression::Identifier("name".to_owned())),
+            Projection::Aggregate(Aggregate::CountAll),
+        ],
+        table: "users".to_owned(),
+        filter: None,
+        group_by: Some(vec!["id".to_owned(), "name".to_owned()]),
+        order_by: None,
+        limit: None,
+    };
+
+    assert_eq!(
+        binder.bind_select(&statement),
+        Ok(BoundSelect {
+            table_id: TableId::new(1),
+            projections: vec![
+                BoundProjection::Column(ColumnId::new(1)),
+                BoundProjection::Column(ColumnId::new(2)),
+                BoundProjection::Aggregate(BoundAggregate::CountAll),
+            ],
+            filter: None,
+            group_by: Some(vec![ColumnId::new(1), ColumnId::new(2)]),
+            order_by: None,
+            limit: None,
+        })
+    );
+}
+
+#[test]
+fn group_by_없는_컬럼을_거부한다() {
+    let database = database();
+    let binder = Binder::new(&database);
+    let statement = SelectStatement {
+        projections: vec![Projection::Aggregate(Aggregate::CountAll)],
+        table: "users".to_owned(),
+        filter: None,
+        group_by: Some(vec!["age".to_owned()]),
+        order_by: None,
+        limit: None,
+    };
+
+    assert_eq!(
+        binder.bind_select(&statement),
+        Err(BinderError::ColumnNotFound {
+            table: "users".to_owned(),
+            column: "age".to_owned(),
+        })
+    );
+}
+
+#[test]
+fn group_by_컬럼과_sum을_함께_bind한다() {
+    let database = database();
+    let binder = Binder::new(&database);
+    let statement = SelectStatement {
+        projections: vec![
+            Projection::Expression(Expression::Identifier("name".to_owned())),
+            Projection::Aggregate(Aggregate::Sum("id".to_owned())),
+        ],
+        table: "users".to_owned(),
+        filter: None,
+        group_by: Some(vec!["name".to_owned()]),
+        order_by: None,
+        limit: None,
+    };
+
+    assert!(binder.bind_select(&statement).is_ok());
+}
+
+#[test]
+fn group_by에_없는_일반_projection을_거부한다() {
+    let database = database();
+    let binder = Binder::new(&database);
+    let statement = SelectStatement {
+        projections: vec![
+            Projection::Expression(Expression::Identifier("name".to_owned())),
+            Projection::Aggregate(Aggregate::CountAll),
+        ],
+        table: "users".to_owned(),
+        filter: None,
+        group_by: Some(vec!["id".to_owned()]),
+        order_by: None,
+        limit: None,
+    };
+
+    assert_eq!(
+        binder.bind_select(&statement),
+        Err(BinderError::InvalidGroupingProjection)
+    );
+}
+
+#[test]
+fn aggregate와_group_by_없는_일반_projection을_거부한다() {
+    let database = database();
+    let binder = Binder::new(&database);
+    let statement = SelectStatement {
+        projections: vec![
+            Projection::Expression(Expression::Identifier("name".to_owned())),
+            Projection::Aggregate(Aggregate::CountAll),
+        ],
+        table: "users".to_owned(),
+        filter: None,
+        group_by: None,
+        order_by: None,
+        limit: None,
+    };
+
+    assert_eq!(
+        binder.bind_select(&statement),
+        Err(BinderError::InvalidGroupingProjection)
     );
 }
 
@@ -441,6 +568,7 @@ fn 컬럼_타입에_맞는_where_조건을_select에서_bind한다() {
             operator: ComparisonOperator::Equal,
             right: Box::new(Expression::Literal(Literal::Integer(1))),
         }),
+        group_by: None,
         order_by: None,
         limit: None,
     });
@@ -504,6 +632,7 @@ fn 잘못된_형태의_where_조건은_오류를_반환한다() {
         projections: vec![Projection::All],
         table: "users".to_owned(),
         filter: Some(Expression::Literal(Literal::Integer(1))),
+        group_by: None,
         order_by: None,
         limit: None,
     });
@@ -528,6 +657,7 @@ fn select을_bound_select으로변환한다() {
             operator: ComparisonOperator::Equal,
             right: Box::new(Expression::Literal(Literal::Integer(1))),
         }),
+        group_by: None,
         order_by: None,
         limit: None,
     };
@@ -542,6 +672,7 @@ fn select을_bound_select으로변환한다() {
                 operator: ComparisonOperator::Equal,
                 value: Value::BigInt(1),
             }),
+            group_by: None,
             order_by: None,
             limit: None,
         })
@@ -557,6 +688,7 @@ fn order_by_desc를_bound_order_by로_변환한다() {
         projections: vec![Projection::All],
         table: "users".to_owned(),
         filter: None,
+        group_by: None,
         order_by: Some(OrderBy {
             column: "name".to_owned(),
             direction: SortDirection::Desc,
@@ -574,6 +706,7 @@ fn order_by_desc를_bound_order_by로_변환한다() {
             table_id: TableId::new(1),
             projections: vec![BoundProjection::All],
             filter: None,
+            group_by: None,
             order_by: Some(BoundOrderBy {
                 column_id: ColumnId::new(2),
                 direction: SortDirection::Desc,
@@ -581,6 +714,84 @@ fn order_by_desc를_bound_order_by로_변환한다() {
             limit: None,
         })
     );
+}
+
+#[test]
+fn group_by_컬럼으로_order_by할수있다() {
+    // Given
+    let database = database();
+    let binder = Binder::new(&database);
+    let statement = SelectStatement {
+        projections: vec![
+            Projection::Expression(Expression::Identifier("name".to_owned())),
+            Projection::Aggregate(Aggregate::CountAll),
+        ],
+        table: "users".to_owned(),
+        filter: None,
+        group_by: Some(vec!["name".to_owned()]),
+        order_by: Some(OrderBy {
+            column: "name".to_owned(),
+            direction: SortDirection::Asc,
+        }),
+        limit: None,
+    };
+
+    // When
+    let bound = binder.bind_select(&statement);
+
+    // Then
+    assert!(bound.is_ok());
+}
+
+#[test]
+fn group_by에_없는_컬럼으로_order_by하면_오류를_반환한다() {
+    // Given
+    let database = database();
+    let binder = Binder::new(&database);
+    let statement = SelectStatement {
+        projections: vec![
+            Projection::Expression(Expression::Identifier("name".to_owned())),
+            Projection::Aggregate(Aggregate::CountAll),
+        ],
+        table: "users".to_owned(),
+        filter: None,
+        group_by: Some(vec!["name".to_owned()]),
+        order_by: Some(OrderBy {
+            column: "id".to_owned(),
+            direction: SortDirection::Asc,
+        }),
+        limit: None,
+    };
+
+    // When
+    let bound = binder.bind_select(&statement);
+
+    // Then
+    assert_eq!(bound, Err(BinderError::InvalidGroupingOrder));
+}
+
+#[test]
+fn group_by_없는_aggregate를_원본_컬럼으로_order_by하면_오류를_반환한다() {
+    // Given
+    let database = database();
+    let binder = Binder::new(&database);
+    let statement = SelectStatement {
+        projections: vec![Projection::Aggregate(Aggregate::CountAll)],
+        table: "users".to_owned(),
+        filter: None,
+        group_by: None,
+        order_by: Some(OrderBy {
+            column: "name".to_owned(),
+            direction: SortDirection::Asc,
+        }),
+        limit: None,
+    };
+
+    // When
+    let bound = binder.bind_select(&statement);
+
+    // Then
+    assert_eq!(bound, Err(BinderError::InvalidAggregateOrder));
 }
 
 #[test]
@@ -592,6 +803,7 @@ fn 존재하지_않는_order_by_컬럼은_오류를_반환한다() {
         projections: vec![Projection::All],
         table: "users".to_owned(),
         filter: None,
+        group_by: None,
         order_by: Some(OrderBy {
             column: "age".to_owned(),
             direction: SortDirection::Asc,
@@ -631,6 +843,7 @@ fn and_where_조건을_bound_expression으로변환한다() {
                 right: Box::new(Expression::Literal(Literal::String("Kim".to_owned()))),
             }),
         }),
+        group_by: None,
         order_by: None,
         limit: None,
     };
@@ -652,6 +865,7 @@ fn and_where_조건을_bound_expression으로변환한다() {
                     value: Value::Varchar("Kim".to_owned()),
                 }),
             }),
+            group_by: None,
             order_by: None,
             limit: None,
         })
@@ -677,6 +891,7 @@ fn or_where_조건을_bound_expression으로변환한다() {
                 right: Box::new(Expression::Literal(Literal::String("Kim".to_owned()))),
             }),
         }),
+        group_by: None,
         order_by: None,
         limit: None,
     };
@@ -698,6 +913,7 @@ fn or_where_조건을_bound_expression으로변환한다() {
                     value: Value::Varchar("Kim".to_owned()),
                 }),
             }),
+            group_by: None,
             order_by: None,
             limit: None,
         })
@@ -714,6 +930,7 @@ fn 잘못된_projection_expression은_오류를_반환한다() {
         ))],
         table: "users".to_owned(),
         filter: None,
+        group_by: None,
         order_by: None,
         limit: None,
     });

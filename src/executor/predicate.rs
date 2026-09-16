@@ -1,8 +1,8 @@
 use std::cmp::Ordering;
 
 use crate::{
-    catalog::metadata::TableMetadata,
-    executor::ExecutorError,
+    catalog::metadata::{ColumnId, TableMetadata},
+    executor::{ExecutorError, projection::RowGroup},
     query::{
         binder::{BoundExpression, BoundOrderBy},
         common::SortDirection,
@@ -27,6 +27,25 @@ pub(super) fn filter_rows(
     Ok(results)
 }
 
+pub(super) fn order_groups(
+    mut groups: Vec<RowGroup>,
+    group_by: &[ColumnId],
+    order: &BoundOrderBy,
+) -> Result<Vec<RowGroup>, ExecutorError> {
+    let key_index = group_by
+        .iter()
+        .position(|group_column_id| *group_column_id == order.column_id)
+        .ok_or(ExecutorError::Unsupported)?;
+
+    groups.sort_by(|left, right| compare_values(&left.key[key_index], &right.key[key_index]));
+
+    if order.direction == SortDirection::Desc {
+        groups.reverse();
+    }
+
+    Ok(groups)
+}
+
 pub(super) fn order_rows(
     rows: Vec<(RowId, Row)>,
     table: &TableMetadata,
@@ -43,16 +62,7 @@ pub(super) fn order_rows(
         keyed_rows.push((key, row_id, row));
     }
 
-    keyed_rows.sort_by(|left, right| match (&left.0, &right.0) {
-        (Value::Null, Value::Null) => Ordering::Equal,
-        (Value::Null, _) => Ordering::Greater,
-        (_, Value::Null) => Ordering::Less,
-        (Value::Int(a), Value::Int(b)) => a.cmp(b),
-        (Value::BigInt(a), Value::BigInt(b)) => a.cmp(b),
-        (Value::Varchar(a), Value::Varchar(b)) => a.cmp(b),
-        (Value::Boolean(a), Value::Boolean(b)) => a.cmp(b),
-        _ => Ordering::Equal,
-    });
+    keyed_rows.sort_by(|left, right| compare_values(&left.0, &right.0));
 
     if order.direction == SortDirection::Desc {
         keyed_rows.reverse();
@@ -88,5 +98,18 @@ fn row_matches_filter(
             Ok(row_matches_filter(values, table, left)?
                 || row_matches_filter(values, table, right)?)
         }
+    }
+}
+
+fn compare_values(left: &Value, right: &Value) -> Ordering {
+    match (left, right) {
+        (Value::Null, Value::Null) => Ordering::Equal,
+        (Value::Null, _) => Ordering::Greater,
+        (_, Value::Null) => Ordering::Less,
+        (Value::Int(a), Value::Int(b)) => a.cmp(b),
+        (Value::BigInt(a), Value::BigInt(b)) => a.cmp(b),
+        (Value::Varchar(a), Value::Varchar(b)) => a.cmp(b),
+        (Value::Boolean(a), Value::Boolean(b)) => a.cmp(b),
+        _ => Ordering::Equal,
     }
 }

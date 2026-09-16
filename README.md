@@ -486,10 +486,10 @@ Heap Table
 * [x] Comparison Expression
 * [x] `ORDER BY`
 * [x] `LIMIT`
-* [ ] Aggregate
-* [ ] `COUNT`
-* [ ] `SUM`
-* [ ] `GROUP BY`
+* [x] Aggregate
+* [x] `COUNT`
+* [x] `SUM`
+* [x] `GROUP BY`
 * [ ] Nested Loop Join
 * [ ] Hash Join
 

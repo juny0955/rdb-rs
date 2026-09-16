@@ -1,5 +1,5 @@
 use crate::{
-    catalog::metadata::{ColumnMetadata, DataType, DatabaseMetadata, TableMetadata},
+    catalog::metadata::{ColumnId, ColumnMetadata, DataType, DatabaseMetadata, TableMetadata},
     query::sql::ast::{
         Aggregate, CreateIndexStatement, DeleteStatement,
         Expression::{self, Identifier},
@@ -29,8 +29,16 @@ pub enum BinderError {
     InvalidFilterExpression,
     #[error("SELECT projection이 올바르지 않습니다")]
     InvalidProjectionExpression,
-    #[error("지원하지 않는 aggregate type 입니다")]
+    #[error("SUM은 INT 또는 BIGINT 컬럼에만 사용할 수 있습니다")]
     UnsupportedAggregateType,
+    #[error(
+        "GROUP BY 또는 aggregate 쿼리의 SELECT 목록에는 GROUP BY 컬럼과 aggregate만 사용할 수 있습니다"
+    )]
+    InvalidGroupingProjection,
+    #[error("GROUP BY 쿼리의 ORDER BY 컬럼은 GROUP BY에 포함되어야 합니다")]
+    InvalidGroupingOrder,
+    #[error("GROUP BY 없는 aggregate 쿼리에서는 원본 컬럼으로 정렬할 수 없습니다")]
+    InvalidAggregateOrder,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,43 +85,8 @@ impl<'a> Binder<'a> {
     fn bind_select(&self, statement: &SelectStatement) -> Result<BoundSelect, BinderError> {
         let table = self.require_table(&statement.table)?;
         let table_id = table.id();
-        let mut projections = Vec::new();
 
-        for projection in &statement.projections {
-            match projection {
-                Projection::All => projections.push(BoundProjection::All),
-                Projection::Expression(Identifier(column_name)) => {
-                    match table.column(column_name) {
-                        Some(column) => projections.push(BoundProjection::Column(column.id())),
-                        None => {
-                            return Err(BinderError::ColumnNotFound {
-                                table: statement.table.to_owned(),
-                                column: column_name.to_owned(),
-                            });
-                        }
-                    }
-                }
-                Projection::Aggregate(aggreate) => match aggreate {
-                    Aggregate::CountAll => {
-                        projections.push(BoundProjection::Aggregate(BoundAggregate::CountAll))
-                    }
-                    Aggregate::Sum(column_name) => match table.column(column_name) {
-                        Some(column) => match column.data_type() {
-                            DataType::Int | DataType::BigInt => projections
-                                .push(BoundProjection::Aggregate(BoundAggregate::Sum(column.id()))),
-                            _ => return Err(BinderError::UnsupportedAggregateType),
-                        },
-                        None => {
-                            return Err(BinderError::ColumnNotFound {
-                                table: statement.table.to_owned(),
-                                column: column_name.to_owned(),
-                            });
-                        }
-                    },
-                },
-                Projection::Expression(_) => return Err(BinderError::InvalidProjectionExpression),
-            }
-        }
+        let projections = bind_projections(table, statement)?;
 
         let filter = if let Some(filter) = &statement.filter {
             Some(bind_filter(table, filter)?)
@@ -121,16 +94,17 @@ impl<'a> Binder<'a> {
             None
         };
 
-        let order_by = if let Some(order) = &statement.order_by {
-            Some(bind_order_by(table, order)?)
-        } else {
-            None
-        };
+        let group_by = bind_group_by(table, &statement.group_by)?;
+        validate_projection(&projections, &group_by)?;
+
+        let order_by = bind_order_by(table, &statement.order_by)?;
+        validate_order_by(&projections, &group_by, &order_by)?;
 
         Ok(BoundSelect {
             table_id,
             projections,
             filter,
+            group_by,
             order_by,
             limit: statement.limit,
         })
@@ -233,18 +207,149 @@ impl<'a> Binder<'a> {
     }
 }
 
-fn bind_order_by(table: &TableMetadata, order: &OrderBy) -> Result<BoundOrderBy, BinderError> {
-    let Some(column) = table.column(&order.column) else {
-        return Err(BinderError::ColumnNotFound {
-            table: table.name().to_owned(),
-            column: order.column.to_owned(),
-        });
+fn validate_projection(
+    projections: &[BoundProjection],
+    group_by: &Option<Vec<ColumnId>>,
+) -> Result<(), BinderError> {
+    let has_aggregate = projections
+        .iter()
+        .any(|projection| matches!(projection, BoundProjection::Aggregate(_)));
+
+    for projection in projections {
+        match projection {
+            BoundProjection::Column(id) => {
+                if (has_aggregate || group_by.is_some())
+                    && !group_by
+                        .as_ref()
+                        .is_some_and(|columns| columns.contains(id))
+                {
+                    return Err(BinderError::InvalidGroupingProjection);
+                }
+            }
+            BoundProjection::All => {
+                if has_aggregate || group_by.is_some() {
+                    return Err(BinderError::InvalidGroupingProjection);
+                }
+            }
+            _ => continue,
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_order_by(
+    projections: &[BoundProjection],
+    group_by: &Option<Vec<ColumnId>>,
+    order_by: &Option<BoundOrderBy>,
+) -> Result<(), BinderError> {
+    let Some(order_by) = order_by else {
+        return Ok(());
     };
 
-    Ok(BoundOrderBy {
-        column_id: column.id(),
-        direction: order.direction,
-    })
+    if let Some(group_by) = group_by {
+        if group_by.contains(&order_by.column_id) {
+            return Ok(());
+        }
+
+        return Err(BinderError::InvalidGroupingOrder);
+    }
+
+    if projections
+        .iter()
+        .any(|projection| matches!(projection, BoundProjection::Aggregate(_)))
+    {
+        return Err(BinderError::InvalidAggregateOrder);
+    }
+
+    Ok(())
+}
+
+fn bind_order_by(
+    table: &TableMetadata,
+    order: &Option<OrderBy>,
+) -> Result<Option<BoundOrderBy>, BinderError> {
+    if let Some(order) = &order {
+        let Some(column) = table.column(&order.column) else {
+            return Err(BinderError::ColumnNotFound {
+                table: table.name().to_owned(),
+                column: order.column.to_owned(),
+            });
+        };
+
+        Ok(Some(BoundOrderBy {
+            column_id: column.id(),
+            direction: order.direction,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+fn bind_projections(
+    table: &TableMetadata,
+    statement: &SelectStatement,
+) -> Result<Vec<BoundProjection>, BinderError> {
+    let mut projections = Vec::new();
+
+    for projection in &statement.projections {
+        match projection {
+            Projection::All => projections.push(BoundProjection::All),
+            Projection::Expression(Identifier(column_name)) => match table.column(column_name) {
+                Some(column) => projections.push(BoundProjection::Column(column.id())),
+                None => {
+                    return Err(BinderError::ColumnNotFound {
+                        table: statement.table.to_owned(),
+                        column: column_name.to_owned(),
+                    });
+                }
+            },
+            Projection::Aggregate(aggreate) => match aggreate {
+                Aggregate::CountAll => {
+                    projections.push(BoundProjection::Aggregate(BoundAggregate::CountAll))
+                }
+                Aggregate::Sum(column_name) => match table.column(column_name) {
+                    Some(column) => match column.data_type() {
+                        DataType::Int | DataType::BigInt => projections
+                            .push(BoundProjection::Aggregate(BoundAggregate::Sum(column.id()))),
+                        _ => return Err(BinderError::UnsupportedAggregateType),
+                    },
+                    None => {
+                        return Err(BinderError::ColumnNotFound {
+                            table: statement.table.to_owned(),
+                            column: column_name.to_owned(),
+                        });
+                    }
+                },
+            },
+            Projection::Expression(_) => return Err(BinderError::InvalidProjectionExpression),
+        }
+    }
+
+    Ok(projections)
+}
+
+fn bind_group_by(
+    table: &TableMetadata,
+    columns: &Option<Vec<String>>,
+) -> Result<Option<Vec<ColumnId>>, BinderError> {
+    if let Some(columns) = columns {
+        let mut column_ids = Vec::new();
+        for column_name in columns {
+            let column = table
+                .column(column_name)
+                .ok_or(BinderError::ColumnNotFound {
+                    table: table.name().to_owned(),
+                    column: column_name.to_owned(),
+                })?;
+
+            column_ids.push(column.id())
+        }
+
+        return Ok(Some(column_ids));
+    }
+
+    Ok(None)
 }
 
 fn bind_filter(table: &TableMetadata, filter: &Expression) -> Result<BoundExpression, BinderError> {
