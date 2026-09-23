@@ -1,24 +1,38 @@
+use std::collections::HashSet;
+
 use crate::{
-    catalog::metadata::{ColumnId, ColumnMetadata, DataType, DatabaseMetadata, TableMetadata},
+    catalog::metadata::{
+        ColumnId, ColumnMetadata, DataType, DatabaseMetadata, TableId, TableMetadata,
+    },
     query::sql::ast::{
-        Aggregate, CreateIndexStatement, DeleteStatement,
-        Expression::{self, Identifier},
-        InsertStatement, Literal, OrderBy, Projection, SelectStatement, SqlDataType, Statement,
-        UpdateStatement,
+        ColumnReference, CreateIndexStatement, CreateTableStatement, DeleteStatement, FromClause,
+        InsertStatement, JoinCondition, Literal, SqlDataType, Statement, UpdateStatement,
     },
     tuple::Value,
 };
 use thiserror::Error;
 
 mod bound;
+mod select;
 pub use bound::*;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum BinderError {
     #[error("테이블을 찾을 수 없습니다: {0}")]
     TableNotFound(String),
+    #[error("테이블 ID를 찾을 수 없습니다: {0:?}")]
+    TableIdNotFound(TableId),
     #[error("테이블 '{table}'에서 컬럼을 찾을 수 없습니다: {column}")]
     ColumnNotFound { table: String, column: String },
+    #[error("테이블 ID {table_id:?}에서 컬럼 ID를 찾을 수 없습니다: {column_id:?}")]
+    ColumnIdNotFound {
+        table_id: TableId,
+        column_id: ColumnId,
+    },
+    #[error("FROM 절에서 컬럼을 찾을 수 없습니다: {column}")]
+    ColumnNotFoundInScope { column: String },
+    #[error("컬럼 참조가 모호합니다: {column}")]
+    AmbiguousColumn { column: String },
     #[error("테이블이 이미 존재합니다: {0}")]
     AlreadyExistsTable(String),
     #[error("값 개수가 컬럼 개수와 일치하지 않습니다 (기대값: {expected}, 실제값: {actual})")]
@@ -39,6 +53,10 @@ pub enum BinderError {
     InvalidGroupingOrder,
     #[error("GROUP BY 없는 aggregate 쿼리에서는 원본 컬럼으로 정렬할 수 없습니다")]
     InvalidAggregateOrder,
+    #[error("JOIN절 양쪽 data type이 다릅니다: left: {left:?}, right: {right:?}")]
+    JoinColumnTypeMismatch { left: DataType, right: DataType },
+    #[error("FROM 절 테이블 참조 이름이 중복되었습니다: {0}")]
+    DuplicateTableReference(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,61 +70,13 @@ impl<'a> Binder<'a> {
     }
 
     pub fn bind(&self, statement: &Statement) -> Result<BoundStatement, BinderError> {
-        match statement {
-            Statement::CreateTable(s) => {
-                if self.database.table(statement.table()).is_some() {
-                    return Err(BinderError::AlreadyExistsTable(
-                        statement.table().to_owned(),
-                    ));
-                }
-
-                Ok(BoundStatement::CreateTable(BoundCreateTable {
-                    table: s.table.clone(),
-                    columns: s
-                        .columns
-                        .iter()
-                        .map(|column| BoundColumnDefinition {
-                            name: column.name.clone(),
-                            data_type: bind_data_type(column.data_type),
-                        })
-                        .collect(),
-                }))
-            }
-            Statement::CreateIndex(s) => {
-                Ok(BoundStatement::CreateIndex(self.bind_create_index(s)?))
-            }
-            Statement::Select(s) => Ok(BoundStatement::Select(self.bind_select(s)?)),
-            Statement::Insert(s) => Ok(BoundStatement::Insert(self.bind_insert(s)?)),
-            Statement::Update(s) => Ok(BoundStatement::Update(self.bind_update(s)?)),
-            Statement::Delete(s) => Ok(BoundStatement::Delete(self.bind_delete(s)?)),
-        }
-    }
-
-    fn bind_select(&self, statement: &SelectStatement) -> Result<BoundSelect, BinderError> {
-        let table = self.require_table(&statement.table)?;
-        let table_id = table.id();
-
-        let projections = bind_projections(table, statement)?;
-
-        let filter = if let Some(filter) = &statement.filter {
-            Some(bind_filter(table, filter)?)
-        } else {
-            None
-        };
-
-        let group_by = bind_group_by(table, &statement.group_by)?;
-        validate_projection(&projections, &group_by)?;
-
-        let order_by = bind_order_by(table, &statement.order_by)?;
-        validate_order_by(&projections, &group_by, &order_by)?;
-
-        Ok(BoundSelect {
-            table_id,
-            projections,
-            filter,
-            group_by,
-            order_by,
-            limit: statement.limit,
+        Ok(match statement {
+            Statement::CreateTable(s) => BoundStatement::CreateTable(self.bind_create_table(s)?),
+            Statement::CreateIndex(s) => BoundStatement::CreateIndex(self.bind_create_index(s)?),
+            Statement::Select(s) => BoundStatement::Select(self.bind_select(s)?),
+            Statement::Insert(s) => BoundStatement::Insert(self.bind_insert(s)?),
+            Statement::Update(s) => BoundStatement::Update(self.bind_update(s)?),
+            Statement::Delete(s) => BoundStatement::Delete(self.bind_delete(s)?),
         })
     }
 
@@ -130,51 +100,97 @@ impl<'a> Binder<'a> {
     }
 
     fn bind_delete(&self, statement: &DeleteStatement) -> Result<BoundDelete, BinderError> {
-        let table = self.require_table(&statement.table)?;
-        let table_id = table.id();
+        let mut next_instance_id = 0;
+        let from = self.bind_from_clause(&statement.from, &mut next_instance_id)?;
+        let mut tables = Vec::new();
+        collect_tables(&from, &mut tables);
 
-        let filter = if let Some(filter) = &statement.filter {
-            Some(bind_filter(table, filter)?)
-        } else {
-            None
+        let targets = match statement.targets.as_ref() {
+            Some(target_names) => {
+                let mut targets = Vec::new();
+
+                for target_name in target_names {
+                    let mut found = None;
+
+                    for table in &tables {
+                        let qualifier = self.table_reference_name(table)?;
+                        if qualifier == target_name {
+                            found = Some(*table);
+                            break;
+                        }
+                    }
+
+                    let table =
+                        found.ok_or_else(|| BinderError::TableNotFound(target_name.to_owned()))?;
+                    targets.push((*table).clone());
+                }
+                targets
+            }
+            None => {
+                vec![leftmost_table(&from).clone()]
+            }
         };
 
-        Ok(BoundDelete { table_id, filter })
+        let filter = statement
+            .filter
+            .as_ref()
+            .map(|filter| self.bind_filter(&tables, filter))
+            .transpose()?;
+
+        Ok(BoundDelete {
+            targets,
+            from,
+            filter,
+        })
     }
 
     fn bind_update(&self, statement: &UpdateStatement) -> Result<BoundUpdate, BinderError> {
-        let table = self.require_table(&statement.table)?;
-        let table_id = table.id();
+        let mut next_instance_id = 0;
+        let from = self.bind_from_clause(&statement.from, &mut next_instance_id)?;
+        let mut tables = Vec::new();
+        collect_tables(&from, &mut tables);
 
         let mut assignments = Vec::new();
         for assignment in &statement.assignments {
-            match table.column(&assignment.column) {
-                Some(column) => {
-                    let value = bind_value(&assignment.value, column)?;
-                    assignments.push(BoundAssignment {
-                        column_id: column.id(),
-                        value,
-                    });
-                }
-                None => {
-                    return Err(BinderError::ColumnNotFound {
-                        table: table.name().to_owned(),
-                        column: assignment.column.to_owned(),
-                    });
-                }
-            }
+            let column = self.bind_column_reference(&tables, &assignment.column)?;
+            let column_meta = self.require_column(&column)?;
+            let value = bind_value(&assignment.value, column_meta)?;
+            assignments.push(BoundAssignment { column, value });
         }
 
-        let filter = if let Some(filter) = &statement.filter {
-            Some(bind_filter(table, filter)?)
-        } else {
-            None
-        };
+        let filter = statement
+            .filter
+            .as_ref()
+            .map(|filter| self.bind_filter(&tables, filter))
+            .transpose()?;
 
         Ok(BoundUpdate {
-            table_id,
+            from,
             assignments,
             filter,
+        })
+    }
+
+    fn bind_create_table(
+        &self,
+        statement: &CreateTableStatement,
+    ) -> Result<BoundCreateTable, BinderError> {
+        if self.database.table(&statement.table).is_some() {
+            return Err(BinderError::AlreadyExistsTable(statement.table.to_owned()));
+        }
+
+        let columns = statement
+            .columns
+            .iter()
+            .map(|column| BoundColumnDefinition {
+                name: column.name.clone(),
+                data_type: bind_data_type(column.data_type),
+            })
+            .collect();
+
+        Ok(BoundCreateTable {
+            table: statement.table.clone(),
+            columns,
         })
     }
 
@@ -183,12 +199,7 @@ impl<'a> Binder<'a> {
         statement: &CreateIndexStatement,
     ) -> Result<BoundCreateIndex, BinderError> {
         let table = self.require_table(&statement.table)?;
-        let column = table
-            .column(&statement.column_name)
-            .ok_or(BinderError::ColumnNotFound {
-                table: statement.table.to_owned(),
-                column: statement.column_name.to_owned(),
-            })?;
+        let column = require_column_by_name(table, &statement.column_name)?;
 
         Ok(BoundCreateIndex {
             index_name: statement.index_name.to_owned(),
@@ -197,198 +208,206 @@ impl<'a> Binder<'a> {
         })
     }
 
-    fn require_table(&self, name: &str) -> Result<&TableMetadata, BinderError> {
-        let table = self.database.table(name);
-        if table.is_none() {
-            return Err(BinderError::TableNotFound(name.to_string()));
-        }
+    fn bind_from_clause(
+        &self,
+        from_clause: &FromClause,
+        next_instance_id: &mut u32,
+    ) -> Result<BoundFromClause, BinderError> {
+        Ok(match from_clause {
+            FromClause::Table(table_ref) => {
+                let table_id = self.require_table(&table_ref.name)?.id();
+                let instance_id = TableInstanceId(*next_instance_id);
+                *next_instance_id += 1;
+                BoundFromClause::Table(BoundTable {
+                    table_id,
+                    alias: table_ref.alias.clone(),
+                    instance_id,
+                })
+            }
+            FromClause::InnerJoin { left, on, right } => {
+                let bound_left = self.bind_from_clause(left, next_instance_id)?;
+                let bound_right = self.bind_from_clause(right, next_instance_id)?;
+                let bound_on = self.bind_join_condition(&bound_left, &bound_right, on)?;
 
-        Ok(table.unwrap())
-    }
-}
-
-fn validate_projection(
-    projections: &[BoundProjection],
-    group_by: &Option<Vec<ColumnId>>,
-) -> Result<(), BinderError> {
-    let has_aggregate = projections
-        .iter()
-        .any(|projection| matches!(projection, BoundProjection::Aggregate(_)));
-
-    for projection in projections {
-        match projection {
-            BoundProjection::Column(id) => {
-                if (has_aggregate || group_by.is_some())
-                    && !group_by
-                        .as_ref()
-                        .is_some_and(|columns| columns.contains(id))
-                {
-                    return Err(BinderError::InvalidGroupingProjection);
+                BoundFromClause::InnerJoin {
+                    left: Box::new(bound_left),
+                    right: Box::new(bound_right),
+                    on: bound_on,
                 }
             }
-            BoundProjection::All => {
-                if has_aggregate || group_by.is_some() {
-                    return Err(BinderError::InvalidGroupingProjection);
-                }
+        })
+    }
+
+    fn bind_join_condition(
+        &self,
+        left: &BoundFromClause,
+        right: &BoundFromClause,
+        condition: &JoinCondition,
+    ) -> Result<BoundJoinCondition, BinderError> {
+        let mut tables = Vec::new();
+        collect_tables(left, &mut tables);
+        collect_tables(right, &mut tables);
+
+        let mut table_set = HashSet::new();
+        for table in &tables {
+            let qualifier = self.table_reference_name(table)?;
+
+            if !table_set.insert(qualifier) {
+                return Err(BinderError::DuplicateTableReference(qualifier.to_owned()));
             }
-            _ => continue,
-        }
-    }
-
-    Ok(())
-}
-
-fn validate_order_by(
-    projections: &[BoundProjection],
-    group_by: &Option<Vec<ColumnId>>,
-    order_by: &Option<BoundOrderBy>,
-) -> Result<(), BinderError> {
-    let Some(order_by) = order_by else {
-        return Ok(());
-    };
-
-    if let Some(group_by) = group_by {
-        if group_by.contains(&order_by.column_id) {
-            return Ok(());
         }
 
-        return Err(BinderError::InvalidGroupingOrder);
-    }
+        let left_column = self.bind_column_reference(&tables, &condition.left)?;
+        let right_column = self.bind_column_reference(&tables, &condition.right)?;
 
-    if projections
-        .iter()
-        .any(|projection| matches!(projection, BoundProjection::Aggregate(_)))
-    {
-        return Err(BinderError::InvalidAggregateOrder);
-    }
-
-    Ok(())
-}
-
-fn bind_order_by(
-    table: &TableMetadata,
-    order: &Option<OrderBy>,
-) -> Result<Option<BoundOrderBy>, BinderError> {
-    if let Some(order) = &order {
-        let Some(column) = table.column(&order.column) else {
-            return Err(BinderError::ColumnNotFound {
-                table: table.name().to_owned(),
-                column: order.column.to_owned(),
+        let left_type = self.require_column(&left_column)?.data_type();
+        let right_type = self.require_column(&right_column)?.data_type();
+        if left_type != right_type {
+            return Err(BinderError::JoinColumnTypeMismatch {
+                left: left_type,
+                right: right_type,
             });
-        };
+        }
 
-        Ok(Some(BoundOrderBy {
-            column_id: column.id(),
-            direction: order.direction,
-        }))
-    } else {
-        Ok(None)
+        Ok(BoundJoinCondition {
+            left: left_column,
+            right: right_column,
+        })
     }
-}
 
-fn bind_projections(
-    table: &TableMetadata,
-    statement: &SelectStatement,
-) -> Result<Vec<BoundProjection>, BinderError> {
-    let mut projections = Vec::new();
-
-    for projection in &statement.projections {
-        match projection {
-            Projection::All => projections.push(BoundProjection::All),
-            Projection::Expression(Identifier(column_name)) => match table.column(column_name) {
-                Some(column) => projections.push(BoundProjection::Column(column.id())),
-                None => {
-                    return Err(BinderError::ColumnNotFound {
-                        table: statement.table.to_owned(),
-                        column: column_name.to_owned(),
-                    });
-                }
-            },
-            Projection::Aggregate(aggreate) => match aggreate {
-                Aggregate::CountAll => {
-                    projections.push(BoundProjection::Aggregate(BoundAggregate::CountAll))
-                }
-                Aggregate::Sum(column_name) => match table.column(column_name) {
-                    Some(column) => match column.data_type() {
-                        DataType::Int | DataType::BigInt => projections
-                            .push(BoundProjection::Aggregate(BoundAggregate::Sum(column.id()))),
-                        _ => return Err(BinderError::UnsupportedAggregateType),
-                    },
-                    None => {
-                        return Err(BinderError::ColumnNotFound {
-                            table: statement.table.to_owned(),
-                            column: column_name.to_owned(),
-                        });
-                    }
-                },
-            },
-            Projection::Expression(_) => return Err(BinderError::InvalidProjectionExpression),
+    fn bind_column_reference(
+        &self,
+        tables: &[&BoundTable],
+        column_ref: &ColumnReference,
+    ) -> Result<BoundColumnReference, BinderError> {
+        match column_ref.table.as_deref() {
+            Some(alias) => self.bind_qualified_column_reference(tables, column_ref, alias),
+            None => self.bind_unqualified_column_reference(tables, column_ref),
         }
     }
 
-    Ok(projections)
-}
+    fn bind_qualified_column_reference(
+        &self,
+        tables: &[&BoundTable],
+        column_ref: &ColumnReference,
+        alias: &str,
+    ) -> Result<BoundColumnReference, BinderError> {
+        let mut bound_table = None;
+        for table in tables {
+            if self.table_reference_name(table)? == alias {
+                bound_table = Some(table);
+                break;
+            }
+        }
 
-fn bind_group_by(
-    table: &TableMetadata,
-    columns: &Option<Vec<String>>,
-) -> Result<Option<Vec<ColumnId>>, BinderError> {
-    if let Some(columns) = columns {
-        let mut column_ids = Vec::new();
-        for column_name in columns {
-            let column = table
-                .column(column_name)
+        let bound_table =
+            bound_table.ok_or_else(|| BinderError::TableNotFound(alias.to_owned()))?;
+
+        let table_meta = self.require_table_by_id(bound_table.table_id)?;
+        let column_meta =
+            table_meta
+                .column(&column_ref.column)
                 .ok_or(BinderError::ColumnNotFound {
-                    table: table.name().to_owned(),
-                    column: column_name.to_owned(),
+                    table: alias.to_owned(),
+                    column: column_ref.column.to_owned(),
                 })?;
 
-            column_ids.push(column.id())
-        }
-
-        return Ok(Some(column_ids));
+        Ok(BoundColumnReference {
+            table_id: table_meta.id(),
+            instance_id: bound_table.instance_id,
+            column_id: column_meta.id(),
+        })
     }
 
-    Ok(None)
+    fn bind_unqualified_column_reference(
+        &self,
+        tables: &[&BoundTable],
+        column_ref: &ColumnReference,
+    ) -> Result<BoundColumnReference, BinderError> {
+        let mut columns = Vec::new();
+        for bound_table in tables {
+            let table_meta = self.require_table_by_id(bound_table.table_id)?;
+
+            if let Some(column_meta) = table_meta.column(&column_ref.column) {
+                columns.push(BoundColumnReference {
+                    table_id: table_meta.id(),
+                    instance_id: bound_table.instance_id,
+                    column_id: column_meta.id(),
+                });
+            }
+        }
+
+        match columns.len() {
+            0 => Err(BinderError::ColumnNotFoundInScope {
+                column: column_ref.column.to_owned(),
+            }),
+            1 => columns.pop().ok_or(BinderError::ColumnNotFoundInScope {
+                column: column_ref.column.to_owned(),
+            }),
+            _ => Err(BinderError::AmbiguousColumn {
+                column: column_ref.column.to_owned(),
+            }),
+        }
+    }
+
+    fn table_reference_name<'b>(&'b self, table: &'b BoundTable) -> Result<&'b str, BinderError> {
+        Ok(match table.alias.as_deref() {
+            Some(table_alias) => table_alias,
+            None => self.require_table_by_id(table.table_id)?.name(),
+        })
+    }
+
+    fn require_table(&self, name: &str) -> Result<&TableMetadata, BinderError> {
+        self.database
+            .table(name)
+            .ok_or(BinderError::TableNotFound(name.to_string()))
+    }
+
+    fn require_table_by_id(&self, table_id: TableId) -> Result<&TableMetadata, BinderError> {
+        self.database
+            .table_by_id(table_id)
+            .ok_or(BinderError::TableIdNotFound(table_id))
+    }
+
+    fn require_column(
+        &self,
+        column: &BoundColumnReference,
+    ) -> Result<&ColumnMetadata, BinderError> {
+        let table_meta = self.require_table_by_id(column.table_id)?;
+        table_meta
+            .column_by_id(column.column_id)
+            .ok_or(BinderError::ColumnIdNotFound {
+                table_id: table_meta.id(),
+                column_id: column.column_id,
+            })
+    }
 }
 
-fn bind_filter(table: &TableMetadata, filter: &Expression) -> Result<BoundExpression, BinderError> {
-    match filter {
-        Expression::And { left, right } => Ok(BoundExpression::And {
-            left: Box::new(bind_filter(table, left)?),
-            right: Box::new(bind_filter(table, right)?),
-        }),
-        Expression::Or { left, right } => Ok(BoundExpression::Or {
-            left: Box::new(bind_filter(table, left)?),
-            right: Box::new(bind_filter(table, right)?),
-        }),
-        Expression::Comparison {
-            left,
-            operator,
-            right,
-        } => {
-            let (Expression::Identifier(column_name), Expression::Literal(literal)) =
-                (left.as_ref(), right.as_ref())
-            else {
-                return Err(BinderError::InvalidFilterExpression);
-            };
-
-            let Some(column) = table.column(column_name) else {
-                return Err(BinderError::ColumnNotFound {
-                    table: table.name().to_owned(),
-                    column: column_name.to_owned(),
-                });
-            };
-
-            let value = bind_value(literal, column)?;
-            Ok(BoundExpression::Comparison {
-                column_id: column.id(),
-                operator: *operator,
-                value,
-            })
-        }
-        _ => Err(BinderError::InvalidFilterExpression),
+fn leftmost_table(from: &BoundFromClause) -> &BoundTable {
+    match from {
+        BoundFromClause::Table(table) => table,
+        BoundFromClause::InnerJoin { left, .. } => leftmost_table(left),
     }
+}
+
+fn collect_tables<'a>(from: &'a BoundFromClause, tables: &mut Vec<&'a BoundTable>) {
+    match from {
+        BoundFromClause::Table(table) => tables.push(table),
+        BoundFromClause::InnerJoin { left, right, .. } => {
+            collect_tables(left, tables);
+            collect_tables(right, tables);
+        }
+    }
+}
+
+fn require_column_by_name<'a>(
+    table: &'a TableMetadata,
+    name: &'a str,
+) -> Result<&'a ColumnMetadata, BinderError> {
+    table.column(name).ok_or(BinderError::ColumnNotFound {
+        table: table.name().to_owned(),
+        column: name.to_owned(),
+    })
 }
 
 fn bind_value(literal: &Literal, column: &ColumnMetadata) -> Result<Value, BinderError> {

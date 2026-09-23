@@ -84,7 +84,7 @@ fn indexed_equal_predicate는_index_candidate를_반환한다() -> Result<(), Da
     };
 
     let Some(BoundExpression::Comparison {
-        column_id,
+        column,
         operator: ComparisonOperator::Equal,
         value,
     }) = &bound.filter
@@ -94,8 +94,8 @@ fn indexed_equal_predicate는_index_candidate를_반환한다() -> Result<(), Da
     let candidates = IndexManager::search_index_row_ids(
         &mut database.storage_manager,
         database.catalog.metadata().indexes(),
-        bound.table_id,
-        *column_id,
+        column.table_id,
+        column.column_id,
         value,
     )?;
 

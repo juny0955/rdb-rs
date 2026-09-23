@@ -8,6 +8,7 @@ use crate::{
 
 mod execute;
 mod index;
+mod join;
 mod table;
 
 fn users_table() -> BoundCreateTable {

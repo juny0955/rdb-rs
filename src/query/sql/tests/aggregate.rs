@@ -1,25 +1,38 @@
 use crate::query::sql::{
     Parser,
-    ast::{Aggregate, Projection, SelectStatement, Statement},
+    ast::{
+        Aggregate, ColumnReference, Expression, FromClause, Projection, SelectStatement, Statement,
+        TableReference,
+    },
     lexer::Lexer,
 };
 
+fn column(name: &str) -> ColumnReference {
+    ColumnReference {
+        table: None,
+        column: name.to_owned(),
+    }
+}
+
+fn from(table: &str) -> FromClause {
+    FromClause::Table(TableReference {
+        name: table.to_owned(),
+        alias: None,
+    })
+}
+
+fn parse(sql: &str) -> Statement {
+    let tokens = Lexer::new(sql).tokenize().expect("SQL을 토큰화해야 함");
+    Parser::new(tokens).parse().expect("SQL을 파싱해야 함")
+}
+
 #[test]
 fn select_count_all을_ast로_파싱한다() {
-    // Given
-    let mut lexer = Lexer::new("SELECT COUNT(*) FROM users;");
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-
-    // When
-    let statement = parser.parse().unwrap();
-
-    // Then
     assert_eq!(
-        statement,
+        parse("SELECT COUNT(*) FROM users;"),
         Statement::Select(SelectStatement {
             projections: vec![Projection::Aggregate(Aggregate::CountAll)],
-            table: "users".to_owned(),
+            from: from("users"),
             filter: None,
             group_by: None,
             order_by: None,
@@ -30,20 +43,11 @@ fn select_count_all을_ast로_파싱한다() {
 
 #[test]
 fn select_sum을_ast로_파싱한다() {
-    // Given
-    let mut lexer = Lexer::new("SELECT SUM(id) FROM users;");
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-
-    // When
-    let statement = parser.parse().unwrap();
-
-    // Then
     assert_eq!(
-        statement,
+        parse("SELECT SUM(id) FROM users;"),
         Statement::Select(SelectStatement {
-            projections: vec![Projection::Aggregate(Aggregate::Sum("id".to_owned()))],
-            table: "users".to_owned(),
+            projections: vec![Projection::Aggregate(Aggregate::Sum(column("id")))],
+            from: from("users"),
             filter: None,
             group_by: None,
             order_by: None,
@@ -54,28 +58,16 @@ fn select_sum을_ast로_파싱한다() {
 
 #[test]
 fn select_group_by_단일_컬럼을_ast로_파싱한다() {
-    // Given
-    let mut lexer =
-        Lexer::new("SELECT department_id, COUNT(*) FROM employees GROUP BY department_id;");
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-
-    // When
-    let statement = parser.parse().unwrap();
-
-    // Then
     assert_eq!(
-        statement,
+        parse("SELECT department_id, COUNT(*) FROM employees GROUP BY department_id;"),
         Statement::Select(SelectStatement {
             projections: vec![
-                Projection::Expression(crate::query::sql::ast::Expression::Identifier(
-                    "department_id".to_owned(),
-                )),
+                Projection::Expression(Expression::Column(column("department_id"))),
                 Projection::Aggregate(Aggregate::CountAll),
             ],
-            table: "employees".to_owned(),
+            from: from("employees"),
             filter: None,
-            group_by: Some(vec!["department_id".to_owned()]),
+            group_by: Some(vec![column("department_id")]),
             order_by: None,
             limit: None,
         })
@@ -84,32 +76,17 @@ fn select_group_by_단일_컬럼을_ast로_파싱한다() {
 
 #[test]
 fn select_group_by_복수_컬럼을_ast로_파싱한다() {
-    // Given
-    let mut lexer = Lexer::new(
-        "SELECT department_id, role, COUNT(*) FROM employees GROUP BY department_id, role;",
-    );
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-
-    // When
-    let statement = parser.parse().unwrap();
-
-    // Then
     assert_eq!(
-        statement,
+        parse("SELECT department_id, role, COUNT(*) FROM employees GROUP BY department_id, role;"),
         Statement::Select(SelectStatement {
             projections: vec![
-                Projection::Expression(crate::query::sql::ast::Expression::Identifier(
-                    "department_id".to_owned(),
-                )),
-                Projection::Expression(crate::query::sql::ast::Expression::Identifier(
-                    "role".to_owned(),
-                )),
+                Projection::Expression(Expression::Column(column("department_id"))),
+                Projection::Expression(Expression::Column(column("role"))),
                 Projection::Aggregate(Aggregate::CountAll),
             ],
-            table: "employees".to_owned(),
+            from: from("employees"),
             filter: None,
-            group_by: Some(vec!["department_id".to_owned(), "role".to_owned()]),
+            group_by: Some(vec![column("department_id"), column("role")]),
             order_by: None,
             limit: None,
         })

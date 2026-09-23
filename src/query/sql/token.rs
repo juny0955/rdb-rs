@@ -34,6 +34,8 @@ pub enum TokenKind {
     Limit,
     Count,
     Sum,
+    Join,
+    Dot,
 
     // datatype
     Int,
@@ -98,6 +100,7 @@ impl From<&str> for TokenKind {
             "LIMIT" => Self::Limit,
             "COUNT" => Self::Count,
             "SUM" => Self::Sum,
+            "JOIN" => Self::Join,
             _ => Self::Identifier(value.to_owned()),
         }
     }

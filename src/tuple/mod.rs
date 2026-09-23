@@ -42,7 +42,7 @@ pub enum Value {
 }
 
 impl Value {
-    pub fn compare(&self, operator: &ComparisonOperator, other: &Value) -> bool {
+    pub fn compare(&self, operator: ComparisonOperator, other: &Value) -> bool {
         if matches!(self, Value::Null) || matches!(other, Value::Null) {
             return false;
         }

@@ -3,185 +3,189 @@ use crate::query::sql::lexer::Lexer;
 use super::*;
 
 mod aggregate;
+mod join;
+
+fn column(name: &str) -> ColumnReference {
+    ColumnReference {
+        table: None,
+        column: name.to_owned(),
+    }
+}
+
+fn users_from() -> FromClause {
+    FromClause::Table(TableReference {
+        name: "users".to_owned(),
+        alias: None,
+    })
+}
+
+fn parse(sql: &str) -> Statement {
+    let tokens = Lexer::new(sql).tokenize().expect("SQL을 토큰화해야 함");
+    Parser::new(tokens).parse().expect("SQL을 파싱해야 함")
+}
+
+fn select(projections: Vec<Projection>, filter: Option<Expression>) -> Statement {
+    Statement::Select(SelectStatement {
+        projections,
+        from: users_from(),
+        filter,
+        group_by: None,
+        order_by: None,
+        limit: None,
+    })
+}
+
+fn comparison(column_name: &str, operator: ComparisonOperator, value: Literal) -> Expression {
+    Expression::Comparison {
+        left: Box::new(Expression::Column(column(column_name))),
+        operator,
+        right: Box::new(Expression::Literal(value)),
+    }
+}
 
 #[test]
 fn select_where_문을_ast로_파싱한다() {
-    let mut lexer = Lexer::new("SELECT name FROM users WHERE id = 10;");
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-
-    let statement = parser.parse().unwrap();
-
     assert_eq!(
-        statement,
-        Statement::Select(SelectStatement {
-            projections: vec![Projection::Expression(Expression::Identifier(
-                "name".to_owned()
-            ))],
-            table: "users".to_owned(),
-            filter: Some(Expression::Comparison {
-                left: Box::new(Expression::Identifier("id".to_owned())),
-                operator: ComparisonOperator::Equal,
-                right: Box::new(Expression::Literal(Literal::Integer(10))),
-            }),
-            group_by: None,
-            order_by: None,
-            limit: None,
-        })
+        parse("SELECT name FROM users WHERE id = 10;"),
+        select(
+            vec![Projection::Expression(Expression::Column(column("name")))],
+            Some(comparison(
+                "id",
+                ComparisonOperator::Equal,
+                Literal::Integer(10)
+            )),
+        )
     );
 }
 
 #[test]
 fn select_where_less_than_문을_ast로_파싱한다() {
-    // Given
-    let mut lexer = Lexer::new("SELECT * FROM users WHERE id < 10;");
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-
-    // When
-    let statement = parser.parse().unwrap();
-
-    // Then
     assert_eq!(
-        statement,
-        Statement::Select(SelectStatement {
-            projections: vec![Projection::All],
-            table: "users".to_owned(),
-            filter: Some(Expression::Comparison {
-                left: Box::new(Expression::Identifier("id".to_owned())),
-                operator: ComparisonOperator::LessThan,
-                right: Box::new(Expression::Literal(Literal::Integer(10))),
-            }),
-            group_by: None,
-            order_by: None,
-            limit: None,
-        })
+        parse("SELECT * FROM users WHERE id < 10;"),
+        select(
+            vec![Projection::All],
+            Some(comparison(
+                "id",
+                ComparisonOperator::LessThan,
+                Literal::Integer(10),
+            )),
+        )
     );
 }
 
 #[test]
 fn select_where_and_문을_ast로_파싱한다() {
-    let mut lexer = Lexer::new("SELECT * FROM users WHERE id = 1 AND name = 'Kim';");
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-
-    let statement = parser.parse().unwrap();
-
     assert_eq!(
-        statement,
-        Statement::Select(SelectStatement {
-            projections: vec![Projection::All],
-            table: "users".to_owned(),
-            filter: Some(Expression::And {
-                left: Box::new(Expression::Comparison {
-                    left: Box::new(Expression::Identifier("id".to_owned())),
-                    operator: ComparisonOperator::Equal,
-                    right: Box::new(Expression::Literal(Literal::Integer(1))),
-                }),
-                right: Box::new(Expression::Comparison {
-                    left: Box::new(Expression::Identifier("name".to_owned())),
-                    operator: ComparisonOperator::Equal,
-                    right: Box::new(Expression::Literal(Literal::String("Kim".to_owned()))),
-                }),
+        parse("SELECT * FROM users WHERE id = 1 AND name = 'Kim';"),
+        select(
+            vec![Projection::All],
+            Some(Expression::And {
+                left: Box::new(comparison(
+                    "id",
+                    ComparisonOperator::Equal,
+                    Literal::Integer(1)
+                )),
+                right: Box::new(comparison(
+                    "name",
+                    ComparisonOperator::Equal,
+                    Literal::String("Kim".to_owned()),
+                )),
             }),
-            group_by: None,
-            order_by: None,
-            limit: None,
-        })
+        )
+    );
+}
+
+#[test]
+fn select_where_연속_and_문을_왼쪽부터_중첩해_파싱한다() {
+    assert_eq!(
+        parse("SELECT * FROM users WHERE id = 1 AND name = 'Kim' AND id = 2;"),
+        select(
+            vec![Projection::All],
+            Some(Expression::And {
+                left: Box::new(Expression::And {
+                    left: Box::new(comparison(
+                        "id",
+                        ComparisonOperator::Equal,
+                        Literal::Integer(1),
+                    )),
+                    right: Box::new(comparison(
+                        "name",
+                        ComparisonOperator::Equal,
+                        Literal::String("Kim".to_owned()),
+                    )),
+                }),
+                right: Box::new(comparison(
+                    "id",
+                    ComparisonOperator::Equal,
+                    Literal::Integer(2),
+                )),
+            }),
+        )
     );
 }
 
 #[test]
 fn select_where_or_문을_ast로_파싱한다() {
-    let mut lexer = Lexer::new("SELECT * FROM users WHERE id = 1 OR name = 'Kim';");
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-
-    let statement = parser.parse().unwrap();
-
     assert_eq!(
-        statement,
-        Statement::Select(SelectStatement {
-            projections: vec![Projection::All],
-            table: "users".to_owned(),
-            filter: Some(Expression::Or {
-                left: Box::new(Expression::Comparison {
-                    left: Box::new(Expression::Identifier("id".to_owned())),
-                    operator: ComparisonOperator::Equal,
-                    right: Box::new(Expression::Literal(Literal::Integer(1))),
-                }),
-                right: Box::new(Expression::Comparison {
-                    left: Box::new(Expression::Identifier("name".to_owned())),
-                    operator: ComparisonOperator::Equal,
-                    right: Box::new(Expression::Literal(Literal::String("Kim".to_owned()))),
-                }),
+        parse("SELECT * FROM users WHERE id = 1 OR name = 'Kim';"),
+        select(
+            vec![Projection::All],
+            Some(Expression::Or {
+                left: Box::new(comparison(
+                    "id",
+                    ComparisonOperator::Equal,
+                    Literal::Integer(1)
+                )),
+                right: Box::new(comparison(
+                    "name",
+                    ComparisonOperator::Equal,
+                    Literal::String("Kim".to_owned()),
+                )),
             }),
-            group_by: None,
-            order_by: None,
-            limit: None,
-        })
+        )
     );
 }
 
 #[test]
 fn select_where에서_and는_or보다_높은_우선순위를_가진다() {
-    let mut lexer = Lexer::new("SELECT * FROM users WHERE id = 1 OR name = 'Kim' AND id = 2;");
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-
-    let statement = parser.parse().unwrap();
-
     assert_eq!(
-        statement,
-        Statement::Select(SelectStatement {
-            projections: vec![Projection::All],
-            table: "users".to_owned(),
-            filter: Some(Expression::Or {
-                left: Box::new(Expression::Comparison {
-                    left: Box::new(Expression::Identifier("id".to_owned())),
-                    operator: ComparisonOperator::Equal,
-                    right: Box::new(Expression::Literal(Literal::Integer(1))),
-                }),
+        parse("SELECT * FROM users WHERE id = 1 OR name = 'Kim' AND id = 2;"),
+        select(
+            vec![Projection::All],
+            Some(Expression::Or {
+                left: Box::new(comparison(
+                    "id",
+                    ComparisonOperator::Equal,
+                    Literal::Integer(1)
+                )),
                 right: Box::new(Expression::And {
-                    left: Box::new(Expression::Comparison {
-                        left: Box::new(Expression::Identifier("name".to_owned())),
-                        operator: ComparisonOperator::Equal,
-                        right: Box::new(Expression::Literal(Literal::String("Kim".to_owned()))),
-                    }),
-                    right: Box::new(Expression::Comparison {
-                        left: Box::new(Expression::Identifier("id".to_owned())),
-                        operator: ComparisonOperator::Equal,
-                        right: Box::new(Expression::Literal(Literal::Integer(2))),
-                    }),
+                    left: Box::new(comparison(
+                        "name",
+                        ComparisonOperator::Equal,
+                        Literal::String("Kim".to_owned()),
+                    )),
+                    right: Box::new(comparison(
+                        "id",
+                        ComparisonOperator::Equal,
+                        Literal::Integer(2)
+                    )),
                 }),
             }),
-            group_by: None,
-            order_by: None,
-            limit: None,
-        })
+        )
     );
 }
 
 #[test]
 fn select_order_by_방향이_없으면_asc로_파싱한다() {
-    // Given
-    let mut lexer = Lexer::new("SELECT * FROM users ORDER BY name;");
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-
-    // When
-    let statement = parser.parse().unwrap();
-
-    // Then
     assert_eq!(
-        statement,
+        parse("SELECT * FROM users ORDER BY name;"),
         Statement::Select(SelectStatement {
             projections: vec![Projection::All],
-            table: "users".to_owned(),
+            from: users_from(),
             filter: None,
             group_by: None,
             order_by: Some(OrderBy {
-                column: "name".to_owned(),
+                column: column("name"),
                 direction: SortDirection::Asc,
             }),
             limit: None,
@@ -191,24 +195,15 @@ fn select_order_by_방향이_없으면_asc로_파싱한다() {
 
 #[test]
 fn select_order_by_desc를_ast로_파싱한다() {
-    // Given
-    let mut lexer = Lexer::new("SELECT * FROM users ORDER BY name DESC;");
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-
-    // When
-    let statement = parser.parse().unwrap();
-
-    // Then
     assert_eq!(
-        statement,
+        parse("SELECT * FROM users ORDER BY name DESC;"),
         Statement::Select(SelectStatement {
             projections: vec![Projection::All],
-            table: "users".to_owned(),
+            from: users_from(),
             filter: None,
             group_by: None,
             order_by: Some(OrderBy {
-                column: "name".to_owned(),
+                column: column("name"),
                 direction: SortDirection::Desc,
             }),
             limit: None,
@@ -218,14 +213,8 @@ fn select_order_by_desc를_ast로_파싱한다() {
 
 #[test]
 fn create_table_문을_ast로_파싱한다() {
-    let mut lexer = Lexer::new("CREATE TABLE users (id BIGINT, name VARCHAR);");
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-
-    let statement = parser.parse().unwrap();
-
     assert_eq!(
-        statement,
+        parse("CREATE TABLE users (id BIGINT, name VARCHAR);"),
         Statement::CreateTable(CreateTableStatement {
             table: "users".to_owned(),
             columns: vec![
@@ -244,14 +233,8 @@ fn create_table_문을_ast로_파싱한다() {
 
 #[test]
 fn create_index_문을_ast로_파싱한다() {
-    let mut lexer = Lexer::new("CREATE INDEX idx_users_id ON users(id);");
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-
-    let statement = parser.parse().unwrap();
-
     assert_eq!(
-        statement,
+        parse("CREATE INDEX idx_users_id ON users(id);"),
         Statement::CreateIndex(CreateIndexStatement {
             index_name: "idx_users_id".to_owned(),
             table: "users".to_owned(),
@@ -262,14 +245,8 @@ fn create_index_문을_ast로_파싱한다() {
 
 #[test]
 fn insert_문을_ast로_파싱한다() {
-    let mut lexer = Lexer::new("INSERT INTO users VALUES (1, 'Kim', NULL);");
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-
-    let statement = parser.parse().unwrap();
-
     assert_eq!(
-        statement,
+        parse("INSERT INTO users VALUES (1, 'Kim', NULL);"),
         Statement::Insert(InsertStatement {
             table: "users".to_owned(),
             literals: vec![
@@ -283,46 +260,35 @@ fn insert_문을_ast로_파싱한다() {
 
 #[test]
 fn update_문을_ast로_파싱한다() {
-    let mut lexer = Lexer::new("UPDATE users SET name = 'Lee' WHERE id = 1;");
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-
-    let statement = parser.parse().unwrap();
-
     assert_eq!(
-        statement,
+        parse("UPDATE users SET name = 'Lee' WHERE id = 1;"),
         Statement::Update(UpdateStatement {
-            table: "users".to_owned(),
+            from: users_from(),
             assignments: vec![Assignment {
-                column: "name".to_owned(),
+                column: column("name"),
                 value: Literal::String("Lee".to_owned()),
             }],
-            filter: Some(Expression::Comparison {
-                left: Box::new(Expression::Identifier("id".to_owned())),
-                operator: ComparisonOperator::Equal,
-                right: Box::new(Expression::Literal(Literal::Integer(1))),
-            }),
+            filter: Some(comparison(
+                "id",
+                ComparisonOperator::Equal,
+                Literal::Integer(1)
+            )),
         })
     );
 }
 
 #[test]
 fn delete_문을_ast로_파싱한다() {
-    let mut lexer = Lexer::new("DELETE FROM users WHERE id = 1;");
-    let tokens = lexer.tokenize().unwrap();
-    let mut parser = Parser::new(tokens);
-
-    let statement = parser.parse().unwrap();
-
     assert_eq!(
-        statement,
+        parse("DELETE FROM users WHERE id = 1;"),
         Statement::Delete(DeleteStatement {
-            table: "users".to_owned(),
-            filter: Some(Expression::Comparison {
-                left: Box::new(Expression::Identifier("id".to_owned())),
-                operator: ComparisonOperator::Equal,
-                right: Box::new(Expression::Literal(Literal::Integer(1))),
-            }),
+            targets: None,
+            from: users_from(),
+            filter: Some(comparison(
+                "id",
+                ComparisonOperator::Equal,
+                Literal::Integer(1)
+            )),
         })
     );
 }

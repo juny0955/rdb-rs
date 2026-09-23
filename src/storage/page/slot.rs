@@ -1,7 +1,7 @@
 use crate::storage::page::error::PageError;
 use crate::storage::page::{HEADER_SIZE, PAGE_SIZE, Page, SLOT_SIZE};
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct SlotId(pub(super) u16);
 impl SlotId {
     pub fn new(id: u16) -> Self {

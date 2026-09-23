@@ -129,6 +129,7 @@ impl<'a> Lexer<'a> {
                     ';' => TokenKind::Semicolon,
                     '*' => TokenKind::Asterisk,
                     '=' => TokenKind::Eq,
+                    '.' => TokenKind::Dot,
                     _ => return Err(LexError::UnexpectedCharacter(start, ch)),
                 };
 
