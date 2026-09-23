@@ -127,7 +127,7 @@ impl Database {
                 let left_rows = self.execute_from_clause(left, filter)?;
                 let right_rows = self.execute_from_clause(right, filter)?;
                 let executor = Executor::new(self.catalog.metadata());
-                Ok(executor.nested_loop_join(&left_rows, &right_rows, on)?)
+                Ok(executor.hash_join(&left_rows, &right_rows, on)?)
             }
             BoundFromClause::Table(table) => {
                 let table_rows = self.fetch_table_rows(table, filter)?;

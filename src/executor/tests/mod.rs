@@ -16,6 +16,7 @@ use crate::{
 use super::{Executor, QueryRow, TableRow};
 
 mod aggregate;
+mod join;
 
 fn users_columns() -> Vec<ColumnMetadata> {
     vec![

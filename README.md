@@ -491,7 +491,7 @@ Heap Table
 * [x] `SUM`
 * [x] `GROUP BY`
 * [x] Nested Loop Join
-* [ ] Hash Join
+* [x] Hash Join
 
 예:
 
