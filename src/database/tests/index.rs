@@ -1,10 +1,13 @@
 use crate::{
-    binder::{BoundExpression, BoundStatement},
     catalog::metadata::{RelationId, TableId},
     database::{Database, DatabaseError, ExecuteResult},
     index::{
         IndexManager,
         btree::{BTreeKey, BTreeKeyType, tree::BTree},
+    },
+    query::{
+        binder::{BoundExpression, BoundStatement},
+        common::ComparisonOperator,
     },
     storage::page::PageId,
     test_supports::TestDirectory,
@@ -80,14 +83,19 @@ fn indexed_equal_predicate는_index_candidate를_반환한다() -> Result<(), Da
         panic!("SELECT 문이어야 함");
     };
 
-    let Some(BoundExpression::Equal { column_id, value }) = &bound.filter else {
+    let Some(BoundExpression::Comparison {
+        column,
+        operator: ComparisonOperator::Equal,
+        value,
+    }) = &bound.filter
+    else {
         panic!("equal filter여야 함");
     };
     let candidates = IndexManager::search_index_row_ids(
         &mut database.storage_manager,
         database.catalog.metadata().indexes(),
-        bound.table_id,
-        *column_id,
+        column.table_id,
+        column.column_id,
         value,
     )?;
 

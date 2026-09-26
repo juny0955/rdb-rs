@@ -1,12 +1,17 @@
-use crate::sql::{
-    ast::{
-        Assignment, ColumnDefinition, CreateIndexStatement, CreateTableStatement, DeleteStatement,
-        Expression, InsertStatement, Literal, Projection, SelectStatement, SqlDataType, Statement,
-        UpdateStatement,
-    },
-    token::{Token, TokenKind},
-};
 use thiserror::Error;
+
+use crate::query::{
+    common::{ComparisonOperator, SortDirection},
+    sql::{
+        ast::{
+            Aggregate, Assignment, ColumnDefinition, ColumnReference, CreateIndexStatement,
+            CreateTableStatement, DeleteStatement, Expression, FromClause, InsertStatement,
+            JoinCondition, Literal, OrderBy, Projection, SelectStatement, SqlDataType, Statement,
+            TableReference, UpdateStatement,
+        },
+        token::{Token, TokenKind},
+    },
+};
 
 pub mod ast;
 pub mod lexer;
@@ -59,18 +64,41 @@ impl Parser {
         self.expect(TokenKind::Select)?;
         let projections = self.parse_projections()?;
         self.expect(TokenKind::From)?;
-        let table = self.expect_identifier()?;
-        let mut filter = None;
+        let from = self.parse_from_clause()?;
 
+        let mut filter = None;
         if self.current().kind == TokenKind::Where {
             self.expect(TokenKind::Where)?;
-            filter = Some(self.parse_equal_expression()?);
+            filter = Some(self.parse_or_expression()?);
+        }
+
+        let mut group_by = None;
+        if self.current().kind == TokenKind::Group {
+            self.expect(TokenKind::Group)?;
+            self.expect(TokenKind::By)?;
+            group_by = Some(self.parse_group_by()?);
+        }
+
+        let mut order_by = None;
+        if self.current().kind == TokenKind::Order {
+            self.expect(TokenKind::Order)?;
+            self.expect(TokenKind::By)?;
+            order_by = Some(self.parse_order_by()?);
+        }
+
+        let mut limit = None;
+        if self.current().kind == TokenKind::Limit {
+            self.expect(TokenKind::Limit)?;
+            limit = Some(self.parse_limit()?);
         }
 
         Ok(SelectStatement {
             projections,
-            table,
+            from,
             filter,
+            group_by,
+            order_by,
+            limit,
         })
     }
 
@@ -86,18 +114,18 @@ impl Parser {
 
     fn parse_update(&mut self) -> Result<UpdateStatement, ParseError> {
         self.expect(TokenKind::Update)?;
-        let table = self.expect_identifier()?;
+        let from = self.parse_from_clause()?;
         self.expect(TokenKind::Set)?;
         let assignments = self.parse_assignments()?;
         let mut filter = None;
 
         if self.current().kind == TokenKind::Where {
             self.expect(TokenKind::Where)?;
-            filter = Some(self.parse_equal_expression()?);
+            filter = Some(self.parse_or_expression()?);
         }
 
         Ok(UpdateStatement {
-            table,
+            from,
             assignments,
             filter,
         })
@@ -105,15 +133,31 @@ impl Parser {
 
     fn parse_delete(&mut self) -> Result<DeleteStatement, ParseError> {
         self.expect(TokenKind::Delete)?;
+        let targets = if self.current().kind != TokenKind::From {
+            let mut targets = Vec::new();
+            targets.push(self.expect_identifier()?);
+            while self.current().kind == TokenKind::Comma {
+                self.expect(TokenKind::Comma)?;
+                targets.push(self.expect_identifier()?);
+            }
+            Some(targets)
+        } else {
+            None
+        };
+
         self.expect(TokenKind::From)?;
-        let table = self.expect_identifier()?;
+        let from = self.parse_from_clause()?;
         let mut filter = None;
         if self.current().kind == TokenKind::Where {
             self.expect(TokenKind::Where)?;
-            filter = Some(self.parse_equal_expression()?);
+            filter = Some(self.parse_or_expression()?);
         }
 
-        Ok(DeleteStatement { table, filter })
+        Ok(DeleteStatement {
+            targets,
+            from,
+            filter,
+        })
     }
 
     fn parse_assignments(&mut self) -> Result<Vec<Assignment>, ParseError> {
@@ -129,7 +173,7 @@ impl Parser {
     }
 
     fn parse_assignment(&mut self) -> Result<Assignment, ParseError> {
-        let column = self.expect_identifier()?;
+        let column = self.parse_column_reference()?;
         self.expect(TokenKind::Eq)?;
         let value = self.expect_literal()?;
         Ok(Assignment { column, value })
@@ -147,6 +191,59 @@ impl Parser {
         self.expect(TokenKind::RightParen)?;
 
         Ok(literals)
+    }
+
+    fn parse_table_reference(&mut self) -> Result<TableReference, ParseError> {
+        let name = self.expect_identifier()?;
+        let mut alias = None;
+        if matches!(self.current().kind, TokenKind::Identifier(_)) {
+            alias = Some(self.expect_identifier()?);
+        }
+
+        Ok(TableReference { name, alias })
+    }
+
+    fn parse_column_reference(&mut self) -> Result<ColumnReference, ParseError> {
+        let first = self.expect_identifier()?;
+
+        if self.current().kind == TokenKind::Dot {
+            self.expect(TokenKind::Dot)?;
+            let column = self.expect_identifier()?;
+
+            return Ok(ColumnReference {
+                table: Some(first),
+                column,
+            });
+        }
+
+        Ok(ColumnReference {
+            table: None,
+            column: first,
+        })
+    }
+
+    fn parse_from_clause(&mut self) -> Result<FromClause, ParseError> {
+        let mut from = FromClause::Table(self.parse_table_reference()?);
+
+        while self.current().kind == TokenKind::Join {
+            self.expect(TokenKind::Join)?;
+            let join_table = self.parse_table_reference()?;
+            self.expect(TokenKind::On)?;
+            let left_on = self.parse_column_reference()?;
+            self.expect(TokenKind::Eq)?;
+            let right_on = self.parse_column_reference()?;
+
+            from = FromClause::InnerJoin {
+                left: Box::new(from),
+                right: Box::new(FromClause::Table(join_table)),
+                on: JoinCondition {
+                    left: left_on,
+                    right: right_on,
+                },
+            };
+        }
+
+        Ok(from)
     }
 
     fn parse_projections(&mut self) -> Result<Vec<Projection>, ParseError> {
@@ -169,20 +266,117 @@ impl Parser {
                 Ok(Projection::All)
             }
             TokenKind::Identifier(_) => {
-                let expression = Expression::Identifier(self.expect_identifier()?);
+                let expression = Expression::Column(self.parse_column_reference()?);
                 Ok(Projection::Expression(expression))
+            }
+            TokenKind::Count => {
+                self.expect(TokenKind::Count)?;
+                self.expect(TokenKind::LeftParen)?;
+                self.expect(TokenKind::Asterisk)?;
+                self.expect(TokenKind::RightParen)?;
+                Ok(Projection::Aggregate(Aggregate::CountAll))
+            }
+            TokenKind::Sum => {
+                self.expect(TokenKind::Sum)?;
+                self.expect(TokenKind::LeftParen)?;
+                let column = self.parse_column_reference()?;
+                self.expect(TokenKind::RightParen)?;
+                Ok(Projection::Aggregate(Aggregate::Sum(column)))
             }
             _ => Err(ParseError::UnexpectedToken(current.offset)),
         }
     }
 
-    fn parse_equal_expression(&mut self) -> Result<Expression, ParseError> {
-        let identifier = Expression::Identifier(self.expect_identifier()?);
-        self.expect(TokenKind::Eq)?;
+    fn parse_group_by(&mut self) -> Result<Vec<ColumnReference>, ParseError> {
+        let mut column_refs = Vec::new();
+        column_refs.push(self.parse_column_reference()?);
+
+        while self.current().kind == TokenKind::Comma {
+            self.expect(TokenKind::Comma)?;
+            column_refs.push(self.parse_column_reference()?);
+        }
+
+        Ok(column_refs)
+    }
+
+    fn parse_order_by(&mut self) -> Result<OrderBy, ParseError> {
+        let column = self.parse_column_reference()?;
+        let mut direction = SortDirection::Asc;
+
+        match self.current().kind {
+            TokenKind::Asc => self.expect(TokenKind::Asc)?,
+            TokenKind::Desc => {
+                self.expect(TokenKind::Desc)?;
+                direction = SortDirection::Desc;
+            }
+            _ => {}
+        }
+
+        Ok(OrderBy { column, direction })
+    }
+
+    fn parse_limit(&mut self) -> Result<usize, ParseError> {
+        let literal = self.expect_literal()?;
+
+        match literal {
+            Literal::Integer(v) => {
+                if v.is_negative() {
+                    return Err(ParseError::UnexpectedToken(self.position));
+                }
+
+                Ok(v as usize)
+            }
+            _ => Err(ParseError::UnexpectedToken(self.position)),
+        }
+    }
+
+    fn parse_or_expression(&mut self) -> Result<Expression, ParseError> {
+        let left = self.parse_and_expression()?;
+        if self.current().kind == TokenKind::Or {
+            self.expect(TokenKind::Or)?;
+            let right = self.parse_and_expression()?;
+
+            return Ok(Expression::Or {
+                left: Box::new(left),
+                right: Box::new(right),
+            });
+        }
+
+        Ok(left)
+    }
+
+    fn parse_and_expression(&mut self) -> Result<Expression, ParseError> {
+        let mut left = self.parse_comparison_expression()?;
+        while self.current().kind == TokenKind::And {
+            self.expect(TokenKind::And)?;
+            let right = self.parse_comparison_expression()?;
+
+            left = Expression::And {
+                left: Box::new(left),
+                right: Box::new(right),
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_comparison_expression(&mut self) -> Result<Expression, ParseError> {
+        let column = Expression::Column(self.parse_column_reference()?);
+        let operator = match self.current().kind {
+            TokenKind::Eq => ComparisonOperator::Equal,
+            TokenKind::NotEq => ComparisonOperator::NotEqual,
+            TokenKind::Lt => ComparisonOperator::LessThan,
+            TokenKind::Gt => ComparisonOperator::GreaterThan,
+            TokenKind::LtEq => ComparisonOperator::LessThanOrEqual,
+            TokenKind::GtEq => ComparisonOperator::GreaterThanOrEqual,
+            _ => return Err(ParseError::UnexpectedToken(self.position)),
+        };
+        self.advance();
         let literal = Expression::Literal(self.expect_literal()?);
 
-        Ok(Expression::Equal {
-            left: Box::new(identifier),
+        Ok(Expression::Comparison {
+            left: Box::new(column),
+            operator,
             right: Box::new(literal),
         })
     }

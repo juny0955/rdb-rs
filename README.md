@@ -481,17 +481,17 @@ Heap Table
 
 ### 구현
 
-* [ ] `AND`
-* [ ] `OR`
-* [ ] Comparison Expression
-* [ ] `ORDER BY`
-* [ ] `LIMIT`
-* [ ] Aggregate
-* [ ] `COUNT`
-* [ ] `SUM`
-* [ ] `GROUP BY`
-* [ ] Nested Loop Join
-* [ ] Hash Join
+* [x] `AND`
+* [x] `OR`
+* [x] Comparison Expression
+* [x] `ORDER BY`
+* [x] `LIMIT`
+* [x] Aggregate
+* [x] `COUNT`
+* [x] `SUM`
+* [x] `GROUP BY`
+* [x] Nested Loop Join
+* [x] Hash Join
 
 예:
 
@@ -745,36 +745,3 @@ M15 Client / Server
  │
  └──── RDBMS v1
 ```
-
----
-
-# Initial Target
-
-당장의 목표는 **M1 ~ M6**이다.
-
-```text
-Disk / Page
-    ↓
-Slotted Page
-    ↓
-Heap Table
-    ↓
-Catalog
-    ↓
-SQL Parser
-    ↓
-Executor
-```
-
-첫 번째 완성 버전에서는 다음 조건을 만족한다.
-
-* 실제 파일에 데이터 저장
-* 프로그램 재시작 후 데이터 유지
-* Table 생성 가능
-* Row Insert 가능
-* Row 조회 가능
-* Row 수정 가능
-* Row 삭제 가능
-* 간단한 `WHERE` 조건 처리 가능
-
-이후 Index, Buffer Pool, Query Optimizer, Transaction, WAL, MVCC, Client/Server 순으로 확장한다.

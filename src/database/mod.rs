@@ -1,15 +1,15 @@
 use std::{io, path::Path};
 
-use crate::binder::{BoundCreateIndex, BoundCreateTable};
 use crate::index::{IndexError, IndexManager};
+use crate::query::binder::{BoundCreateIndex, BoundCreateTable};
 use crate::storage::{StorageError, StorageManager};
 use crate::table::{TableError, TableManager};
 use crate::tuple::TupleError;
 use crate::{
-    binder::{Binder, BinderError, BoundStatement},
     catalog::{Catalog, CatalogError},
     executor::ExecutorError,
-    sql::ast::Statement,
+    query::binder::{Binder, BinderError, BoundStatement},
+    query::sql::ast::Statement,
     tuple::Value,
 };
 use thiserror::Error;

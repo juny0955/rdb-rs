@@ -26,6 +26,18 @@ pub enum TokenKind {
     Update,
     Set,
     Delete,
+    Order,
+    Group,
+    By,
+    Asc,
+    Desc,
+    Limit,
+    Count,
+    Sum,
+    Join,
+    Dot,
+
+    // datatype
     Int,
     BigInt,
     Boolean,
@@ -37,13 +49,22 @@ pub enum TokenKind {
     Integer(i64),
     StringLiteral(String),
 
-    // symbol / operator
+    // symbol
     LeftParen,
     RightParen,
     Comma,
     Semicolon,
     Asterisk,
+    And,
+    Or,
+
+    // operator
     Eq,
+    NotEq,
+    Lt,
+    Gt,
+    LtEq,
+    GtEq,
 
     Eof,
 }
@@ -68,7 +89,18 @@ impl From<&str> for TokenKind {
             "BIGINT" => Self::BigInt,
             "BOOLEAN" => Self::Boolean,
             "VARCHAR" => Self::Varchar,
+            "AND" => Self::And,
+            "OR" => Self::Or,
             "NULL" => Self::Null,
+            "ORDER" => Self::Order,
+            "GROUP" => Self::Group,
+            "BY" => Self::By,
+            "ASC" => Self::Asc,
+            "DESC" => Self::Desc,
+            "LIMIT" => Self::Limit,
+            "COUNT" => Self::Count,
+            "SUM" => Self::Sum,
+            "JOIN" => Self::Join,
             _ => Self::Identifier(value.to_owned()),
         }
     }

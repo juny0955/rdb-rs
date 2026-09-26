@@ -1,11 +1,14 @@
 use crate::{
-    binder::{Binder, BoundColumnDefinition, BoundCreateTable, BoundStatement},
     catalog::metadata::{DataType, DatabaseMetadata},
-    sql::{Parser, lexer::Lexer},
+    query::{
+        binder::{Binder, BoundColumnDefinition, BoundCreateTable, BoundStatement},
+        sql::{Parser, lexer::Lexer},
+    },
 };
 
 mod execute;
 mod index;
+mod join;
 mod table;
 
 fn users_table() -> BoundCreateTable {
@@ -32,7 +35,7 @@ fn bind_sql(sql: &str, metadata: &DatabaseMetadata) -> BoundStatement {
         .expect("SQL을 bind해야 함")
 }
 
-fn parse_sql(sql: &str) -> crate::sql::ast::Statement {
+fn parse_sql(sql: &str) -> crate::query::sql::ast::Statement {
     let tokens = Lexer::new(sql).tokenize().expect("SQL을 토큰화해야 함");
     Parser::new(tokens).parse().expect("SQL을 파싱해야 함")
 }

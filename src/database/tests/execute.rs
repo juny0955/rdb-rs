@@ -1,6 +1,6 @@
 use crate::{
-    binder::BoundStatement,
     database::{Database, DatabaseError, ExecuteResult},
+    query::binder::BoundStatement,
     test_supports::TestDirectory,
     tuple::Value,
 };
@@ -34,6 +34,198 @@ fn 두번째_select는_cache된_page를_사용한다() -> Result<(), DatabaseErr
     assert!(matches!(
         database.execute(&select)?,
         ExecuteResult::Rows(rows) if rows == expected
+    ));
+    Ok(())
+}
+
+#[test]
+fn select_sum은_sql부터_heap_scan까지_합계를_반환한다() -> Result<(), DatabaseError> {
+    // Given
+    let directory = TestDirectory::new("database-select-sum");
+    let mut database = Database::open(directory.path(), "test")?;
+    database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (10, 'Kim');"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (3, 'Lee');"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (NULL, 'Park');"))?;
+
+    // When
+    let result = database.execute(&parse_sql("SELECT SUM(id) FROM users;"))?;
+
+    // Then
+    assert!(matches!(
+        result,
+        ExecuteResult::Rows(rows) if rows == vec![vec![Value::BigInt(13)]]
+    ));
+    Ok(())
+}
+
+#[test]
+fn select_count_all_group_by는_sql부터_heap_scan까지_그룹별_개수를_반환한다()
+-> Result<(), DatabaseError> {
+    // Given
+    let directory = TestDirectory::new("database-select-count-group-by");
+    let mut database = Database::open(directory.path(), "test")?;
+    database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (1, 'Kim');"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (2, 'Lee');"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (3, 'Kim');"))?;
+
+    // When
+    let result = database.execute(&parse_sql(
+        "SELECT name, COUNT(*) FROM users GROUP BY name;",
+    ))?;
+
+    // Then
+    assert!(matches!(
+        result,
+        ExecuteResult::Rows(rows)
+            if rows == vec![
+                vec![Value::Varchar("Kim".to_owned()), Value::BigInt(2)],
+                vec![Value::Varchar("Lee".to_owned()), Value::BigInt(1)],
+            ]
+    ));
+    Ok(())
+}
+
+#[test]
+fn select_sum_group_by는_sql부터_heap_scan까지_그룹별_합계를_반환한다() -> Result<(), DatabaseError>
+{
+    // Given
+    let directory = TestDirectory::new("database-select-sum-group-by");
+    let mut database = Database::open(directory.path(), "test")?;
+    database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (10, 'Kim');"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (3, 'Lee');"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (NULL, 'Kim');"))?;
+
+    // When
+    let result = database.execute(&parse_sql("SELECT name, SUM(id) FROM users GROUP BY name;"))?;
+
+    // Then
+    assert!(matches!(
+        result,
+        ExecuteResult::Rows(rows)
+            if rows == vec![
+                vec![Value::Varchar("Kim".to_owned()), Value::BigInt(10)],
+                vec![Value::Varchar("Lee".to_owned()), Value::BigInt(3)],
+            ]
+    ));
+    Ok(())
+}
+
+#[test]
+fn less_than_select는_더_작은_row만_반환한다() -> Result<(), DatabaseError> {
+    // Given
+    let directory = TestDirectory::new("database-less-than-select");
+    let mut database = Database::open(directory.path(), "test")?;
+    database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (9, 'Kim');"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (10, 'Lee');"))?;
+
+    // When
+    let result = database.execute(&parse_sql("SELECT name FROM users WHERE id < 10;"))?;
+
+    // Then
+    assert!(matches!(
+        result,
+        ExecuteResult::Rows(rows) if rows == vec![vec![Value::Varchar("Kim".to_owned())]]
+    ));
+    Ok(())
+}
+
+#[test]
+fn not_equal_select는_일치하지_않는_non_null_row만_반환한다() -> Result<(), DatabaseError> {
+    // Given
+    let directory = TestDirectory::new("database-not-equal-select");
+    let mut database = Database::open(directory.path(), "test")?;
+    database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (1, 'Kim');"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (2, 'Lee');"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (NULL, 'Null');"))?;
+
+    // When
+    let result = database.execute(&parse_sql("SELECT name FROM users WHERE id != 1;"))?;
+
+    // Then
+    assert!(matches!(
+        result,
+        ExecuteResult::Rows(rows) if rows == vec![vec![Value::Varchar("Lee".to_owned())]]
+    ));
+    Ok(())
+}
+
+#[test]
+fn less_than_or_equal_select는_더_작거나_같은_non_null_row만_반환한다() -> Result<(), DatabaseError>
+{
+    // Given
+    let directory = TestDirectory::new("database-less-than-or-equal-select");
+    let mut database = Database::open(directory.path(), "test")?;
+    database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (9, 'Kim');"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (10, 'Lee');"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (11, 'Park');"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (NULL, 'Null');"))?;
+
+    // When
+    let result = database.execute(&parse_sql("SELECT name FROM users WHERE id <= 10;"))?;
+
+    // Then
+    assert!(matches!(
+        result,
+        ExecuteResult::Rows(rows)
+            if rows == vec![
+                vec![Value::Varchar("Kim".to_owned())],
+                vec![Value::Varchar("Lee".to_owned())],
+            ]
+    ));
+    Ok(())
+}
+
+#[test]
+fn greater_than_select는_더_큰_non_null_row만_반환한다() -> Result<(), DatabaseError> {
+    // Given
+    let directory = TestDirectory::new("database-greater-than-select");
+    let mut database = Database::open(directory.path(), "test")?;
+    database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (9, 'Kim');"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (10, 'Lee');"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (11, 'Park');"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (NULL, 'Null');"))?;
+
+    // When
+    let result = database.execute(&parse_sql("SELECT name FROM users WHERE id > 10;"))?;
+
+    // Then
+    assert!(matches!(
+        result,
+        ExecuteResult::Rows(rows) if rows == vec![vec![Value::Varchar("Park".to_owned())]]
+    ));
+    Ok(())
+}
+
+#[test]
+fn greater_than_or_equal_select는_더_크거나_같은_non_null_row만_반환한다()
+-> Result<(), DatabaseError> {
+    // Given
+    let directory = TestDirectory::new("database-greater-than-or-equal-select");
+    let mut database = Database::open(directory.path(), "test")?;
+    database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (9, 'Kim');"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (10, 'Lee');"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (11, 'Park');"))?;
+    database.execute(&parse_sql("INSERT INTO users VALUES (NULL, 'Null');"))?;
+
+    // When
+    let result = database.execute(&parse_sql("SELECT name FROM users WHERE id >= 10;"))?;
+
+    // Then
+    assert!(matches!(
+        result,
+        ExecuteResult::Rows(rows)
+            if rows == vec![
+                vec![Value::Varchar("Lee".to_owned())],
+                vec![Value::Varchar("Park".to_owned())],
+            ]
     ));
     Ok(())
 }

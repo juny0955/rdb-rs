@@ -1,9 +1,8 @@
-mod binder;
 mod catalog;
 pub mod database;
 mod executor;
 mod index;
-pub mod sql;
+pub mod query;
 mod storage;
 mod table;
 mod tuple;

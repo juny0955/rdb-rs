@@ -1,5 +1,6 @@
 use crate::{
     catalog::metadata::{ColumnMetadata, DataType},
+    query::common::ComparisonOperator,
     storage::page::Row,
 };
 use std::str::from_utf8;
@@ -31,13 +32,54 @@ pub enum TupleError {
     TrailingBytes,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Value {
     Int(i32),
     BigInt(i64),
     Boolean(bool),
     Varchar(String),
     Null,
+}
+
+impl Value {
+    pub fn compare(&self, operator: ComparisonOperator, other: &Value) -> bool {
+        if matches!(self, Value::Null) || matches!(other, Value::Null) {
+            return false;
+        }
+
+        match operator {
+            ComparisonOperator::Equal => self == other,
+            ComparisonOperator::NotEqual => self != other,
+            ComparisonOperator::LessThan => match (self, other) {
+                (Value::Int(a), Value::Int(b)) => a < b,
+                (Value::BigInt(a), Value::BigInt(b)) => a < b,
+                (Value::Varchar(a), Value::Varchar(b)) => a < b,
+                (Value::Boolean(a), Value::Boolean(b)) => a < b,
+                _ => false,
+            },
+            ComparisonOperator::GreaterThan => match (self, other) {
+                (Value::Int(a), Value::Int(b)) => a > b,
+                (Value::BigInt(a), Value::BigInt(b)) => a > b,
+                (Value::Varchar(a), Value::Varchar(b)) => a > b,
+                (Value::Boolean(a), Value::Boolean(b)) => a > b,
+                _ => false,
+            },
+            ComparisonOperator::LessThanOrEqual => match (self, other) {
+                (Value::Int(a), Value::Int(b)) => a <= b,
+                (Value::BigInt(a), Value::BigInt(b)) => a <= b,
+                (Value::Varchar(a), Value::Varchar(b)) => a <= b,
+                (Value::Boolean(a), Value::Boolean(b)) => a <= b,
+                _ => false,
+            },
+            ComparisonOperator::GreaterThanOrEqual => match (self, other) {
+                (Value::Int(a), Value::Int(b)) => a >= b,
+                (Value::BigInt(a), Value::BigInt(b)) => a >= b,
+                (Value::Varchar(a), Value::Varchar(b)) => a >= b,
+                (Value::Boolean(a), Value::Boolean(b)) => a >= b,
+                _ => false,
+            },
+        }
+    }
 }
 
 pub fn encode(values: &[Value], columns: &[ColumnMetadata]) -> Result<Row, TupleError> {

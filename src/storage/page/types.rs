@@ -16,7 +16,7 @@ impl PageId {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 pub struct RowId(pub(super) PageId, pub(super) SlotId);
 impl RowId {
     pub fn new(page_id: PageId, slot_id: SlotId) -> Self {

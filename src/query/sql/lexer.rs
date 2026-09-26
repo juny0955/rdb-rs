@@ -1,4 +1,4 @@
-use crate::sql::token::{Token, TokenKind};
+use crate::query::sql::token::{Token, TokenKind};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -85,6 +85,42 @@ impl<'a> Lexer<'a> {
 
                 Err(LexError::UnterminatedString(start))
             }
+            Some('!') => {
+                let start = self.offset;
+                self.advance_char();
+                if let Some(ch) = self.current_char()
+                    && ch == '='
+                {
+                    self.advance_char();
+                    return Ok(Token::new(TokenKind::NotEq, start));
+                }
+
+                Err(LexError::UnexpectedCharacter(start, '!'))
+            }
+            Some('<') => {
+                let start = self.offset;
+                self.advance_char();
+                if let Some(ch) = self.current_char()
+                    && ch == '='
+                {
+                    self.advance_char();
+                    return Ok(Token::new(TokenKind::LtEq, start));
+                }
+
+                Ok(Token::new(TokenKind::Lt, start))
+            }
+            Some('>') => {
+                let start = self.offset;
+                self.advance_char();
+                if let Some(ch) = self.current_char()
+                    && ch == '='
+                {
+                    self.advance_char();
+                    return Ok(Token::new(TokenKind::GtEq, start));
+                }
+
+                Ok(Token::new(TokenKind::Gt, start))
+            }
             Some(ch) => {
                 let kind = match ch {
                     '(' => TokenKind::LeftParen,
@@ -93,6 +129,7 @@ impl<'a> Lexer<'a> {
                     ';' => TokenKind::Semicolon,
                     '*' => TokenKind::Asterisk,
                     '=' => TokenKind::Eq,
+                    '.' => TokenKind::Dot,
                     _ => return Err(LexError::UnexpectedCharacter(start, ch)),
                 };
 
@@ -145,6 +182,116 @@ mod tests {
                 Token::new(TokenKind::Eof, 37),
             ]
         );
+    }
+
+    #[test]
+    fn select_where_not_equal_토큰화() {
+        let mut lexer = Lexer::new("SELECT * FROM users WHERE id != 1;");
+        let tokens = lexer.tokenize().unwrap();
+
+        assert_eq!(
+            tokens,
+            vec![
+                Token::new(TokenKind::Select, 0),
+                Token::new(TokenKind::Asterisk, 7),
+                Token::new(TokenKind::From, 9),
+                Token::new(TokenKind::Identifier("users".to_owned()), 14),
+                Token::new(TokenKind::Where, 20),
+                Token::new(TokenKind::Identifier("id".to_owned()), 26),
+                Token::new(TokenKind::NotEq, 29),
+                Token::new(TokenKind::Integer(1), 32),
+                Token::new(TokenKind::Semicolon, 33),
+                Token::new(TokenKind::Eof, 34),
+            ]
+        );
+    }
+
+    #[test]
+    fn select_where_less_than_or_equal_토큰화() {
+        // Given
+        let mut lexer = Lexer::new("SELECT * FROM users WHERE id <= 10;");
+
+        // When
+        let tokens = lexer.tokenize().unwrap();
+
+        // Then
+        assert_eq!(
+            tokens,
+            vec![
+                Token::new(TokenKind::Select, 0),
+                Token::new(TokenKind::Asterisk, 7),
+                Token::new(TokenKind::From, 9),
+                Token::new(TokenKind::Identifier("users".to_owned()), 14),
+                Token::new(TokenKind::Where, 20),
+                Token::new(TokenKind::Identifier("id".to_owned()), 26),
+                Token::new(TokenKind::LtEq, 29),
+                Token::new(TokenKind::Integer(10), 32),
+                Token::new(TokenKind::Semicolon, 34),
+                Token::new(TokenKind::Eof, 35),
+            ]
+        );
+    }
+
+    #[test]
+    fn select_order_by_desc_토큰화() {
+        // Given
+        let mut lexer = Lexer::new("SELECT * FROM users ORDER BY name DESC;");
+
+        // When
+        let tokens = lexer.tokenize().unwrap();
+
+        // Then
+        assert_eq!(
+            tokens,
+            vec![
+                Token::new(TokenKind::Select, 0),
+                Token::new(TokenKind::Asterisk, 7),
+                Token::new(TokenKind::From, 9),
+                Token::new(TokenKind::Identifier("users".to_owned()), 14),
+                Token::new(TokenKind::Order, 20),
+                Token::new(TokenKind::By, 26),
+                Token::new(TokenKind::Identifier("name".to_owned()), 29),
+                Token::new(TokenKind::Desc, 34),
+                Token::new(TokenKind::Semicolon, 38),
+                Token::new(TokenKind::Eof, 39),
+            ]
+        );
+    }
+
+    #[test]
+    fn select_order_by_asc_토큰화() {
+        // Given
+        let mut lexer = Lexer::new("SELECT * FROM users ORDER BY id ASC;");
+
+        // When
+        let tokens = lexer.tokenize().unwrap();
+
+        // Then
+        assert_eq!(
+            tokens,
+            vec![
+                Token::new(TokenKind::Select, 0),
+                Token::new(TokenKind::Asterisk, 7),
+                Token::new(TokenKind::From, 9),
+                Token::new(TokenKind::Identifier("users".to_owned()), 14),
+                Token::new(TokenKind::Order, 20),
+                Token::new(TokenKind::By, 26),
+                Token::new(TokenKind::Identifier("id".to_owned()), 29),
+                Token::new(TokenKind::Asc, 32),
+                Token::new(TokenKind::Semicolon, 35),
+                Token::new(TokenKind::Eof, 36),
+            ]
+        );
+    }
+
+    #[test]
+    fn 단독_느낌표는_예상하지_않은_문자_오류다() {
+        let mut lexer = Lexer::new("!");
+
+        assert!(matches!(
+            lexer.tokenize(),
+            Err(LexError::UnexpectedCharacter(0, '!'))
+        ));
     }
 
     #[test]

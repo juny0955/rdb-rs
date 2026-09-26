@@ -1,3 +1,5 @@
+use crate::query::common::{ComparisonOperator, SortDirection};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Statement {
     Select(SelectStatement),
@@ -6,26 +8,6 @@ pub enum Statement {
     Insert(InsertStatement),
     Update(UpdateStatement),
     Delete(DeleteStatement),
-}
-
-impl Statement {
-    pub fn table(&self) -> &str {
-        match self {
-            Self::Select(s) => &s.table,
-            Self::CreateTable(s) => &s.table,
-            Self::CreateIndex(s) => &s.table,
-            Self::Insert(s) => &s.table,
-            Self::Update(s) => &s.table,
-            Self::Delete(s) => &s.table,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SelectStatement {
-    pub projections: Vec<Projection>,
-    pub table: String,
-    pub filter: Option<Expression>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -42,6 +24,16 @@ pub struct CreateIndexStatement {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelectStatement {
+    pub projections: Vec<Projection>,
+    pub from: FromClause,
+    pub filter: Option<Expression>,
+    pub group_by: Option<Vec<ColumnReference>>,
+    pub order_by: Option<OrderBy>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InsertStatement {
     pub table: String,
     pub literals: Vec<Literal>,
@@ -49,20 +41,21 @@ pub struct InsertStatement {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpdateStatement {
-    pub table: String,
+    pub from: FromClause,
     pub assignments: Vec<Assignment>,
     pub filter: Option<Expression>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeleteStatement {
-    pub table: String,
+    pub targets: Option<Vec<String>>,
+    pub from: FromClause,
     pub filter: Option<Expression>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Assignment {
-    pub column: String,
+    pub column: ColumnReference,
     pub value: Literal,
 }
 
@@ -70,16 +63,66 @@ pub struct Assignment {
 pub enum Projection {
     All,
     Expression(Expression),
+    Aggregate(Aggregate),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TableReference {
+    pub name: String,
+    pub alias: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ColumnReference {
+    pub table: Option<String>,
+    pub column: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct JoinCondition {
+    pub left: ColumnReference,
+    pub right: ColumnReference,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FromClause {
+    Table(TableReference),
+    InnerJoin {
+        left: Box<FromClause>,
+        on: JoinCondition,
+        right: Box<FromClause>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Aggregate {
+    CountAll,
+    Sum(ColumnReference),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expression {
-    Identifier(String),
+    Column(ColumnReference),
     Literal(Literal),
-    Equal {
+    Comparison {
+        left: Box<Expression>,
+        operator: ComparisonOperator,
+        right: Box<Expression>,
+    },
+    And {
         left: Box<Expression>,
         right: Box<Expression>,
     },
+    Or {
+        left: Box<Expression>,
+        right: Box<Expression>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OrderBy {
+    pub column: ColumnReference,
+    pub direction: SortDirection,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
