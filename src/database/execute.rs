@@ -67,19 +67,12 @@ impl Database {
         }
 
         for prepared_update in prepared_updates {
-            IndexManager::delete_row(
+            IndexManager::update_row(
                 &mut self.storage_manager,
                 &self.catalog,
                 prepared_update.table_id,
                 prepared_update.row_id,
                 &prepared_update.old_values,
-            )?;
-
-            IndexManager::insert_row(
-                &mut self.storage_manager,
-                &self.catalog,
-                prepared_update.table_id,
-                prepared_update.row_id,
                 &prepared_update.new_values,
             )?;
         }
