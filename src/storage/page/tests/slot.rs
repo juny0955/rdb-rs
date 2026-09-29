@@ -64,3 +64,32 @@ fn add_slot_테스트() {
     assert_eq!(page.free_start(), (HEADER_SIZE + SLOT_SIZE) as u16);
     assert_eq!(page.read_slot(slot_id).expect("read slot 실패"), slot);
 }
+
+#[test]
+fn find_tombstone_slot_id는_빈_slot_directory에서_none을_반환한다() -> Result<(), PageError> {
+    // Given
+    let page = Page::new();
+
+    // When
+    let tombstone_slot_id = page.find_tombstone_slot_id()?;
+
+    // Then
+    assert_eq!(tombstone_slot_id, None);
+    Ok(())
+}
+
+#[test]
+fn find_tombstone_slot_id는_삭제된_slot_id를_반환한다() -> Result<(), PageError> {
+    // Given
+    let mut page = Page::new();
+    page.insert_row(&Row::from_bytes(&[1, 2, 3]))?;
+    let deleted_slot_id = page.insert_row(&Row::from_bytes(&[4, 5, 6]))?;
+    page.delete_row(deleted_slot_id)?;
+
+    // When
+    let tombstone_slot_id = page.find_tombstone_slot_id()?;
+
+    // Then
+    assert_eq!(tombstone_slot_id, Some(deleted_slot_id));
+    Ok(())
+}

@@ -9,12 +9,28 @@ impl Page {
         let row_bytes = row.to_bytes();
         let row_len = row_bytes.len();
         let allocate_len = row_allocation_size(row_len);
+        let tombstone_slot_id = self.find_tombstone_slot_id()?;
 
+        // row 최대 크기 검사
         if allocate_len > PAGE_SIZE - HEADER_SIZE - SLOT_SIZE {
             return Err(PageError::RowTooLarge);
         }
 
-        self.try_insert_from_available_space(row_bytes, allocate_len)
+        // free block insert 수행
+        if let Some(slot_id) =
+            self.try_insert_from_free_block(row_bytes, allocate_len, tombstone_slot_id)?
+        {
+            return Ok(slot_id);
+        }
+
+        match self.insert_from_free_end(row_bytes, allocate_len, tombstone_slot_id) {
+            Ok(slot_id) => Ok(slot_id),
+            Err(PageError::StorageFull) => {
+                self.compact()?;
+                Ok(self.insert_from_free_end(row_bytes, allocate_len, tombstone_slot_id)?)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     pub fn read_row(&self, slot_id: SlotId) -> Result<Row, PageError> {
@@ -91,25 +107,6 @@ impl Page {
         Ok(scans)
     }
 
-    fn try_insert_from_available_space(
-        &mut self,
-        row_bytes: &[u8],
-        allocate_len: usize,
-    ) -> Result<SlotId, PageError> {
-        if let Some(slot_id) = self.try_insert_from_free_block(row_bytes, allocate_len)? {
-            return Ok(slot_id);
-        }
-
-        match self.insert_from_free_end(row_bytes, allocate_len) {
-            Ok(slot_id) => Ok(slot_id),
-            Err(PageError::StorageFull) => {
-                self.compact()?;
-                Ok(self.insert_from_free_end(row_bytes, allocate_len)?)
-            }
-            Err(e) => Err(e),
-        }
-    }
-
     fn update_allocate_len_equal(
         &mut self,
         slot_offset: usize,
@@ -132,7 +129,6 @@ impl Page {
         new_allocate_len: usize,
     ) -> Result<(), PageError> {
         self.write_row_bytes_at(slot.offset, row_bytes);
-
         self.update_slot_for_row(slot_id, slot, row_bytes.len())?;
 
         let free_block_length = old_allocate_len - new_allocate_len;
@@ -188,13 +184,14 @@ impl Page {
         &mut self,
         row_bytes: &[u8],
         allocate_len: usize,
+        tombstone_slot_id: Option<SlotId>,
     ) -> Result<Option<SlotId>, PageError> {
-        if SLOT_SIZE > self.free_space()? {
+        if tombstone_slot_id.is_none() && SLOT_SIZE > self.free_space()? {
             return Ok(None);
         }
 
         self.try_allocate_from_free_block(allocate_len)?
-            .map(|offset| self.write_row_at(offset, row_bytes))
+            .map(|offset| self.write_row_at(offset, row_bytes, tombstone_slot_id))
             .transpose()
     }
 
@@ -202,23 +199,37 @@ impl Page {
         &mut self,
         row_bytes: &[u8],
         allocate_len: usize,
+        tombstone_slot_id: Option<SlotId>,
     ) -> Result<SlotId, PageError> {
-        if SLOT_SIZE + allocate_len > self.free_space()? {
+        if tombstone_slot_id.is_some() && allocate_len > self.free_space()? {
             return Err(PageError::StorageFull);
         }
 
-        let row_end = self.free_end();
-        let row_start = row_end - allocate_len as u16;
+        if tombstone_slot_id.is_none() && SLOT_SIZE + allocate_len > self.free_space()? {
+            return Err(PageError::StorageFull);
+        }
 
-        let slot_id = self.write_row_at(row_start, row_bytes)?;
+        let row_start = self.free_end() - allocate_len as u16;
+        let slot_id = self.write_row_at(row_start, row_bytes, tombstone_slot_id)?;
         self.set_free_end(row_start);
 
         Ok(slot_id)
     }
 
-    fn write_row_at(&mut self, offset: u16, row_bytes: &[u8]) -> Result<SlotId, PageError> {
+    fn write_row_at(
+        &mut self,
+        offset: u16,
+        row_bytes: &[u8],
+        tombstone_slot_id: Option<SlotId>,
+    ) -> Result<SlotId, PageError> {
         let slot = Slot::new(offset, row_bytes.len() as u16);
-        let slot_id = self.add_slot(&slot)?;
+
+        let slot_id = if let Some(slot_id) = tombstone_slot_id {
+            self.write_slot(slot_id, &slot)?;
+            slot_id
+        } else {
+            self.add_slot(&slot)?
+        };
 
         self.write_row_bytes_at(offset, row_bytes);
         Ok(slot_id)
