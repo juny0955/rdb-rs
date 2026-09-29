@@ -282,3 +282,84 @@ fn update는_index_entry를_교체하고_재시작후_검색된다() -> Result<(
     );
     Ok(())
 }
+
+#[test]
+fn index_manager_update_row은_변경된_인덱스만_갱신한다() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = TestDirectory::new("index-manager-update-row");
+    let row_id = {
+        let mut database = Database::open(directory.path(), "test")?;
+        database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
+        database.execute(&parse_sql("CREATE INDEX idx_users_id ON users(id);"))?;
+        database.execute(&parse_sql("CREATE INDEX idx_users_name ON users(name);"))?;
+        database.execute(&parse_sql("INSERT INTO users VALUES (42, 'Kim');"))?;
+
+        let heap_table = database
+            .table_manager
+            .get_or_open_table(&mut database.storage_manager, TableId::new(1))?;
+        let row_id = heap_table
+            .scan(&mut database.storage_manager)?
+            .into_iter()
+            .next()
+            .expect("수정할 행이 있어야 함")
+            .0;
+
+        IndexManager::update_row(
+            &mut database.storage_manager,
+            &database.catalog,
+            TableId::new(1),
+            row_id,
+            &[Value::BigInt(42), Value::Varchar("Kim".to_owned())],
+            &[Value::BigInt(42), Value::Varchar("Lee".to_owned())],
+        )?;
+
+        row_id
+    };
+    let mut database = Database::open(directory.path(), "reopened")?;
+
+    let id_index = database
+        .catalog
+        .metadata()
+        .index("idx_users_id")
+        .expect("id 인덱스 metadata가 있어야 함");
+    database
+        .storage_manager
+        .register_relation(RelationId::Index(id_index.id()))?;
+    let id_btree = BTree::open(id_index.id(), id_index.root_page_id(), BTreeKeyType::BigInt);
+
+    assert_eq!(
+        id_btree.search(&mut database.storage_manager, BTreeKey::BigInt(42))?,
+        vec![row_id]
+    );
+
+    let name_index = database
+        .catalog
+        .metadata()
+        .index("idx_users_name")
+        .expect("name 인덱스 metadata가 있어야 함");
+    database
+        .storage_manager
+        .register_relation(RelationId::Index(name_index.id()))?;
+    let name_btree = BTree::open(
+        name_index.id(),
+        name_index.root_page_id(),
+        BTreeKeyType::Varchar,
+    );
+
+    assert!(
+        name_btree
+            .search(
+                &mut database.storage_manager,
+                BTreeKey::Varchar("Kim".to_owned()),
+            )?
+            .is_empty()
+    );
+    assert_eq!(
+        name_btree.search(
+            &mut database.storage_manager,
+            BTreeKey::Varchar("Lee".to_owned()),
+        )?,
+        vec![row_id]
+    );
+
+    Ok(())
+}

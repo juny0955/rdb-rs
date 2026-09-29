@@ -79,6 +79,38 @@ impl IndexManager {
         Ok(btree.root_page_id())
     }
 
+    pub fn update_row(
+        storage_manager: &mut StorageManager,
+        catalog: &Catalog,
+        table_id: TableId,
+        row_id: RowId,
+        old_values: &[Value],
+        new_values: &[Value],
+    ) -> Result<(), IndexError> {
+        let table = catalog.index_table(table_id)?;
+
+        let indexes = catalog
+            .metadata()
+            .indexes()
+            .iter()
+            .filter(|index| index.table_id() == table.id());
+
+        for index_metadata in indexes {
+            let column_index =
+                catalog.index_column_position(table_id, index_metadata.column_id())?;
+
+            let old_value = &old_values[column_index];
+            let new_value = &new_values[column_index];
+
+            if old_value != new_value {
+                Self::delete_entry(storage_manager, index_metadata, old_value, row_id)?;
+                Self::insert_entry(storage_manager, index_metadata, new_value, row_id)?;
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn insert_row(
         storage_manager: &mut StorageManager,
         catalog: &Catalog,
