@@ -88,6 +88,26 @@ impl Page {
 
         Ok(())
     }
+
+    pub(super) fn find_tombstone_slot_id(&self) -> Result<Option<SlotId>, PageError> {
+        let mut slot_id = None;
+        let mut bytes = [0u8; SLOT_SIZE];
+
+        for idx in 0..self.slot_count() {
+            let current_slot_id = SlotId::new(idx);
+            let offset = slot_offset(current_slot_id)?;
+
+            bytes.copy_from_slice(&self.data[offset..offset + SLOT_SIZE]);
+            let found = Slot::from_bytes(bytes);
+
+            if found.is_deleted() {
+                slot_id = Some(current_slot_id);
+                break;
+            }
+        }
+
+        Ok(slot_id)
+    }
 }
 
 pub(super) fn slot_offset(slot_id: SlotId) -> Result<usize, PageError> {
