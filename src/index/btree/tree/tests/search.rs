@@ -115,3 +115,41 @@ fn search은_다음_leaf의_중복_key까지_반환한다() -> Result<(), Box<dy
     assert_eq!(row_ids, vec![left_row_id, right_row_id]);
     Ok(())
 }
+
+#[test]
+fn search는_더_큰_key를_만나면_다음_leaf를_읽지_않는다() -> Result<(), Box<dyn std::error::Error>> {
+    let index_file = TestRelationFile::new("btree-search-stop-before-next-leaf", "1.idx");
+    let index_id = IndexId::new(1);
+    let root_page_id = PageId::new(0);
+    let row_id = RowId::new(PageId::new(3), SlotId::new(7));
+
+    let mut root_page = Page::new_raw();
+    initialize_leaf_page(&mut root_page);
+    append_leaf_entry(&mut root_page, &LeafEntry::new(BTreeKey::Int(42), row_id))?;
+    append_leaf_entry(
+        &mut root_page,
+        &LeafEntry::new(
+            BTreeKey::Int(50),
+            RowId::new(PageId::new(4), SlotId::new(8)),
+        ),
+    )?;
+    let mut header =
+        BTreePageHeader::read_from_page(&root_page).expect("초기화한 leaf header는 유효해야 한다");
+    header.set_next_leaf_page_id(Some(PageId::new(1)));
+    header.write_to_page(&mut root_page);
+
+    let mut file = open_rw(index_file.path())?;
+    assert_eq!(allocate_page(&mut file)?, root_page_id);
+    write_page(&mut file, root_page_id, &root_page)?;
+    drop(file);
+
+    let mut storage_manager = StorageManager::with_capacity(index_file.data_dir(), 1);
+    storage_manager.register_relation(RelationId::Index(index_id))?;
+    let tree = BTree::open(index_id, root_page_id, BTreeKeyType::Int);
+
+    assert_eq!(
+        tree.search(&mut storage_manager, BTreeKey::Int(42))?,
+        vec![row_id]
+    );
+    Ok(())
+}

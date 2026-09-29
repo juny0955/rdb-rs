@@ -37,15 +37,21 @@ pub fn find_leaf_row_ids(
     page: &Page,
     key_type: BTreeKeyType,
     target: &BTreeKey,
-) -> Result<Vec<RowId>, LeafPageError> {
+) -> Result<(Vec<RowId>, bool), LeafPageError> {
     let entries = read_leaf_entries(page, key_type)?;
 
+    let mut has_greater_key = false;
     let mut results = Vec::new();
     for entry in &entries {
-        if let Some(Ordering::Equal) = entry.key.compare(target) {
+        let compare = entry.key.compare(target);
+        if let Some(Ordering::Equal) = compare {
             results.push(entry.row_id);
+        }
+
+        if let Some(Ordering::Greater) = compare {
+            has_greater_key = true;
         }
     }
 
-    Ok(results)
+    Ok((results, has_greater_key))
 }
