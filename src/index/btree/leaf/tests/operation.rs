@@ -67,11 +67,13 @@ fn 존재하는_leaf_key를_찾는다() {
     append_leaf_entry(&mut page, &entry).expect("정상 leaf page에 entry를 추가할 수 있어야 한다");
 
     // When
-    let row_ids = find_leaf_row_ids(&page, BTreeKeyType::Int, &BTreeKey::Int(42))
-        .expect("정상 leaf page에서 key를 검색할 수 있어야 한다");
+    let (row_ids, has_greater_key) =
+        find_leaf_row_ids(&page, BTreeKeyType::Int, &BTreeKey::Int(42))
+            .expect("정상 leaf page에서 key를 검색할 수 있어야 한다");
 
     // Then
     assert_eq!(row_ids, vec![row_id]);
+    assert!(!has_greater_key);
 }
 
 #[test]
@@ -86,11 +88,12 @@ fn 존재하지_않는_leaf_key는_찾지_못한다() {
     append_leaf_entry(&mut page, &entry).expect("정상 leaf page에 entry를 추가할 수 있어야 한다");
 
     // When
-    let row_ids = find_leaf_row_ids(&page, BTreeKeyType::Int, &BTreeKey::Int(7))
+    let (row_ids, has_greater_key) = find_leaf_row_ids(&page, BTreeKeyType::Int, &BTreeKey::Int(7))
         .expect("정상 leaf page에서 key를 검색할 수 있어야 한다");
 
     // Then
     assert!(row_ids.is_empty());
+    assert!(has_greater_key);
 }
 
 #[test]
@@ -103,15 +106,20 @@ fn 같은_leaf_key의_모든_row_id를_찾는다() -> Result<(), LeafPageError> 
     append_leaf_entry(&mut page, &LeafEntry::new(BTreeKey::Int(42), first_row_id))?;
     append_leaf_entry(
         &mut page,
-        &LeafEntry::new(BTreeKey::Int(7), RowId::new(PageId::new(5), SlotId::new(9))),
+        &LeafEntry::new(
+            BTreeKey::Int(50),
+            RowId::new(PageId::new(5), SlotId::new(9)),
+        ),
     )?;
     append_leaf_entry(&mut page, &LeafEntry::new(BTreeKey::Int(42), second_row_id))?;
 
     // When
-    let row_ids = find_leaf_row_ids(&page, BTreeKeyType::Int, &BTreeKey::Int(42))?;
+    let (row_ids, has_greater_key) =
+        find_leaf_row_ids(&page, BTreeKeyType::Int, &BTreeKey::Int(42))?;
 
     // Then
     assert_eq!(row_ids, vec![first_row_id, second_row_id]);
+    assert!(has_greater_key);
     Ok(())
 }
 
