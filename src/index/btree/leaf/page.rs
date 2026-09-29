@@ -58,6 +58,7 @@ pub fn read_leaf_entries(
     if header.entry_end() as usize > page_bytes.len() {
         return Err(LeafPageError::InvalidPage);
     }
+
     let mut entries = Vec::new();
     let mut offset = LEAF_HEADER_SIZE as usize;
     for _ in 0..header.entry_count() {

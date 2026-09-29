@@ -75,10 +75,16 @@ impl BTree {
             let guard =
                 storage_manager.fetch_page(PageKey::new(self.relation_id, current_page_id))?;
             let page = guard.page();
-            results.extend_from_slice(&find_leaf_row_ids(page, self.key_type, &target)?);
+            let (row_ids, has_greater_key) = find_leaf_row_ids(page, self.key_type, &target)?;
+            results.extend_from_slice(&row_ids);
+
+            if has_greater_key {
+                break;
+            }
 
             let header = BTreePageHeader::read_from_page(page)
                 .ok_or(BTreeError::InvalidPage(current_page_id))?;
+
             if let Some(next) = header.next_leaf_page_id() {
                 current_page_id = next;
             } else {
@@ -101,11 +107,12 @@ impl BTree {
             let page = guard.page();
             let header = BTreePageHeader::read_from_page(page)
                 .ok_or(BTreeError::InvalidPage(current_page_id))?;
+
             if header.is_leaf() {
                 return Ok(current_page_id);
-            } else {
-                current_page_id = find_internal_child(page, self.key_type, target)?;
             }
+
+            current_page_id = find_internal_child(page, self.key_type, target)?;
         }
     }
 
