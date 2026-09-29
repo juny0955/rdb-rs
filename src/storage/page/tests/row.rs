@@ -75,6 +75,30 @@ fn insert_row_테스트() {
 }
 
 #[test]
+fn 새_row가_free_block보다_커도_삭제된_slot을_재사용한다() -> Result<(), PageError> {
+    // Given
+    let mut page = Page::new();
+    let deleted_slot = page.insert_row(&Row::from_bytes(&[1; 4]))?;
+    let live_row = Row::from_bytes(&[2; 4]);
+    let live_slot = page.insert_row(&live_row)?;
+    page.delete_row(deleted_slot)?;
+    let slot_count = page.slot_count();
+    let free_start = page.free_start();
+    let new_row = Row::from_bytes(&[3; 8]);
+
+    // When
+    let reused_slot = page.insert_row(&new_row)?;
+
+    // Then
+    assert_eq!(reused_slot, deleted_slot);
+    assert_eq!(page.slot_count(), slot_count);
+    assert_eq!(page.free_start(), free_start);
+    assert_eq!(page.read_row(reused_slot)?, new_row);
+    assert_eq!(page.read_row(live_slot)?, live_row);
+    Ok(())
+}
+
+#[test]
 fn read_row_테스트() {
     let mut page = Page::new();
     let bytes = [1, 2, 3];

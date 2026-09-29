@@ -95,7 +95,7 @@ fn compact_테스트() {
 }
 
 #[test]
-fn insert_row_compress_테스트() {
+fn insert_row는_연속_공간이_없어도_삭제된_slot을_재사용한다() {
     let mut page = Page::new();
     let row = Row::from_bytes(&vec![1; 1020]);
     let mut slots = Vec::new();
@@ -106,6 +106,7 @@ fn insert_row_compress_테스트() {
 
     let last_row = Row::from_bytes(&vec![2; 1012]);
     slots.push(page.insert_row(&last_row).expect("inser row 실패"));
+    let deleted_offset = page.read_slot(slots[3]).expect("read slot 실패").offset;
     page.delete_row(slots[3]).expect("delete row 실패");
 
     let inserted = Row::from_bytes(&vec![3; 1016]);
@@ -113,11 +114,11 @@ fn insert_row_compress_테스트() {
 
     for (i, slot) in slots.iter().enumerate().take(7) {
         if i == 3 {
-            assert!(matches!(
-                page.read_row(*slot)
-                    .expect_err("not found 오류 반환해야한다"),
-                PageError::SlotNotFound
-            ));
+            assert_eq!(new_slot, *slot);
+            assert_eq!(
+                page.read_row(*slot).expect("재사용한 row 읽기 실패"),
+                inserted
+            );
             continue;
         }
 
@@ -125,5 +126,11 @@ fn insert_row_compress_테스트() {
     }
     assert_eq!(page.read_row(slots[7]).expect("read row 실패"), last_row);
     assert_eq!(page.read_row(new_slot).expect("read row 실패"), inserted);
-    assert_eq!(page.free_list_head(), u16::MAX);
+    let remaining_offset = deleted_offset + inserted.to_bytes().len() as u16;
+    assert_eq!(page.free_list_head(), remaining_offset);
+    let remaining_block = page
+        .read_free_block(remaining_offset)
+        .expect("남은 free block 읽기 실패");
+    assert_eq!(remaining_block.length as usize, FREE_BLOCK_SIZE);
+    assert_eq!(remaining_block.next, u16::MAX);
 }
