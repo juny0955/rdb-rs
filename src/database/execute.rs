@@ -20,6 +20,7 @@ impl Database {
     ) -> Result<ExecuteResult, DatabaseError> {
         let executor = Executor::new(self.catalog.metadata());
         let row = executor.encode_insert(bound)?;
+
         let row_id =
             self.table_manager
                 .insert_row(&mut self.storage_manager, bound.table_id, &row)?;
@@ -57,15 +58,6 @@ impl Database {
         let prepared_updates = executor.prepare_update(rows, bound)?;
         let affected_rows = prepared_updates.len();
 
-        for prepared_update in &prepared_updates {
-            self.table_manager.update_row(
-                &mut self.storage_manager,
-                prepared_update.table_id,
-                prepared_update.row_id,
-                &prepared_update.new_row,
-            )?;
-        }
-
         for prepared_update in prepared_updates {
             IndexManager::update_row(
                 &mut self.storage_manager,
@@ -75,7 +67,15 @@ impl Database {
                 &prepared_update.old_values,
                 &prepared_update.new_values,
             )?;
+
+            self.table_manager.update_row(
+                &mut self.storage_manager,
+                prepared_update.table_id,
+                prepared_update.row_id,
+                &prepared_update.new_row,
+            )?;
         }
+
         Ok(ExecuteResult::Command { affected_rows })
     }
 
@@ -89,14 +89,6 @@ impl Database {
         let prepared_deletes = executor.prepare_delete(rows, bound)?;
         let affected_rows = prepared_deletes.len();
 
-        for prepared_delete in &prepared_deletes {
-            self.table_manager.delete_row(
-                &mut self.storage_manager,
-                prepared_delete.table_id,
-                prepared_delete.row_id,
-            )?;
-        }
-
         for prepared_delete in prepared_deletes {
             IndexManager::delete_row(
                 &mut self.storage_manager,
@@ -104,6 +96,12 @@ impl Database {
                 prepared_delete.table_id,
                 prepared_delete.row_id,
                 &prepared_delete.values,
+            )?;
+
+            self.table_manager.delete_row(
+                &mut self.storage_manager,
+                prepared_delete.table_id,
+                prepared_delete.row_id,
             )?;
         }
 
