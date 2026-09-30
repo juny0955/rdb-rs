@@ -2,8 +2,8 @@ use crate::{
     catalog::metadata::{RelationId, TableId},
     database::{Database, DatabaseError, ExecuteResult},
     index::{
-        IndexManager,
         btree::{BTreeKey, BTreeKeyType, tree::BTree},
+        search_index_row_ids, update_row,
     },
     query::{
         binder::{BoundExpression, BoundStatement},
@@ -91,7 +91,7 @@ fn indexed_equal_predicate는_index_candidate를_반환한다() -> Result<(), Da
     else {
         panic!("equal filter여야 함");
     };
-    let candidates = IndexManager::search_index_row_ids(
+    let candidates = search_index_row_ids(
         &mut database.storage_manager,
         database.catalog.metadata().indexes(),
         column.table_id,
@@ -303,7 +303,7 @@ fn index_manager_update_row은_변경된_인덱스만_갱신한다() -> Result<(
             .expect("수정할 행이 있어야 함")
             .0;
 
-        IndexManager::update_row(
+        update_row(
             &mut database.storage_manager,
             &database.catalog,
             TableId::new(1),

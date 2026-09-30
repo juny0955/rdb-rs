@@ -1,6 +1,6 @@
 use std::{io, path::Path};
 
-use crate::index::{IndexError, IndexManager};
+use crate::index::{IndexError, create_index};
 use crate::query::binder::{BoundCreateIndex, BoundCreateTable};
 use crate::storage::{StorageError, StorageManager};
 use crate::table::{TableError, TableManager};
@@ -73,7 +73,7 @@ impl Database {
     }
 
     fn create_index(&mut self, bound: &BoundCreateIndex) -> Result<ExecuteResult, DatabaseError> {
-        IndexManager::create_index(
+        create_index(
             &mut self.storage_manager,
             &mut self.catalog,
             &mut self.table_manager,

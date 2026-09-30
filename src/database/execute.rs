@@ -1,7 +1,7 @@
 use crate::{
     database::{Database, DatabaseError, ExecuteResult},
     executor::{Executor, QueryRow, TableRow},
-    index::IndexManager,
+    index::{delete_row, insert_row, search_index_row_ids, update_row},
     query::{
         binder::{
             BoundColumnReference, BoundDelete, BoundExpression, BoundFromClause, BoundInsert,
@@ -25,7 +25,7 @@ impl Database {
             self.table_manager
                 .insert_row(&mut self.storage_manager, bound.table_id, &row)?;
 
-        IndexManager::insert_row(
+        insert_row(
             &mut self.storage_manager,
             &self.catalog,
             bound.table_id,
@@ -59,7 +59,7 @@ impl Database {
         let affected_rows = prepared_updates.len();
 
         for prepared_update in prepared_updates {
-            IndexManager::update_row(
+            update_row(
                 &mut self.storage_manager,
                 &self.catalog,
                 prepared_update.table_id,
@@ -90,7 +90,7 @@ impl Database {
         let affected_rows = prepared_deletes.len();
 
         for prepared_delete in prepared_deletes {
-            IndexManager::delete_row(
+            delete_row(
                 &mut self.storage_manager,
                 &self.catalog,
                 prepared_delete.table_id,
@@ -139,7 +139,7 @@ impl Database {
         filter: &Option<BoundExpression>,
     ) -> Result<Vec<TableRow>, DatabaseError> {
         if let Some((column, value)) = index_predicate_for_table(filter.as_ref(), table)
-            && let Some(row_ids) = IndexManager::search_index_row_ids(
+            && let Some(row_ids) = search_index_row_ids(
                 &mut self.storage_manager,
                 self.catalog.metadata().indexes(),
                 table.table_id,
