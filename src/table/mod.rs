@@ -6,7 +6,7 @@ use crate::{
     catalog::metadata::{RelationId, TableId},
     storage::{
         StorageError, StorageManager,
-        page::{PageError, Row, RowId},
+        page::{PageError, PageId, Row, RowId},
     },
     table::heap::HeapTable,
 };
@@ -100,6 +100,16 @@ impl TableManager {
         heap_table.scan(storage_manager)
     }
 
+    pub fn scan_page_rows(
+        &mut self,
+        storage_manager: &mut StorageManager,
+        table_id: TableId,
+        page_id: PageId,
+    ) -> Result<Vec<(RowId, Row)>, TableError> {
+        let heap_table = self.get_or_open_table(storage_manager, table_id)?;
+        heap_table.scan_page(storage_manager, page_id)
+    }
+
     pub fn get_rows(
         &mut self,
         storage_manager: &mut StorageManager,
@@ -115,6 +125,17 @@ impl TableManager {
         }
 
         Ok(rows)
+    }
+
+    pub fn page_count(
+        &mut self,
+        storage_manager: &mut StorageManager,
+        table_id: TableId,
+    ) -> Result<u64, TableError> {
+        let heap_table = self.get_or_open_table(storage_manager, table_id)?;
+
+        let page_count = storage_manager.page_count(heap_table.relation_id())?;
+        Ok(page_count)
     }
 
     #[cfg(test)]

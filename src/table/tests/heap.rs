@@ -188,3 +188,29 @@ fn scan_재시작_테스트() -> Result<(), TableError> {
     assert_eq!(scans, vec![(row_id1, row1), (row_id3, row3)]);
     Ok(())
 }
+
+#[test]
+fn scan_page는_해당_페이지의_살아있는_row만_반환한다() -> Result<(), TableError> {
+    let test_file = TestRelationFile::new("scan-page", "1.tbl");
+    let mut table = HeapTable::new(table_id());
+    let mut storage_manager = storage_manager(&test_file);
+    let first = Row::from_bytes(&vec![1; 8000]);
+    let deleted = Row::from_bytes(&[2; 200]);
+    let last = Row::from_bytes(&[3; 200]);
+
+    let first_id = table.insert(&first, &mut storage_manager)?;
+    let deleted_id = table.insert(&deleted, &mut storage_manager)?;
+    let last_id = table.insert(&last, &mut storage_manager)?;
+    table.delete(&mut storage_manager, deleted_id)?;
+
+    assert_ne!(first_id.page_id(), last_id.page_id());
+    assert_eq!(
+        table.scan_page(&mut storage_manager, first_id.page_id())?,
+        vec![(first_id, first)]
+    );
+    assert_eq!(
+        table.scan_page(&mut storage_manager, last_id.page_id())?,
+        vec![(last_id, last)]
+    );
+    Ok(())
+}

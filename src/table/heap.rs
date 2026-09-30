@@ -127,4 +127,25 @@ impl HeapTable {
 
         Ok(scans)
     }
+
+    pub fn scan_page(
+        &mut self,
+        storage_manager: &mut StorageManager,
+        page_id: PageId,
+    ) -> Result<Vec<(RowId, Row)>, TableError> {
+        let page_key = PageKey::new(self.relation_id, page_id);
+        let frame_guard = storage_manager.fetch_page(page_key)?;
+        let page = frame_guard.page();
+
+        let mut scans = Vec::new();
+        for (slot_id, row) in page.scan_rows()? {
+            scans.push((RowId::new(page_key.page_id(), slot_id), row));
+        }
+
+        Ok(scans)
+    }
+
+    pub fn relation_id(&self) -> RelationId {
+        self.relation_id
+    }
 }
