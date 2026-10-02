@@ -1,5 +1,8 @@
 use crate::{
-    database::{Database, DatabaseError, ExecuteResult},
+    database::{
+        Database, DatabaseError, ExecuteResult,
+        select_cursor::{SelectCursor, SelectSource},
+    },
     executor::{Executor, QueryRow, TableRow},
     index::IndexManager,
     query::{
@@ -16,10 +19,10 @@ use crate::{
 impl Database {
     pub(super) fn execute_insert(
         &mut self,
-        bound: &BoundInsert,
-    ) -> Result<ExecuteResult, DatabaseError> {
+        bound: BoundInsert,
+    ) -> Result<ExecuteResult<'_>, DatabaseError> {
         let executor = Executor::new(self.catalog.metadata());
-        let row = executor.encode_insert(bound)?;
+        let row = executor.encode_insert(&bound)?;
 
         let row_id =
             self.table_manager
@@ -33,29 +36,49 @@ impl Database {
             &bound.values,
         )?;
 
-        Ok(ExecuteResult::Command { affected_rows: 1 })
+        Ok(ExecuteResult::Success)
     }
 
     pub(super) fn execute_select(
         &mut self,
-        bound: &BoundSelect,
-    ) -> Result<ExecuteResult, DatabaseError> {
+        bound: BoundSelect,
+    ) -> Result<ExecuteResult<'_>, DatabaseError> {
+        if let BoundFromClause::Table(table) = &bound.from
+            && bound.group_by.is_none()
+            && bound.order_by.is_none()
+            && index_predicate_for_table(bound.filter.as_ref(), table).is_none()
+        {
+            let page_count = self
+                .table_manager
+                .page_count(&mut self.storage_manager, table.table_id)?;
+
+            return Ok(ExecuteResult::Rows(SelectCursor::new(
+                self,
+                bound,
+                SelectSource::new_scan(page_count),
+            )));
+        }
+
         let rows = self.execute_from_clause(&bound.from, &bound.filter)?;
 
         let executor = Executor::new(self.catalog.metadata());
-        let results = executor.select_rows(rows, bound)?;
+        let results = executor.select_rows(rows, &bound)?;
 
-        Ok(ExecuteResult::Rows(results))
+        Ok(ExecuteResult::Rows(SelectCursor::new(
+            self,
+            bound,
+            SelectSource::Buffered(results.into_iter()),
+        )))
     }
 
     pub(super) fn execute_update(
         &mut self,
-        bound: &BoundUpdate,
-    ) -> Result<ExecuteResult, DatabaseError> {
+        bound: BoundUpdate,
+    ) -> Result<ExecuteResult<'_>, DatabaseError> {
         let rows = self.execute_from_clause(&bound.from, &bound.filter)?;
 
         let executor = Executor::new(self.catalog.metadata());
-        let prepared_updates = executor.prepare_update(rows, bound)?;
+        let prepared_updates = executor.prepare_update(rows, &bound)?;
         let affected_rows = prepared_updates.len();
 
         for prepared_update in prepared_updates {
@@ -81,12 +104,12 @@ impl Database {
 
     pub(super) fn execute_delete(
         &mut self,
-        bound: &BoundDelete,
-    ) -> Result<ExecuteResult, DatabaseError> {
+        bound: BoundDelete,
+    ) -> Result<ExecuteResult<'_>, DatabaseError> {
         let rows = self.execute_from_clause(&bound.from, &bound.filter)?;
 
         let executor = Executor::new(self.catalog.metadata());
-        let prepared_deletes = executor.prepare_delete(rows, bound)?;
+        let prepared_deletes = executor.prepare_delete(rows, &bound)?;
         let affected_rows = prepared_deletes.len();
 
         for prepared_delete in prepared_deletes {

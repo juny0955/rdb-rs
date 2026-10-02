@@ -5,7 +5,7 @@ use crate::{
     tuple::Value,
 };
 
-use super::parse_sql;
+use super::{collect_select_rows, parse_sql};
 
 fn seed_join_tables(database: &mut Database) -> Result<(), DatabaseError> {
     database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
@@ -35,13 +35,13 @@ fn join은_다중_매칭을_반환하고_null과_불일치를_제외한다() -> 
     ))?;
 
     // Then
-    assert!(matches!(
-        result,
-        ExecuteResult::Rows(rows) if rows == vec![
+    assert_eq!(
+        collect_select_rows(result)?,
+        vec![
             vec![Value::Varchar("Kim".to_owned()), Value::BigInt(10)],
             vec![Value::Varchar("Kim".to_owned()), Value::BigInt(20)],
         ]
-    ));
+    );
     Ok(())
 }
 
@@ -58,13 +58,13 @@ fn 별칭_없는_join에서_테이블_이름으로_컬럼을_참조한다() -> R
     ))?;
 
     // Then
-    assert!(matches!(
-        result,
-        ExecuteResult::Rows(rows) if rows == vec![
+    assert_eq!(
+        collect_select_rows(result)?,
+        vec![
             vec![Value::Varchar("Kim".to_owned()), Value::BigInt(10)],
             vec![Value::Varchar("Kim".to_owned()), Value::BigInt(20)],
         ]
-    ));
+    );
     Ok(())
 }
 
@@ -80,10 +80,7 @@ fn 단일_테이블에서도_테이블_이름으로_컬럼을_참조한다() -> 
     let result = database.execute(&parse_sql("SELECT users.id FROM users;"))?;
 
     // Then
-    assert!(matches!(
-        result,
-        ExecuteResult::Rows(rows) if rows == vec![vec![Value::BigInt(1)]]
-    ));
+    assert_eq!(collect_select_rows(result)?, vec![vec![Value::BigInt(1)]]);
     Ok(())
 }
 
@@ -140,13 +137,19 @@ fn 서로_다른_별칭의_self_join은_각_인스턴스를_구분한다() -> Re
     ))?;
 
     // Then
-    assert!(matches!(
-        result,
-        ExecuteResult::Rows(rows) if rows == vec![
-            vec![Value::Varchar("Kim".to_owned()), Value::Varchar("Kim".to_owned())],
-            vec![Value::Varchar("Lee".to_owned()), Value::Varchar("Lee".to_owned())],
+    assert_eq!(
+        collect_select_rows(result)?,
+        vec![
+            vec![
+                Value::Varchar("Kim".to_owned()),
+                Value::Varchar("Kim".to_owned())
+            ],
+            vec![
+                Value::Varchar("Lee".to_owned()),
+                Value::Varchar("Lee".to_owned())
+            ],
         ]
-    ));
+    );
     Ok(())
 }
 
@@ -168,10 +171,10 @@ fn join_update는_일치하는_행을_한번만_수정한다() -> Result<(), Dat
         ExecuteResult::Command { affected_rows: 1 }
     ));
     let rows = database.execute(&parse_sql("SELECT name FROM users WHERE id = 1;"))?;
-    assert!(matches!(
-        rows,
-        ExecuteResult::Rows(rows) if rows == vec![vec![Value::Varchar("New".to_owned())]]
-    ));
+    assert_eq!(
+        collect_select_rows(rows)?,
+        vec![vec![Value::Varchar("New".to_owned())]]
+    );
     Ok(())
 }
 
@@ -193,10 +196,10 @@ fn join_delete는_일치하는_행을_한번만_삭제한다() -> Result<(), Dat
         ExecuteResult::Command { affected_rows: 1 }
     ));
     let rows = database.execute(&parse_sql("SELECT id FROM users ORDER BY id;"))?;
-    assert!(matches!(
-        rows,
-        ExecuteResult::Rows(rows) if rows == vec![vec![Value::BigInt(2)], vec![Value::Null]]
-    ));
+    assert_eq!(
+        collect_select_rows(rows)?,
+        vec![vec![Value::BigInt(2)], vec![Value::Null]]
+    );
     Ok(())
 }
 
@@ -218,9 +221,9 @@ fn join_delete는_별칭_없이_테이블_이름으로_대상을_지정한다() 
         ExecuteResult::Command { affected_rows: 1 }
     ));
     let rows = database.execute(&parse_sql("SELECT id FROM users ORDER BY id;"))?;
-    assert!(matches!(
-        rows,
-        ExecuteResult::Rows(rows) if rows == vec![vec![Value::BigInt(2)], vec![Value::Null]]
-    ));
+    assert_eq!(
+        collect_select_rows(rows)?,
+        vec![vec![Value::BigInt(2)], vec![Value::Null]]
+    );
     Ok(())
 }

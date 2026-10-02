@@ -1,15 +1,30 @@
 use crate::{
     catalog::metadata::{DataType, DatabaseMetadata},
+    database::{DatabaseError, ExecuteResult},
     query::{
         binder::{Binder, BoundColumnDefinition, BoundCreateTable, BoundStatement},
         sql::{Parser, lexer::Lexer},
     },
+    tuple::Value,
 };
 
 mod execute;
 mod index;
 mod join;
+mod select_cursor;
 mod table;
+
+fn collect_select_rows(result: ExecuteResult<'_>) -> Result<Vec<Vec<Value>>, DatabaseError> {
+    let ExecuteResult::Rows(mut cursor) = result else {
+        panic!("SELECT는 행 커서를 반환해야 함");
+    };
+
+    let mut rows = Vec::new();
+    while let Some(row) = cursor.next_row()? {
+        rows.push(row);
+    }
+    Ok(rows)
+}
 
 fn users_table() -> BoundCreateTable {
     BoundCreateTable {

@@ -1,5 +1,6 @@
 use std::{io, path::Path};
 
+use crate::database::select_cursor::SelectCursor;
 use crate::index::{IndexError, IndexManager};
 use crate::query::binder::{BoundCreateIndex, BoundCreateTable};
 use crate::storage::{StorageError, StorageManager};
@@ -10,11 +11,11 @@ use crate::{
     executor::ExecutorError,
     query::binder::{Binder, BinderError, BoundStatement},
     query::sql::ast::Statement,
-    tuple::Value,
 };
 use thiserror::Error;
 
 mod execute;
+mod select_cursor;
 
 #[derive(Debug, Error)]
 pub enum DatabaseError {
@@ -36,11 +37,10 @@ pub enum DatabaseError {
     Io(#[from] io::Error),
 }
 
-#[derive(Debug)]
-pub enum ExecuteResult {
+pub enum ExecuteResult<'a> {
     Success,
     Command { affected_rows: usize },
-    Rows(Vec<Vec<Value>>),
+    Rows(SelectCursor<'a>),
 }
 
 pub struct Database {
@@ -60,19 +60,22 @@ impl Database {
         })
     }
 
-    pub fn execute(&mut self, statement: &Statement) -> Result<ExecuteResult, DatabaseError> {
+    pub fn execute(&mut self, statement: &Statement) -> Result<ExecuteResult<'_>, DatabaseError> {
         let bound = Binder::new(self.catalog.metadata()).bind(statement)?;
         match bound {
-            BoundStatement::CreateTable(b) => self.create_table(&b),
-            BoundStatement::CreateIndex(b) => self.create_index(&b),
-            BoundStatement::Insert(b) => self.execute_insert(&b),
-            BoundStatement::Select(b) => self.execute_select(&b),
-            BoundStatement::Update(b) => self.execute_update(&b),
-            BoundStatement::Delete(b) => self.execute_delete(&b),
+            BoundStatement::CreateTable(b) => self.create_table(b),
+            BoundStatement::CreateIndex(b) => self.create_index(b),
+            BoundStatement::Insert(b) => self.execute_insert(b),
+            BoundStatement::Select(b) => self.execute_select(b),
+            BoundStatement::Update(b) => self.execute_update(b),
+            BoundStatement::Delete(b) => self.execute_delete(b),
         }
     }
 
-    fn create_index(&mut self, bound: &BoundCreateIndex) -> Result<ExecuteResult, DatabaseError> {
+    fn create_index(
+        &mut self,
+        bound: BoundCreateIndex,
+    ) -> Result<ExecuteResult<'_>, DatabaseError> {
         IndexManager::create_index(
             &mut self.storage_manager,
             &mut self.catalog,
@@ -84,7 +87,10 @@ impl Database {
         Ok(ExecuteResult::Success)
     }
 
-    fn create_table(&mut self, bound: &BoundCreateTable) -> Result<ExecuteResult, DatabaseError> {
+    fn create_table(
+        &mut self,
+        bound: BoundCreateTable,
+    ) -> Result<ExecuteResult<'_>, DatabaseError> {
         let columns = bound
             .columns
             .iter()
@@ -93,10 +99,9 @@ impl Database {
         let table = self
             .catalog
             .build_table_metadata(bound.table.to_owned(), columns)?;
-        let table_id = table.id();
 
         self.table_manager
-            .create_table(&mut self.storage_manager, table_id)?;
+            .create_table(&mut self.storage_manager, table.id())?;
         self.catalog.add_table(table)?;
 
         Ok(ExecuteResult::Success)

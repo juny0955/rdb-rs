@@ -4,7 +4,7 @@ use std::{
 };
 
 use rdb_rs::{
-    database::Database,
+    database::{Database, ExecuteResult},
     query::sql::{Parser, lexer::Lexer},
 };
 
@@ -54,7 +54,22 @@ fn main() {
         };
 
         match database.execute(&statement) {
-            Ok(result) => println!("{result:?}"),
+            Ok(result) => match result {
+                ExecuteResult::Rows(mut cursor) => loop {
+                    match cursor.next_row() {
+                        Ok(Some(row)) => println!("{row:?}"),
+                        Ok(None) => break,
+                        Err(e) => {
+                            eprintln!("{e}");
+                            break;
+                        }
+                    }
+                },
+                ExecuteResult::Command { affected_rows } => {
+                    println!("affected rows: {affected_rows}")
+                }
+                ExecuteResult::Success => println!("Success!"),
+            },
             Err(e) => eprintln!("{e}"),
         }
     }

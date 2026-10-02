@@ -14,7 +14,7 @@ use crate::{
     tuple::Value,
 };
 
-use super::{bind_sql, parse_sql};
+use super::{bind_sql, collect_select_rows, parse_sql};
 
 #[test]
 fn create_index는_index_file과_metadata를_생성하고_재시작후에도_유지한다()
@@ -57,14 +57,13 @@ fn 재시작후_index_scan은_중복_key의_모든_row를_반환한다() -> Resu
     let result = database.execute(&parse_sql("SELECT name FROM users WHERE id = 42;"))?;
 
     // Then
-    assert!(matches!(
-        result,
-        ExecuteResult::Rows(rows)
-            if rows == vec![
-                vec![Value::Varchar("Kim".to_owned())],
-                vec![Value::Varchar("Lee".to_owned())],
-            ]
-    ));
+    assert_eq!(
+        collect_select_rows(result)?,
+        vec![
+            vec![Value::Varchar("Kim".to_owned())],
+            vec![Value::Varchar("Lee".to_owned())],
+        ]
+    );
     Ok(())
 }
 
@@ -231,10 +230,9 @@ fn indexed_null_value를_delete하면_index_entry_없음_오류가_발생하지_
     }
 
     let mut database = Database::open(directory.path(), "reopened")?;
-    assert!(matches!(
-        database.execute(&parse_sql("SELECT name FROM users;"))?,
-        ExecuteResult::Rows(rows) if rows.is_empty()
-    ));
+    assert!(
+        collect_select_rows(database.execute(&parse_sql("SELECT name FROM users;"))?)?.is_empty()
+    );
     Ok(())
 }
 

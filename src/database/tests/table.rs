@@ -13,7 +13,7 @@ fn create_table은_table_file과_metadata를_생성하고_재시작후에도_유
     let table_id = {
         let mut database = Database::open(directory.path(), "test")?;
         assert!(matches!(
-            database.create_table(&users_table())?,
+            database.create_table(users_table())?,
             ExecuteResult::Success
         ));
         let table_id = TableId::new(1);
@@ -44,12 +44,13 @@ fn create_table은_중복_이름일때_table_file을_남기지_않는다() -> Re
     let mut database = Database::open(directory.path(), "test")?;
 
     assert!(matches!(
-        database.create_table(&users_table())?,
+        database.create_table(users_table())?,
         ExecuteResult::Success
     ));
-    let error = database
-        .create_table(&users_table())
-        .expect_err("중복 table 이름 오류가 발생해야 함");
+    let error = match database.create_table(users_table()) {
+        Ok(_) => panic!("중복 table 이름 오류가 발생해야 함"),
+        Err(error) => error,
+    };
 
     assert!(matches!(
         error,
@@ -68,7 +69,7 @@ fn get_or_open_table은_같은_table을_한번만_등록한다() -> Result<(), D
     let table_id = {
         let mut database = Database::open(directory.path(), "test")?;
         assert!(matches!(
-            database.create_table(&users_table())?,
+            database.create_table(users_table())?,
             ExecuteResult::Success
         ));
         TableId::new(1)

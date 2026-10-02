@@ -5,7 +5,7 @@ use crate::{
     tuple::Value,
 };
 
-use super::{bind_sql, parse_sql};
+use super::{bind_sql, collect_select_rows, parse_sql};
 
 #[test]
 fn 두번째_select는_cache된_page를_사용한다() -> Result<(), DatabaseError> {
@@ -20,10 +20,7 @@ fn 두번째_select는_cache된_page를_사용한다() -> Result<(), DatabaseErr
     let select = parse_sql("SELECT * FROM users;");
     let expected = vec![vec![Value::BigInt(1), Value::Varchar("Kim".to_owned())]];
 
-    assert!(matches!(
-        database.execute(&select)?,
-        ExecuteResult::Rows(rows) if rows == expected
-    ));
+    assert_eq!(collect_select_rows(database.execute(&select)?)?, expected);
 
     std::fs::rename(
         directory.path().join("1.tbl"),
@@ -31,10 +28,7 @@ fn 두번째_select는_cache된_page를_사용한다() -> Result<(), DatabaseErr
     )
     .expect("첫 SELECT 후 table file 이름을 변경해야 함");
 
-    assert!(matches!(
-        database.execute(&select)?,
-        ExecuteResult::Rows(rows) if rows == expected
-    ));
+    assert_eq!(collect_select_rows(database.execute(&select)?)?, expected);
     Ok(())
 }
 
@@ -52,10 +46,7 @@ fn select_sum은_sql부터_heap_scan까지_합계를_반환한다() -> Result<()
     let result = database.execute(&parse_sql("SELECT SUM(id) FROM users;"))?;
 
     // Then
-    assert!(matches!(
-        result,
-        ExecuteResult::Rows(rows) if rows == vec![vec![Value::BigInt(13)]]
-    ));
+    assert_eq!(collect_select_rows(result)?, vec![vec![Value::BigInt(13)]]);
     Ok(())
 }
 
@@ -76,14 +67,13 @@ fn select_count_all_group_by는_sql부터_heap_scan까지_그룹별_개수를_�
     ))?;
 
     // Then
-    assert!(matches!(
-        result,
-        ExecuteResult::Rows(rows)
-            if rows == vec![
-                vec![Value::Varchar("Kim".to_owned()), Value::BigInt(2)],
-                vec![Value::Varchar("Lee".to_owned()), Value::BigInt(1)],
-            ]
-    ));
+    assert_eq!(
+        collect_select_rows(result)?,
+        vec![
+            vec![Value::Varchar("Kim".to_owned()), Value::BigInt(2)],
+            vec![Value::Varchar("Lee".to_owned()), Value::BigInt(1)],
+        ]
+    );
     Ok(())
 }
 
@@ -102,14 +92,13 @@ fn select_sum_group_by는_sql부터_heap_scan까지_그룹별_합계를_반환�
     let result = database.execute(&parse_sql("SELECT name, SUM(id) FROM users GROUP BY name;"))?;
 
     // Then
-    assert!(matches!(
-        result,
-        ExecuteResult::Rows(rows)
-            if rows == vec![
-                vec![Value::Varchar("Kim".to_owned()), Value::BigInt(10)],
-                vec![Value::Varchar("Lee".to_owned()), Value::BigInt(3)],
-            ]
-    ));
+    assert_eq!(
+        collect_select_rows(result)?,
+        vec![
+            vec![Value::Varchar("Kim".to_owned()), Value::BigInt(10)],
+            vec![Value::Varchar("Lee".to_owned()), Value::BigInt(3)],
+        ]
+    );
     Ok(())
 }
 
@@ -126,10 +115,10 @@ fn less_than_select는_더_작은_row만_반환한다() -> Result<(), DatabaseEr
     let result = database.execute(&parse_sql("SELECT name FROM users WHERE id < 10;"))?;
 
     // Then
-    assert!(matches!(
-        result,
-        ExecuteResult::Rows(rows) if rows == vec![vec![Value::Varchar("Kim".to_owned())]]
-    ));
+    assert_eq!(
+        collect_select_rows(result)?,
+        vec![vec![Value::Varchar("Kim".to_owned())]]
+    );
     Ok(())
 }
 
@@ -147,10 +136,10 @@ fn not_equal_select는_일치하지_않는_non_null_row만_반환한다() -> Res
     let result = database.execute(&parse_sql("SELECT name FROM users WHERE id != 1;"))?;
 
     // Then
-    assert!(matches!(
-        result,
-        ExecuteResult::Rows(rows) if rows == vec![vec![Value::Varchar("Lee".to_owned())]]
-    ));
+    assert_eq!(
+        collect_select_rows(result)?,
+        vec![vec![Value::Varchar("Lee".to_owned())]]
+    );
     Ok(())
 }
 
@@ -170,14 +159,13 @@ fn less_than_or_equal_select는_더_작거나_같은_non_null_row만_반환한�
     let result = database.execute(&parse_sql("SELECT name FROM users WHERE id <= 10;"))?;
 
     // Then
-    assert!(matches!(
-        result,
-        ExecuteResult::Rows(rows)
-            if rows == vec![
-                vec![Value::Varchar("Kim".to_owned())],
-                vec![Value::Varchar("Lee".to_owned())],
-            ]
-    ));
+    assert_eq!(
+        collect_select_rows(result)?,
+        vec![
+            vec![Value::Varchar("Kim".to_owned())],
+            vec![Value::Varchar("Lee".to_owned())],
+        ]
+    );
     Ok(())
 }
 
@@ -196,10 +184,10 @@ fn greater_than_select는_더_큰_non_null_row만_반환한다() -> Result<(), D
     let result = database.execute(&parse_sql("SELECT name FROM users WHERE id > 10;"))?;
 
     // Then
-    assert!(matches!(
-        result,
-        ExecuteResult::Rows(rows) if rows == vec![vec![Value::Varchar("Park".to_owned())]]
-    ));
+    assert_eq!(
+        collect_select_rows(result)?,
+        vec![vec![Value::Varchar("Park".to_owned())]]
+    );
     Ok(())
 }
 
@@ -219,14 +207,13 @@ fn greater_than_or_equal_select는_더_크거나_같은_non_null_row만_반환�
     let result = database.execute(&parse_sql("SELECT name FROM users WHERE id >= 10;"))?;
 
     // Then
-    assert!(matches!(
-        result,
-        ExecuteResult::Rows(rows)
-            if rows == vec![
-                vec![Value::Varchar("Lee".to_owned())],
-                vec![Value::Varchar("Park".to_owned())],
-            ]
-    ));
+    assert_eq!(
+        collect_select_rows(result)?,
+        vec![
+            vec![Value::Varchar("Lee".to_owned())],
+            vec![Value::Varchar("Park".to_owned())],
+        ]
+    );
     Ok(())
 }
 
@@ -241,7 +228,7 @@ fn sql_crud는_parser부터_file까지_동작한다() -> Result<(), DatabaseErro
     ) else {
         panic!("CREATE TABLE이 bind되어야 함");
     };
-    database.create_table(&bound)?;
+    database.create_table(bound)?;
 
     let BoundStatement::Insert(bound) = bind_sql(
         "INSERT INTO users VALUES (1, 'Kim');",
@@ -250,8 +237,8 @@ fn sql_crud는_parser부터_file까지_동작한다() -> Result<(), DatabaseErro
         panic!("INSERT가 bind되어야 함");
     };
     assert!(matches!(
-        database.execute_insert(&bound)?,
-        ExecuteResult::Command { affected_rows: 1 }
+        database.execute_insert(bound)?,
+        ExecuteResult::Success
     ));
 
     let BoundStatement::Select(bound) = bind_sql(
@@ -260,10 +247,10 @@ fn sql_crud는_parser부터_file까지_동작한다() -> Result<(), DatabaseErro
     ) else {
         panic!("SELECT가 bind되어야 함");
     };
-    assert!(matches!(
-        database.execute_select(&bound)?,
-        ExecuteResult::Rows(rows) if rows == vec![vec![Value::Varchar("Kim".to_owned())]]
-    ));
+    assert_eq!(
+        collect_select_rows(database.execute_select(bound)?)?,
+        vec![vec![Value::Varchar("Kim".to_owned())]]
+    );
 
     let BoundStatement::Update(bound) = bind_sql(
         "UPDATE users SET name = 'Lee' WHERE id = 1;",
@@ -272,7 +259,7 @@ fn sql_crud는_parser부터_file까지_동작한다() -> Result<(), DatabaseErro
         panic!("UPDATE가 bind되어야 함");
     };
     assert!(matches!(
-        database.execute_update(&bound)?,
+        database.execute_update(bound)?,
         ExecuteResult::Command { affected_rows: 1 }
     ));
 
@@ -281,11 +268,10 @@ fn sql_crud는_parser부터_file까지_동작한다() -> Result<(), DatabaseErro
     else {
         panic!("SELECT가 bind되어야 함");
     };
-    assert!(matches!(
-        database.execute_select(&bound)?,
-        ExecuteResult::Rows(rows)
-            if rows == vec![vec![Value::BigInt(1), Value::Varchar("Lee".to_owned())]]
-    ));
+    assert_eq!(
+        collect_select_rows(database.execute_select(bound)?)?,
+        vec![vec![Value::BigInt(1), Value::Varchar("Lee".to_owned())]]
+    );
 
     let BoundStatement::Delete(bound) = bind_sql(
         "DELETE FROM users WHERE id = 1;",
@@ -294,7 +280,7 @@ fn sql_crud는_parser부터_file까지_동작한다() -> Result<(), DatabaseErro
         panic!("DELETE가 bind되어야 함");
     };
     assert!(matches!(
-        database.execute_delete(&bound)?,
+        database.execute_delete(bound)?,
         ExecuteResult::Command { affected_rows: 1 }
     ));
 
@@ -303,9 +289,6 @@ fn sql_crud는_parser부터_file까지_동작한다() -> Result<(), DatabaseErro
     else {
         panic!("SELECT가 bind되어야 함");
     };
-    assert!(matches!(
-        database.execute_select(&bound)?,
-        ExecuteResult::Rows(rows) if rows.is_empty()
-    ));
+    assert!(collect_select_rows(database.execute_select(bound)?)?.is_empty());
     Ok(())
 }

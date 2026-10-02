@@ -26,7 +26,7 @@ impl<'a> Executor<'a> {
         Ok(results)
     }
 
-    fn row_matches_filter(
+    pub(crate) fn row_matches_filter(
         &self,
         row: &QueryRow,
         filter: &BoundExpression,
