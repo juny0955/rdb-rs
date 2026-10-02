@@ -252,18 +252,25 @@ impl IndexManager {
         table_manager: &mut TableManager,
         index_metadata: &IndexMetadata,
     ) -> Result<(), IndexError> {
-        let rows = table_manager.scan_rows(storage_manager, index_metadata.table_id())?;
         let table = catalog.index_table(index_metadata.table_id())?;
         let column_index = catalog.index_column_position(table.id(), index_metadata.column_id())?;
+        let page_count = table_manager.page_count(storage_manager, index_metadata.table_id())?;
 
-        let mut entries = Vec::new();
-        for (row_id, row) in rows {
-            let values = tuple::decode(&row, table.columns())?;
-            entries.push((values[column_index].clone(), row_id));
-        }
+        for idx in 0..page_count {
+            let rows = table_manager.scan_page_rows(
+                storage_manager,
+                index_metadata.table_id(),
+                PageId::new(idx),
+            )?;
+            let mut entries = Vec::new();
+            for (row_id, row) in rows {
+                let values = tuple::decode(&row, table.columns())?;
+                entries.push((values[column_index].clone(), row_id));
+            }
 
-        for (value, row_id) in entries {
-            Self::insert_entry(storage_manager, index_metadata, &value, row_id)?;
+            for (value, row_id) in entries {
+                Self::insert_entry(storage_manager, index_metadata, &value, row_id)?;
+            }
         }
 
         Ok(())
