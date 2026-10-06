@@ -10,17 +10,21 @@ use crate::{
         common::ComparisonOperator,
     },
     storage::page::{Row, RowId},
+    table::TableError,
     tuple::{TupleError, Value, decode, encode},
 };
 use thiserror::Error;
 
 mod predicate;
 mod projection;
+mod seq_scan;
 
 #[derive(Debug, Error)]
 pub enum ExecutorError {
     #[error(transparent)]
     Tuple(#[from] TupleError),
+    #[error(transparent)]
+    Table(#[from] TableError),
     #[error("테이블을 찾을 수 없습니다: {0:?}")]
     TableNotFound(TableId),
     #[error("테이블 인스턴스를 찾을 수 없습니다: {0:?}")]
@@ -65,6 +69,10 @@ pub struct QueryRow {
 }
 
 impl QueryRow {
+    pub fn new(table_rows: Vec<TableRow>) -> Self {
+        Self { table_rows }
+    }
+
     pub fn find_table_row(&self, instance_id: TableInstanceId) -> Option<&TableRow> {
         self.table_rows
             .iter()
@@ -370,7 +378,7 @@ impl<'a> Executor<'a> {
         }
     }
 
-    fn column_value<'row>(
+    pub fn column_value<'row>(
         &self,
         row: &'row QueryRow,
         column: &BoundColumnReference,

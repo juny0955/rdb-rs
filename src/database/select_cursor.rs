@@ -3,10 +3,15 @@ use std::vec::IntoIter;
 use crate::{
     database::{Database, DatabaseError},
     executor::{Executor, ExecutorError, QueryRow, TableRow},
-    query::binder::{BoundFromClause, BoundSelect},
+    query::binder::{BoundAggregate, BoundFromClause, BoundProjection, BoundSelect},
     storage::page::PageId,
     tuple::Value,
 };
+
+pub enum AggregateState {
+    CountAll { count: usize },
+    Sum { total: Option<i64> },
+}
 
 pub enum SelectSource {
     Scan {
@@ -14,6 +19,13 @@ pub enum SelectSource {
         page_count: u64,
         current_rows: IntoIter<TableRow>,
         emitted: usize,
+    },
+    AggregateScan {
+        next_page: u64,
+        page_count: u64,
+        current_rows: IntoIter<TableRow>,
+        emitted: bool,
+        state: AggregateState,
     },
     Buffered(IntoIter<Vec<Value>>),
     Done,
@@ -26,6 +38,26 @@ impl SelectSource {
             page_count,
             current_rows: Vec::<TableRow>::new().into_iter(),
             emitted: 0,
+        }
+    }
+
+    pub fn new_aggregate_count(page_count: u64) -> Self {
+        Self::AggregateScan {
+            next_page: 0,
+            page_count,
+            current_rows: Vec::<TableRow>::new().into_iter(),
+            emitted: false,
+            state: AggregateState::CountAll { count: 0 },
+        }
+    }
+
+    pub fn new_aggregate_sum(page_count: u64) -> Self {
+        Self::AggregateScan {
+            next_page: 0,
+            page_count,
+            current_rows: Vec::<TableRow>::new().into_iter(),
+            emitted: false,
+            state: AggregateState::Sum { total: None },
         }
     }
 }
@@ -102,6 +134,97 @@ impl<'a> SelectCursor<'a> {
                 *current_rows = table_rows.into_iter();
                 *next_page += 1;
             },
+            SelectSource::AggregateScan {
+                next_page,
+                page_count,
+                current_rows,
+                emitted,
+                state,
+            } => {
+                if let Some(limit) = self.bound.limit
+                    && limit == 0
+                {
+                    return Ok(None);
+                }
+
+                if *emitted {
+                    return Ok(None);
+                }
+
+                let executor = Executor::new(self.database.catalog.metadata());
+                loop {
+                    for next in current_rows.by_ref() {
+                        let query_row = QueryRow::new(vec![next]);
+
+                        if let Some(filter) = &self.bound.filter
+                            && !executor.row_matches_filter(&query_row, filter)?
+                        {
+                            continue;
+                        }
+
+                        match state {
+                            AggregateState::CountAll { count } => *count += 1,
+                            AggregateState::Sum { total } => {
+                                let [BoundProjection::Aggregate(BoundAggregate::Sum(column))] =
+                                    self.bound.projections.as_slice()
+                                else {
+                                    return Err(ExecutorError::Unsupported.into());
+                                };
+
+                                let addend = match executor.column_value(&query_row, column)? {
+                                    Value::Int(value) => i64::from(*value),
+                                    Value::BigInt(value) => *value,
+                                    Value::Null => continue,
+                                    _ => return Err(ExecutorError::Unsupported.into()),
+                                };
+
+                                *total = Some(
+                                    (*total)
+                                        .unwrap_or(0)
+                                        .checked_add(addend)
+                                        .ok_or(ExecutorError::SumOverflow)?,
+                                );
+                            }
+                        }
+                    }
+
+                    if next_page >= page_count {
+                        break;
+                    }
+
+                    let BoundFromClause::Table(table) = &self.bound.from else {
+                        return Err(ExecutorError::Unsupported.into());
+                    };
+
+                    let rows = self.database.table_manager.scan_page_rows(
+                        &mut self.database.storage_manager,
+                        table.table_id,
+                        PageId::new(*next_page),
+                    )?;
+                    let table_rows = executor.decode_table_rows(table, rows)?;
+                    *current_rows = table_rows.into_iter();
+                    *next_page += 1;
+                }
+                *emitted = true;
+
+                let result = match state {
+                    AggregateState::CountAll { count } => {
+                        let value = Value::BigInt(
+                            i64::try_from(*count)
+                                .map_err(|_| ExecutorError::CountOutOfRange { count: *count })?,
+                        );
+
+                        Some(vec![value])
+                    }
+                    AggregateState::Sum { total } => {
+                        let value = (*total).map(Value::BigInt).unwrap_or(Value::Null);
+
+                        Some(vec![value])
+                    }
+                };
+
+                Ok(result)
+            }
             SelectSource::Buffered(current) => {
                 let next = current.next();
                 if next.is_none() {

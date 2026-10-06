@@ -79,7 +79,7 @@ impl<'a> Executor<'a> {
         Ok(groups)
     }
 
-    pub(super) fn aggregate(
+    pub(crate) fn aggregate(
         &self,
         rows: Vec<QueryRow>,
         projections: &[BoundProjection],
