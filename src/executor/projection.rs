@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use crate::{
-    executor::{Executor, ExecutorError, QueryRow},
-    query::binder::{BoundAggregate, BoundColumnReference, BoundProjection},
+    executor::{Executor, ExecutorError, QueryRow, aggregate::AggregateState},
+    query::binder::{BoundColumnReference, BoundProjection},
     tuple::Value,
 };
 
@@ -119,29 +119,12 @@ impl<'a> Executor<'a> {
 
                     projection_result.push(group.key[key_index].clone());
                 }
-                BoundProjection::Aggregate(BoundAggregate::CountAll) => {
-                    let value = Value::BigInt(i64::try_from(group.rows.len()).map_err(|_| {
-                        ExecutorError::CountOutOfRange {
-                            count: group.rows.len(),
-                        }
-                    })?);
-                    projection_result.push(value);
-                }
-                BoundProjection::Aggregate(BoundAggregate::Sum(column)) => {
-                    let mut sum: Option<i64> = None;
+                BoundProjection::Aggregate(aggregate) => {
+                    let mut state = AggregateState::new(aggregate);
                     for row in &group.rows {
-                        let value = self.column_value(row, column)?;
-                        if let Some(addend) = value_to_addend(value)? {
-                            let current = sum.unwrap_or(0);
-                            sum = Some(
-                                current
-                                    .checked_add(addend)
-                                    .ok_or(ExecutorError::SumOverflow)?,
-                            );
-                        }
+                        self.accumulate_aggregate(&mut state, projection, row)?;
                     }
-                    let value = sum.map(Value::BigInt).unwrap_or(Value::Null);
-                    projection_result.push(value);
+                    projection_result.push(state.result()?);
                 }
                 _ => return Err(ExecutorError::Unsupported),
             }
@@ -149,13 +132,4 @@ impl<'a> Executor<'a> {
 
         Ok(projection_result)
     }
-}
-
-fn value_to_addend(value: &Value) -> Result<Option<i64>, ExecutorError> {
-    Ok(match value {
-        Value::Int(v) => Some(*v as i64),
-        Value::BigInt(v) => Some(*v),
-        Value::Null => None,
-        _ => return Err(ExecutorError::Unsupported),
-    })
 }

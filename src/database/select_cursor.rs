@@ -2,16 +2,11 @@ use std::vec::IntoIter;
 
 use crate::{
     database::{Database, DatabaseError},
-    executor::{Executor, ExecutorError, QueryRow, TableRow},
-    query::binder::{BoundAggregate, BoundFromClause, BoundProjection, BoundSelect},
+    executor::{Executor, ExecutorError, QueryRow, TableRow, aggregate::AggregateState},
+    query::binder::{BoundFromClause, BoundProjection, BoundSelect},
     storage::page::PageId,
     tuple::Value,
 };
-
-pub enum AggregateState {
-    CountAll { count: usize },
-    Sum { total: Option<i64> },
-}
 
 pub enum SelectSource {
     Scan {
@@ -48,10 +43,9 @@ impl SelectSource {
         let mut states = Vec::new();
         for projection in projections {
             match projection {
-                BoundProjection::Aggregate(aggregate) => match aggregate {
-                    BoundAggregate::CountAll => states.push(AggregateState::CountAll { count: 0 }),
-                    BoundAggregate::Sum(_) => states.push(AggregateState::Sum { total: None }),
-                },
+                BoundProjection::Aggregate(aggregate) => {
+                    states.push(AggregateState::new(aggregate))
+                }
                 _ => return Err(ExecutorError::Unsupported),
             }
         }
@@ -180,30 +174,7 @@ impl<'a> SelectCursor<'a> {
                         }
 
                         for (state, projection) in states.iter_mut().zip(&self.bound.projections) {
-                            match state {
-                                AggregateState::CountAll { count } => *count += 1,
-                                AggregateState::Sum { total } => {
-                                    let BoundProjection::Aggregate(BoundAggregate::Sum(column)) =
-                                        projection
-                                    else {
-                                        return Err(ExecutorError::Unsupported.into());
-                                    };
-
-                                    let addend = match executor.column_value(&query_row, column)? {
-                                        Value::Int(value) => i64::from(*value),
-                                        Value::BigInt(value) => *value,
-                                        Value::Null => continue,
-                                        _ => return Err(ExecutorError::Unsupported.into()),
-                                    };
-
-                                    *total = Some(
-                                        (*total)
-                                            .unwrap_or(0)
-                                            .checked_add(addend)
-                                            .ok_or(ExecutorError::SumOverflow)?,
-                                    );
-                                }
-                            }
+                            executor.accumulate_aggregate(state, projection, &query_row)?;
                         }
                     }
 
@@ -228,21 +199,7 @@ impl<'a> SelectCursor<'a> {
 
                 let mut results = Vec::new();
                 for state in states {
-                    match state {
-                        AggregateState::CountAll { count } => {
-                            let value =
-                                Value::BigInt(i64::try_from(*count).map_err(|_| {
-                                    ExecutorError::CountOutOfRange { count: *count }
-                                })?);
-
-                            results.push(value);
-                        }
-                        AggregateState::Sum { total } => {
-                            let value = (*total).map(Value::BigInt).unwrap_or(Value::Null);
-
-                            results.push(value);
-                        }
-                    };
+                    results.push(state.result()?);
                 }
 
                 Ok(Some(results))

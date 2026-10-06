@@ -15,6 +15,7 @@ use crate::{
 };
 use thiserror::Error;
 
+pub mod aggregate;
 mod predicate;
 mod projection;
 
@@ -222,6 +223,7 @@ impl<'a> Executor<'a> {
             if let Some(limit) = bound.limit {
                 results.truncate(limit);
             }
+
             return Ok(results);
         }
 
@@ -246,7 +248,6 @@ impl<'a> Executor<'a> {
         }
 
         let mut results = self.project_rows(&rows, &bound.projections)?;
-
         if let Some(limit) = bound.limit {
             results.truncate(limit);
         }

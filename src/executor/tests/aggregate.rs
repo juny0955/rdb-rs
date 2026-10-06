@@ -96,6 +96,52 @@ fn select_aggregate는_count_sum과_null을처리한다() {
 }
 
 #[test]
+fn select_aggregate는_빈_입력에서_count_0과_sum_null을_반환한다() {
+    let table_id = TableId::new(1);
+    let database = database(table_id);
+    let bound = select(
+        table_id,
+        vec![
+            BoundProjection::Aggregate(BoundAggregate::CountAll),
+            BoundProjection::Aggregate(BoundAggregate::Sum(users_column(table_id, 1))),
+        ],
+    );
+
+    assert_eq!(
+        Executor::new(&database)
+            .select_rows(vec![], &bound)
+            .expect("빈 입력의 aggregate SELECT가 성공해야 함"),
+        vec![vec![Value::BigInt(0), Value::Null]]
+    );
+}
+
+#[test]
+fn select_aggregate는_null_두_행에서_count_2와_sum_null을_반환한다() {
+    let table_id = TableId::new(1);
+    let database = database(table_id);
+    let bound = select(
+        table_id,
+        vec![
+            BoundProjection::Aggregate(BoundAggregate::CountAll),
+            BoundProjection::Aggregate(BoundAggregate::Sum(users_column(table_id, 1))),
+        ],
+    );
+
+    assert_eq!(
+        Executor::new(&database)
+            .select_rows(
+                vec![
+                    row(1, Value::Null, Value::Null),
+                    row(2, Value::Null, Value::Null),
+                ],
+                &bound,
+            )
+            .expect("NULL 입력의 aggregate SELECT가 성공해야 함"),
+        vec![vec![Value::BigInt(2), Value::Null]]
+    );
+}
+
+#[test]
 fn select_group_by는_order_by와_limit을적용한다() {
     let table_id = TableId::new(1);
     let database = database(table_id);
