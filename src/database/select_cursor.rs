@@ -25,7 +25,7 @@ pub enum SelectSource {
         page_count: u64,
         current_rows: IntoIter<TableRow>,
         emitted: bool,
-        state: AggregateState,
+        states: Vec<AggregateState>,
     },
     Buffered(IntoIter<Vec<Value>>),
     Done,
@@ -41,24 +41,28 @@ impl SelectSource {
         }
     }
 
-    pub fn new_aggregate_count(page_count: u64) -> Self {
-        Self::AggregateScan {
-            next_page: 0,
-            page_count,
-            current_rows: Vec::<TableRow>::new().into_iter(),
-            emitted: false,
-            state: AggregateState::CountAll { count: 0 },
+    pub fn new_aggregate(
+        page_count: u64,
+        projections: &[BoundProjection],
+    ) -> Result<Self, ExecutorError> {
+        let mut states = Vec::new();
+        for projection in projections {
+            match projection {
+                BoundProjection::Aggregate(aggregate) => match aggregate {
+                    BoundAggregate::CountAll => states.push(AggregateState::CountAll { count: 0 }),
+                    BoundAggregate::Sum(_) => states.push(AggregateState::Sum { total: None }),
+                },
+                _ => return Err(ExecutorError::Unsupported),
+            }
         }
-    }
 
-    pub fn new_aggregate_sum(page_count: u64) -> Self {
-        Self::AggregateScan {
+        Ok(Self::AggregateScan {
             next_page: 0,
             page_count,
             current_rows: Vec::<TableRow>::new().into_iter(),
             emitted: false,
-            state: AggregateState::Sum { total: None },
-        }
+            states,
+        })
     }
 }
 
@@ -79,6 +83,19 @@ impl<'a> SelectCursor<'a> {
             bound,
             source,
         }
+    }
+
+    pub(super) fn new_aggregate(
+        database: &'a mut Database,
+        bound: BoundSelect,
+        page_count: u64,
+    ) -> Result<Self, DatabaseError> {
+        let source = SelectSource::new_aggregate(page_count, &bound.projections)?;
+        Ok(Self {
+            database,
+            bound,
+            source,
+        })
     }
 
     pub fn next_row(&mut self) -> Result<Option<Vec<Value>>, DatabaseError> {
@@ -139,7 +156,7 @@ impl<'a> SelectCursor<'a> {
                 page_count,
                 current_rows,
                 emitted,
-                state,
+                states,
             } => {
                 if let Some(limit) = self.bound.limit
                     && limit == 0
@@ -162,28 +179,30 @@ impl<'a> SelectCursor<'a> {
                             continue;
                         }
 
-                        match state {
-                            AggregateState::CountAll { count } => *count += 1,
-                            AggregateState::Sum { total } => {
-                                let [BoundProjection::Aggregate(BoundAggregate::Sum(column))] =
-                                    self.bound.projections.as_slice()
-                                else {
-                                    return Err(ExecutorError::Unsupported.into());
-                                };
+                        for (state, projection) in states.iter_mut().zip(&self.bound.projections) {
+                            match state {
+                                AggregateState::CountAll { count } => *count += 1,
+                                AggregateState::Sum { total } => {
+                                    let BoundProjection::Aggregate(BoundAggregate::Sum(column)) =
+                                        projection
+                                    else {
+                                        return Err(ExecutorError::Unsupported.into());
+                                    };
 
-                                let addend = match executor.column_value(&query_row, column)? {
-                                    Value::Int(value) => i64::from(*value),
-                                    Value::BigInt(value) => *value,
-                                    Value::Null => continue,
-                                    _ => return Err(ExecutorError::Unsupported.into()),
-                                };
+                                    let addend = match executor.column_value(&query_row, column)? {
+                                        Value::Int(value) => i64::from(*value),
+                                        Value::BigInt(value) => *value,
+                                        Value::Null => continue,
+                                        _ => return Err(ExecutorError::Unsupported.into()),
+                                    };
 
-                                *total = Some(
-                                    (*total)
-                                        .unwrap_or(0)
-                                        .checked_add(addend)
-                                        .ok_or(ExecutorError::SumOverflow)?,
-                                );
+                                    *total = Some(
+                                        (*total)
+                                            .unwrap_or(0)
+                                            .checked_add(addend)
+                                            .ok_or(ExecutorError::SumOverflow)?,
+                                    );
+                                }
                             }
                         }
                     }
@@ -207,23 +226,26 @@ impl<'a> SelectCursor<'a> {
                 }
                 *emitted = true;
 
-                let result = match state {
-                    AggregateState::CountAll { count } => {
-                        let value = Value::BigInt(
-                            i64::try_from(*count)
-                                .map_err(|_| ExecutorError::CountOutOfRange { count: *count })?,
-                        );
+                let mut results = Vec::new();
+                for state in states {
+                    match state {
+                        AggregateState::CountAll { count } => {
+                            let value =
+                                Value::BigInt(i64::try_from(*count).map_err(|_| {
+                                    ExecutorError::CountOutOfRange { count: *count }
+                                })?);
 
-                        Some(vec![value])
-                    }
-                    AggregateState::Sum { total } => {
-                        let value = (*total).map(Value::BigInt).unwrap_or(Value::Null);
+                            results.push(value);
+                        }
+                        AggregateState::Sum { total } => {
+                            let value = (*total).map(Value::BigInt).unwrap_or(Value::Null);
 
-                        Some(vec![value])
-                    }
-                };
+                            results.push(value);
+                        }
+                    };
+                }
 
-                Ok(result)
+                Ok(Some(results))
             }
             SelectSource::Buffered(current) => {
                 let next = current.next();

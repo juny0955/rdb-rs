@@ -7,8 +7,8 @@ use crate::{
     index::IndexManager,
     query::{
         binder::{
-            BoundAggregate, BoundColumnReference, BoundDelete, BoundExpression, BoundFromClause,
-            BoundInsert, BoundProjection, BoundSelect, BoundTable, BoundUpdate,
+            BoundColumnReference, BoundDelete, BoundExpression, BoundFromClause, BoundInsert,
+            BoundProjection, BoundSelect, BoundTable, BoundUpdate,
         },
         common::ComparisonOperator,
     },
@@ -52,27 +52,14 @@ impl Database {
                 .table_manager
                 .page_count(&mut self.storage_manager, table.table_id)?;
 
-            // COUNT ALL
-            if bound.projections.len() == 1
-                && bound.projections[0] == BoundProjection::Aggregate(BoundAggregate::CountAll)
+            if bound
+                .projections
+                .iter()
+                .any(|projection| matches!(projection, BoundProjection::Aggregate(_)))
             {
-                return Ok(ExecuteResult::Rows(SelectCursor::new(
-                    self,
-                    bound,
-                    SelectSource::new_aggregate_count(page_count),
-                )));
-            }
-
-            // SUM
-            if matches!(
-                bound.projections.as_slice(),
-                [BoundProjection::Aggregate(BoundAggregate::Sum(_))]
-            ) {
-                return Ok(ExecuteResult::Rows(SelectCursor::new(
-                    self,
-                    bound,
-                    SelectSource::new_aggregate_sum(page_count),
-                )));
+                return Ok(ExecuteResult::Rows(SelectCursor::new_aggregate(
+                    self, bound, page_count,
+                )?));
             }
 
             return Ok(ExecuteResult::Rows(SelectCursor::new(

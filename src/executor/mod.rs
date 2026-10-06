@@ -17,7 +17,6 @@ use thiserror::Error;
 
 mod predicate;
 mod projection;
-mod seq_scan;
 
 #[derive(Debug, Error)]
 pub enum ExecutorError {
