@@ -2,12 +2,9 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     catalog::metadata::{ColumnId, DatabaseMetadata, TableId},
-    query::{
-        binder::{
-            BoundColumnReference, BoundDelete, BoundInsert, BoundJoinCondition, BoundProjection,
-            BoundSelect, BoundTable, BoundUpdate, TableInstanceId,
-        },
-        common::ComparisonOperator,
+    query::binder::{
+        BoundColumnReference, BoundDelete, BoundInsert, BoundProjection, BoundSelect, BoundTable,
+        BoundUpdate, TableInstanceId,
     },
     storage::page::{Row, RowId},
     tuple::{TupleError, Value, decode, encode},
@@ -15,6 +12,9 @@ use crate::{
 use thiserror::Error;
 
 pub mod aggregate;
+mod group;
+mod join;
+mod order;
 mod predicate;
 mod projection;
 pub mod select;
@@ -273,107 +273,6 @@ impl<'a> Executor<'a> {
         }
 
         Ok(table_rows)
-    }
-
-    pub fn nested_loop_join(
-        &self,
-        left_rows: &[QueryRow],
-        right_rows: &[QueryRow],
-        condition: &BoundJoinCondition,
-    ) -> Result<Vec<QueryRow>, ExecutorError> {
-        let mut joined_rows = Vec::new();
-
-        for left_row in left_rows {
-            for right_row in right_rows {
-                if self.matches_join_condition(left_row, right_row, condition)? {
-                    let mut table_rows = left_row.table_rows.clone();
-                    table_rows.extend(right_row.table_rows.iter().cloned());
-                    joined_rows.push(QueryRow { table_rows });
-                }
-            }
-        }
-
-        Ok(joined_rows)
-    }
-
-    pub fn hash_join(
-        &self,
-        left_rows: &[QueryRow],
-        right_rows: &[QueryRow],
-        condition: &BoundJoinCondition,
-    ) -> Result<Vec<QueryRow>, ExecutorError> {
-        let mut hash: HashMap<Value, Vec<usize>> = HashMap::new();
-        let mut joined_rows = Vec::new();
-
-        for (index, right_row) in right_rows.iter().enumerate() {
-            let Some(column) = self.hash_join_column(right_row, condition) else {
-                return self.nested_loop_join(left_rows, right_rows, condition);
-            };
-
-            let value = self.column_value(right_row, column)?;
-            if *value != Value::Null {
-                hash.entry(value.clone()).or_default().push(index);
-            }
-        }
-
-        for left_row in left_rows {
-            let Some(column) = self.hash_join_column(left_row, condition) else {
-                return self.nested_loop_join(left_rows, right_rows, condition);
-            };
-
-            if let Some(right_indexes) = hash.get(self.column_value(left_row, column)?) {
-                for right_index in right_indexes {
-                    let mut table_rows = left_row.table_rows.clone();
-                    table_rows.extend(right_rows[*right_index].table_rows.iter().cloned());
-                    joined_rows.push(QueryRow { table_rows });
-                }
-            }
-        }
-
-        Ok(joined_rows)
-    }
-
-    fn matches_join_condition(
-        &self,
-        left_row: &QueryRow,
-        right_row: &QueryRow,
-        condition: &BoundJoinCondition,
-    ) -> Result<bool, ExecutorError> {
-        let left_value = self.join_column_value(left_row, right_row, &condition.left)?;
-        let right_value = self.join_column_value(left_row, right_row, &condition.right)?;
-
-        Ok(left_value.compare(ComparisonOperator::Equal, right_value))
-    }
-
-    fn join_column_value<'row>(
-        &self,
-        left_row: &'row QueryRow,
-        right_row: &'row QueryRow,
-        column: &BoundColumnReference,
-    ) -> Result<&'row Value, ExecutorError> {
-        let source = if left_row.find_table_row(column.instance_id).is_some() {
-            left_row
-        } else if right_row.find_table_row(column.instance_id).is_some() {
-            right_row
-        } else {
-            return Err(ExecutorError::TableInstanceNotFound(column.instance_id));
-        };
-
-        self.column_value(source, column)
-    }
-
-    fn hash_join_column<'row>(
-        &self,
-        row: &'row QueryRow,
-        condition: &'row BoundJoinCondition,
-    ) -> Option<&'row BoundColumnReference> {
-        if row.find_table_row(condition.left.instance_id).is_some() {
-            Some(&condition.left)
-        } else if row.find_table_row(condition.right.instance_id).is_some() {
-            Some(&condition.right)
-        } else {
-            None
-        }
     }
 
     pub fn column_value<'row>(

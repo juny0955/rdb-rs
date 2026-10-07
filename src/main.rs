@@ -65,7 +65,7 @@ fn main() {
                         }
                     }
                 },
-                ExecuteResult::Command { affected_rows } => {
+                ExecuteResult::AffectedRows { affected_rows } => {
                     println!("affected rows: {affected_rows}")
                 }
                 ExecuteResult::Success => println!("Success!"),

@@ -5,7 +5,7 @@ use crate::{
     tuple::Value,
 };
 
-use super::{SelectCursor};
+use super::SelectCursor;
 
 fn sql(input: &str) -> Statement {
     let tokens = Lexer::new(input).tokenize().expect("SQL을 토큰화해야 함");
