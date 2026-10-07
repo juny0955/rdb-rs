@@ -55,7 +55,7 @@ impl ScanState {
     }
 }
 
-pub enum SelectSource {
+pub enum CursorState {
     Scan {
         scan: ScanState,
         state: Box<SelectState>,
@@ -64,7 +64,7 @@ pub enum SelectSource {
     Done,
 }
 
-impl SelectSource {
+impl CursorState {
     pub fn new_scan(bound: BoundSelect, page_count: u64) -> Result<Self, ExecutorError> {
         let BoundFromClause::Table(table) = &bound.from else {
             return Err(ExecutorError::Unsupported);
@@ -79,17 +79,17 @@ impl SelectSource {
 
 pub struct SelectCursor<'a> {
     database: &'a mut Database,
-    source: SelectSource,
+    state: CursorState,
 }
 
 impl<'a> SelectCursor<'a> {
-    pub(super) fn new(database: &'a mut Database, source: SelectSource) -> Self {
-        Self { database, source }
+    pub(super) fn new(database: &'a mut Database, state: CursorState) -> Self {
+        Self { database, state }
     }
 
     pub fn next_row(&mut self) -> Result<Option<Vec<Value>>, DatabaseError> {
-        match &mut self.source {
-            SelectSource::Scan { scan, state } => loop {
+        match &mut self.state {
+            CursorState::Scan { scan, state } => loop {
                 if state.is_done() {
                     return Ok(None);
                 }
@@ -107,15 +107,15 @@ impl<'a> SelectCursor<'a> {
                     SelectStep::Done => Ok(None),
                 };
             },
-            SelectSource::Buffered(current) => {
+            CursorState::Buffered(current) => {
                 let next = current.next();
                 if next.is_none() {
-                    self.source = SelectSource::Done;
+                    self.state = CursorState::Done;
                 }
 
                 Ok(next)
             }
-            SelectSource::Done => Ok(None),
+            CursorState::Done => Ok(None),
         }
     }
 }

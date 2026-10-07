@@ -39,7 +39,7 @@ pub enum DatabaseError {
 
 pub enum ExecuteResult<'a> {
     Success,
-    Command { affected_rows: usize },
+    AffectedRows { affected_rows: usize },
     Rows(Box<SelectCursor<'a>>),
 }
 

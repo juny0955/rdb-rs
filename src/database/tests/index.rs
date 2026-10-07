@@ -225,7 +225,7 @@ fn indexed_null_value를_delete하면_index_entry_없음_오류가_발생하지_
 
         assert!(matches!(
             database.execute(&parse_sql("DELETE FROM users WHERE name = 'Null';"))?,
-            ExecuteResult::Command { affected_rows: 1 }
+            ExecuteResult::AffectedRows { affected_rows: 1 }
         ));
     }
 

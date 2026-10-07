@@ -260,7 +260,7 @@ fn sql_crud는_parser부터_file까지_동작한다() -> Result<(), DatabaseErro
     };
     assert!(matches!(
         database.execute_update(bound)?,
-        ExecuteResult::Command { affected_rows: 1 }
+        ExecuteResult::AffectedRows { affected_rows: 1 }
     ));
 
     let BoundStatement::Select(bound) =
@@ -281,7 +281,7 @@ fn sql_crud는_parser부터_file까지_동작한다() -> Result<(), DatabaseErro
     };
     assert!(matches!(
         database.execute_delete(bound)?,
-        ExecuteResult::Command { affected_rows: 1 }
+        ExecuteResult::AffectedRows { affected_rows: 1 }
     ));
 
     let BoundStatement::Select(bound) =

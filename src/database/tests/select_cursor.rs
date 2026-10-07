@@ -1,7 +1,7 @@
 use crate::{
     database::{
         Database, DatabaseError, ExecuteResult,
-        select_cursor::{SelectCursor, SelectSource},
+        select_cursor::{CursorState, SelectCursor},
     },
     executor::{Executor, ExecutorError, QueryRow},
     query::binder::{BoundFromClause, BoundStatement},
@@ -211,7 +211,7 @@ fn buffered_cursor는_행을_소진한_뒤_계속_none을_반환한다() -> Resu
     let second = vec![Value::BigInt(2)];
     let mut cursor = SelectCursor::new(
         &mut database,
-        SelectSource::Buffered(vec![first.clone(), second.clone()].into_iter()),
+        CursorState::Buffered(vec![first.clone(), second.clone()].into_iter()),
     );
 
     assert_eq!(cursor.next_row()?, Some(first));

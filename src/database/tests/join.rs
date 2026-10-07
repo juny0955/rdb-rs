@@ -168,7 +168,7 @@ fn join_update는_일치하는_행을_한번만_수정한다() -> Result<(), Dat
     // Then
     assert!(matches!(
         result,
-        ExecuteResult::Command { affected_rows: 1 }
+        ExecuteResult::AffectedRows { affected_rows: 1 }
     ));
     let rows = database.execute(&parse_sql("SELECT name FROM users WHERE id = 1;"))?;
     assert_eq!(
@@ -193,7 +193,7 @@ fn join_delete는_일치하는_행을_한번만_삭제한다() -> Result<(), Dat
     // Then
     assert!(matches!(
         result,
-        ExecuteResult::Command { affected_rows: 1 }
+        ExecuteResult::AffectedRows { affected_rows: 1 }
     ));
     let rows = database.execute(&parse_sql("SELECT id FROM users ORDER BY id;"))?;
     assert_eq!(
@@ -218,7 +218,7 @@ fn join_delete는_별칭_없이_테이블_이름으로_대상을_지정한다() 
     // Then
     assert!(matches!(
         result,
-        ExecuteResult::Command { affected_rows: 1 }
+        ExecuteResult::AffectedRows { affected_rows: 1 }
     ));
     let rows = database.execute(&parse_sql("SELECT id FROM users ORDER BY id;"))?;
     assert_eq!(

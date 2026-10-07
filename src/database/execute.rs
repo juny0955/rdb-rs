@@ -1,7 +1,7 @@
 use crate::{
     database::{
         Database, DatabaseError, ExecuteResult,
-        select_cursor::{SelectCursor, SelectSource},
+        select_cursor::{CursorState, SelectCursor},
     },
     executor::{Executor, QueryRow, TableRow},
     index::IndexManager,
@@ -52,7 +52,7 @@ impl Database {
                 .table_manager
                 .page_count(&mut self.storage_manager, table.table_id)?;
 
-            let source = SelectSource::new_scan(bound, page_count)?;
+            let source = CursorState::new_scan(bound, page_count)?;
             return Ok(ExecuteResult::Rows(Box::new(SelectCursor::new(
                 self, source,
             ))));
@@ -65,7 +65,7 @@ impl Database {
 
         Ok(ExecuteResult::Rows(Box::new(SelectCursor::new(
             self,
-            SelectSource::Buffered(results.into_iter()),
+            CursorState::Buffered(results.into_iter()),
         ))))
     }
 
@@ -97,7 +97,7 @@ impl Database {
             )?;
         }
 
-        Ok(ExecuteResult::Command { affected_rows })
+        Ok(ExecuteResult::AffectedRows { affected_rows })
     }
 
     pub(super) fn execute_delete(
@@ -126,7 +126,7 @@ impl Database {
             )?;
         }
 
-        Ok(ExecuteResult::Command { affected_rows })
+        Ok(ExecuteResult::AffectedRows { affected_rows })
     }
 
     fn execute_from_clause(
