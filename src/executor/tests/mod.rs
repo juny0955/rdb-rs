@@ -17,6 +17,7 @@ use super::{Executor, QueryRow, TableRow};
 
 mod aggregate;
 mod join;
+mod select;
 
 fn users_columns() -> Vec<ColumnMetadata> {
     vec![

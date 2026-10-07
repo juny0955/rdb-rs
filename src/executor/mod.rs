@@ -10,7 +10,6 @@ use crate::{
         common::ComparisonOperator,
     },
     storage::page::{Row, RowId},
-    table::TableError,
     tuple::{TupleError, Value, decode, encode},
 };
 use thiserror::Error;
@@ -18,13 +17,12 @@ use thiserror::Error;
 pub mod aggregate;
 mod predicate;
 mod projection;
+pub mod select;
 
 #[derive(Debug, Error)]
 pub enum ExecutorError {
     #[error(transparent)]
     Tuple(#[from] TupleError),
-    #[error(transparent)]
-    Table(#[from] TableError),
     #[error("테이블을 찾을 수 없습니다: {0:?}")]
     TableNotFound(TableId),
     #[error("테이블 인스턴스를 찾을 수 없습니다: {0:?}")]

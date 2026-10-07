@@ -40,7 +40,7 @@ pub enum DatabaseError {
 pub enum ExecuteResult<'a> {
     Success,
     Command { affected_rows: usize },
-    Rows(SelectCursor<'a>),
+    Rows(Box<SelectCursor<'a>>),
 }
 
 pub struct Database {

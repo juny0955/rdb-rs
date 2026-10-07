@@ -8,7 +8,7 @@ use crate::{
     query::{
         binder::{
             BoundColumnReference, BoundDelete, BoundExpression, BoundFromClause, BoundInsert,
-            BoundProjection, BoundSelect, BoundTable, BoundUpdate,
+            BoundSelect, BoundTable, BoundUpdate,
         },
         common::ComparisonOperator,
     },
@@ -52,21 +52,10 @@ impl Database {
                 .table_manager
                 .page_count(&mut self.storage_manager, table.table_id)?;
 
-            if bound
-                .projections
-                .iter()
-                .any(|projection| matches!(projection, BoundProjection::Aggregate(_)))
-            {
-                return Ok(ExecuteResult::Rows(SelectCursor::new_aggregate(
-                    self, bound, page_count,
-                )?));
-            }
-
-            return Ok(ExecuteResult::Rows(SelectCursor::new(
-                self,
-                bound,
-                SelectSource::new_scan(page_count),
-            )));
+            let source = SelectSource::new_scan(bound, page_count)?;
+            return Ok(ExecuteResult::Rows(Box::new(SelectCursor::new(
+                self, source,
+            ))));
         }
 
         let rows = self.execute_from_clause(&bound.from, &bound.filter)?;
@@ -74,11 +63,10 @@ impl Database {
         let executor = Executor::new(self.catalog.metadata());
         let results = executor.select_rows(rows, &bound)?;
 
-        Ok(ExecuteResult::Rows(SelectCursor::new(
+        Ok(ExecuteResult::Rows(Box::new(SelectCursor::new(
             self,
-            bound,
             SelectSource::Buffered(results.into_iter()),
-        )))
+        ))))
     }
 
     pub(super) fn execute_update(
