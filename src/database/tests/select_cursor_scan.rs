@@ -1,11 +1,15 @@
 use crate::{
-    database::{Database, DatabaseError, ExecuteResult, select_cursor::CursorState},
+    database::{
+        Database, DatabaseError, ExecuteResult,
+        cursor::{
+            SelectCursor,
+            state::{CursorState, InputState},
+        },
+    },
     query::sql::{Parser, ast::Statement, lexer::Lexer},
     test_supports::TestDirectory,
     tuple::Value,
 };
-
-use super::SelectCursor;
 
 fn sql(input: &str) -> Statement {
     let tokens = Lexer::new(input).tokenize().expect("SQL을 토큰화해야 함");
@@ -30,7 +34,11 @@ fn cursor<'a>(
     let ExecuteResult::Rows(cursor) = database.execute(&sql(query))? else {
         panic!("SELECT는 커서를 반환해야 함");
     };
-    let CursorState::Scan { scan, .. } = &cursor.state else {
+    let CursorState::Scan {
+        input: InputState::SeqScan(scan),
+        ..
+    } = &cursor.state
+    else {
         panic!("단일 테이블 SELECT는 Scan 경로여야 함");
     };
     assert_eq!(scan.page_count, 3, "입력은 실제로 세 페이지를 사용해야 함");
@@ -39,7 +47,11 @@ fn cursor<'a>(
 }
 
 fn next_page(cursor: &SelectCursor<'_>) -> u64 {
-    let CursorState::Scan { scan, .. } = &cursor.state else {
+    let CursorState::Scan {
+        input: InputState::SeqScan(scan),
+        ..
+    } = &cursor.state
+    else {
         panic!("Scan 상태가 유지되어야 함");
     };
     scan.next_page

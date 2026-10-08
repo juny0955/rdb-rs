@@ -1,7 +1,7 @@
 use crate::{
     database::{
         Database, DatabaseError, ExecuteResult,
-        select_cursor::{CursorState, SelectCursor},
+        cursor::{SelectCursor, state::CursorState},
     },
     executor::{Executor, ExecutorError, QueryRow},
     query::binder::{BoundFromClause, BoundStatement},

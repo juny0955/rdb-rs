@@ -1,7 +1,7 @@
 use crate::{
     database::{
         Database, DatabaseError, ExecuteResult,
-        select_cursor::{CursorState, SelectCursor},
+        cursor::{SelectCursor, state::CursorState},
     },
     executor::{Executor, QueryRow, TableRow},
     index::IndexManager,
@@ -45,20 +45,33 @@ impl Database {
     ) -> Result<ExecuteResult<'_>, DatabaseError> {
         if let BoundFromClause::Table(table) = &bound.from
             && bound.order_by.is_none()
-            && index_predicate_for_table(bound.filter.as_ref(), table).is_none()
         {
+            if let Some((column, value)) = index_predicate_for_table(bound.filter.as_ref(), table)
+                && let Some(row_ids) = IndexManager::search_index_row_ids(
+                    &mut self.storage_manager,
+                    self.catalog.metadata().indexes(),
+                    table.table_id,
+                    column.column_id,
+                    value,
+                )?
+            {
+                let state = CursorState::new_index_scan(bound, row_ids)?;
+                return Ok(ExecuteResult::Rows(Box::new(SelectCursor::new(
+                    self, state,
+                ))));
+            }
+
             let page_count = self
                 .table_manager
                 .page_count(&mut self.storage_manager, table.table_id)?;
 
-            let source = CursorState::new_scan(bound, page_count)?;
+            let state = CursorState::new_scan(bound, page_count)?;
             return Ok(ExecuteResult::Rows(Box::new(SelectCursor::new(
-                self, source,
+                self, state,
             ))));
         }
 
         let rows = self.execute_from_clause(&bound.from, &bound.filter)?;
-
         let executor = Executor::new(self.catalog.metadata());
         let results = executor.select_rows(rows, &bound)?;
 

@@ -1,6 +1,6 @@
 use std::{io, path::Path};
 
-use crate::database::select_cursor::SelectCursor;
+use crate::database::cursor::SelectCursor;
 use crate::index::{IndexError, IndexManager};
 use crate::query::binder::{BoundCreateIndex, BoundCreateTable};
 use crate::storage::{StorageError, StorageManager};
@@ -14,8 +14,8 @@ use crate::{
 };
 use thiserror::Error;
 
+mod cursor;
 mod execute;
-mod select_cursor;
 
 #[derive(Debug, Error)]
 pub enum DatabaseError {
