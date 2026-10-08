@@ -156,13 +156,8 @@ fn aggregate_state는_sum의_양수와_음수_overflow를_전파한다() {
 }
 
 #[test]
-fn select_state는_group_by_order_by와_일반_집계_projection_혼합을_거부한다() {
+fn select_state는_order_by와_group_by_없는_일반_집계_projection_혼합을_거부한다() {
     let table_id = TableId::new(1);
-    let mut grouped = select(
-        table_id,
-        vec![BoundProjection::Column(users_column(table_id, 1))],
-    );
-    grouped.group_by = Some(vec![users_column(table_id, 1)]);
     let mut ordered = select(table_id, vec![BoundProjection::All]);
     ordered.order_by = Some(BoundOrderBy {
         column: users_column(table_id, 1),
@@ -182,7 +177,7 @@ fn select_state는_group_by_order_by와_일반_집계_projection_혼합을_거�
             BoundProjection::Column(users_column(table_id, 1)),
         ],
     );
-    for bound in [grouped, ordered, column_first, aggregate_first] {
+    for bound in [ordered, column_first, aggregate_first] {
         assert!(matches!(
             SelectState::new(bound),
             Err(ExecutorError::Unsupported)
@@ -273,20 +268,34 @@ fn aggregate_state는_where를_통과한_행만_count와_sum에_반영한다() {
 }
 
 #[test]
-fn limit_zero는_일반과_집계_모드에서_입력_계산_없이_종료한다() {
+fn limit_zero는_일반과_집계와_그룹_모드에서_입력_계산_없이_종료한다() {
     let table_id = TableId::new(1);
     let database = database(table_id);
     let executor = Executor::new(&database);
     let input = QueryRow::new(vec![]);
 
-    for projections in [
-        vec![BoundProjection::Column(users_column(table_id, 1))],
-        vec![
-            BoundProjection::Aggregate(BoundAggregate::CountAll),
-            BoundProjection::Aggregate(BoundAggregate::Sum(users_column(table_id, 1))),
-        ],
+    for (projections, group_by) in [
+        (
+            vec![BoundProjection::Column(users_column(table_id, 1))],
+            None,
+        ),
+        (
+            vec![
+                BoundProjection::Aggregate(BoundAggregate::CountAll),
+                BoundProjection::Aggregate(BoundAggregate::Sum(users_column(table_id, 1))),
+            ],
+            None,
+        ),
+        (
+            vec![
+                BoundProjection::Column(users_column(table_id, 2)),
+                BoundProjection::Aggregate(BoundAggregate::Sum(users_column(table_id, 1))),
+            ],
+            Some(vec![users_column(table_id, 2)]),
+        ),
     ] {
         let mut bound = select(table_id, projections);
+        bound.group_by = group_by;
         bound.filter = Some(comparison(
             table_id,
             1,
@@ -310,6 +319,228 @@ fn limit_zero는_일반과_집계_모드에서_입력_계산_없이_종료한다
             ));
             assert!(state.is_done());
         }
+    }
+}
+
+#[test]
+fn group_state는_eof까지_where를_적용해_누적하고_여러_결과를_한번씩_반환한다() {
+    let table_id = TableId::new(1);
+    let database = database(table_id);
+    let executor = Executor::new(&database);
+    let mut bound = select(
+        table_id,
+        vec![
+            BoundProjection::Aggregate(BoundAggregate::Sum(users_column(table_id, 1))),
+            BoundProjection::Column(users_column(table_id, 2)),
+            BoundProjection::Aggregate(BoundAggregate::CountAll),
+        ],
+    );
+    bound.group_by = Some(vec![users_column(table_id, 2)]);
+    bound.filter = Some(comparison(
+        table_id,
+        1,
+        ComparisonOperator::GreaterThan,
+        Value::BigInt(1),
+    ));
+    let mut state = SelectState::new(bound).expect("GROUP BY 상태를 생성해야 함");
+    for (slot, amount, name) in [(1, 10, "A"), (2, 3, "B"), (3, 5, "A"), (4, 1, "A")] {
+        assert!(matches!(
+            state
+                .push_row(
+                    &executor,
+                    &row(slot, Value::BigInt(amount), Value::Varchar(name.to_owned()))
+                )
+                .expect("WHERE 이후 그룹에 누적해야 함"),
+            SelectStep::NeedInput
+        ));
+        assert!(!state.is_done(), "EOF 전에는 그룹 결과가 확정되면 안 됨");
+    }
+
+    for expected in [
+        vec![
+            Value::BigInt(15),
+            Value::Varchar("A".to_owned()),
+            Value::BigInt(2),
+        ],
+        vec![
+            Value::BigInt(3),
+            Value::Varchar("B".to_owned()),
+            Value::BigInt(1),
+        ],
+    ] {
+        match state.finish().expect("그룹 결과를 하나씩 반환해야 함") {
+            SelectStep::Row(values) => assert_eq!(values, expected),
+            _ => panic!("미반환 그룹이 있으면 결과 행을 반환해야 함"),
+        }
+    }
+    for _ in 0..2 {
+        assert!(matches!(
+            state.finish().expect("그룹 결과가 재생성되면 안 됨"),
+            SelectStep::Done
+        ));
+        assert!(state.is_done());
+    }
+    assert!(matches!(
+        state
+            .push_row(&executor, &QueryRow::new(vec![]))
+            .expect("종료 후 입력은 계산하면 안 됨"),
+        SelectStep::Done
+    ));
+}
+
+#[test]
+fn group_limit_one은_전체_입력을_누적한_후_반환할_그룹만_제한한다() {
+    let table_id = TableId::new(1);
+    let database = database(table_id);
+    let executor = Executor::new(&database);
+    let mut bound = select(
+        table_id,
+        vec![
+            BoundProjection::Column(users_column(table_id, 2)),
+            BoundProjection::Aggregate(BoundAggregate::CountAll),
+            BoundProjection::Aggregate(BoundAggregate::Sum(users_column(table_id, 1))),
+        ],
+    );
+    bound.group_by = Some(vec![users_column(table_id, 2)]);
+    bound.limit = Some(1);
+    let mut state = SelectState::new(bound).expect("GROUP BY LIMIT 1 상태를 생성해야 함");
+    for (slot, amount, name) in [(1, 10, "A"), (2, 3, "B"), (3, 5, "A")] {
+        assert!(matches!(
+            state
+                .push_row(
+                    &executor,
+                    &row(slot, Value::BigInt(amount), Value::Varchar(name.to_owned()))
+                )
+                .expect("LIMIT 1이어도 입력을 계속 누적해야 함"),
+            SelectStep::NeedInput
+        ));
+        assert!(!state.is_done());
+    }
+    match state.finish().expect("첫 그룹을 반환해야 함") {
+        SelectStep::Row(values) => assert_eq!(
+            values,
+            vec![
+                Value::Varchar("A".to_owned()),
+                Value::BigInt(2),
+                Value::BigInt(15)
+            ]
+        ),
+        _ => panic!("입력 전체를 반영한 그룹 결과를 반환해야 함"),
+    }
+    for _ in 0..2 {
+        assert!(matches!(
+            state
+                .finish()
+                .expect("LIMIT으로 제외한 그룹은 반환하면 안 됨"),
+            SelectStep::Done
+        ));
+        assert!(state.is_done());
+    }
+}
+
+#[test]
+fn group_state는_빈_입력과_where_전부_탈락에서_그룹을_생성하지_않는다() {
+    let table_id = TableId::new(1);
+    let database = database(table_id);
+    let executor = Executor::new(&database);
+    for inputs in [vec![], vec![row(1, Value::BigInt(1), Value::Null)]] {
+        let mut bound = select(
+            table_id,
+            vec![BoundProjection::Aggregate(BoundAggregate::CountAll)],
+        );
+        bound.group_by = Some(vec![users_column(table_id, 2)]);
+        bound.filter = Some(comparison(
+            table_id,
+            1,
+            ComparisonOperator::GreaterThan,
+            Value::BigInt(100),
+        ));
+        let mut state = SelectState::new(bound).expect("GROUP BY 상태를 생성해야 함");
+        for input in inputs {
+            assert!(matches!(
+                state
+                    .push_row(&executor, &input)
+                    .expect("WHERE 탈락 행을 처리해야 함"),
+                SelectStep::NeedInput
+            ));
+        }
+        for _ in 0..2 {
+            assert!(matches!(
+                state.finish().expect("빈 GROUP BY를 종료해야 함"),
+                SelectStep::Done
+            ));
+            assert!(state.is_done());
+        }
+    }
+}
+
+#[test]
+fn group_state는_집계_없는_column_projection으로_중복_키를_한번씩_반환한다() {
+    let table_id = TableId::new(1);
+    let database = database(table_id);
+    let executor = Executor::new(&database);
+    let mut bound = select(
+        table_id,
+        vec![BoundProjection::Column(users_column(table_id, 2))],
+    );
+    bound.group_by = Some(vec![users_column(table_id, 2)]);
+    let mut state = SelectState::new(bound).expect("집계 없는 GROUP BY도 허용해야 함");
+    for (slot, name) in [(1, "B"), (2, "A"), (3, "B")] {
+        assert!(matches!(
+            state
+                .push_row(
+                    &executor,
+                    &row(slot, Value::BigInt(1), Value::Varchar(name.to_owned()))
+                )
+                .expect("그룹 키를 누적해야 함"),
+            SelectStep::NeedInput
+        ));
+    }
+    for name in ["B", "A"] {
+        match state.finish().expect("중복 없는 그룹 키를 반환해야 함") {
+            SelectStep::Row(values) => assert_eq!(values, vec![Value::Varchar(name.to_owned())]),
+            _ => panic!("그룹 키를 반환해야 함"),
+        }
+    }
+    assert!(matches!(
+        state.finish().expect("그룹 출력을 종료해야 함"),
+        SelectStep::Done
+    ));
+}
+
+#[test]
+fn group_limit_one도_다른_그룹의_sum_overflow를_전파한다() {
+    let table_id = TableId::new(1);
+    let database = database(table_id);
+    let executor = Executor::new(&database);
+    for (first, addend) in [(i64::MAX, 1), (i64::MIN, -1)] {
+        let mut bound = select(
+            table_id,
+            vec![BoundProjection::Aggregate(BoundAggregate::Sum(
+                users_column(table_id, 1),
+            ))],
+        );
+        bound.group_by = Some(vec![users_column(table_id, 2)]);
+        bound.limit = Some(1);
+        let mut state = SelectState::new(bound).expect("GROUP BY SUM 상태를 생성해야 함");
+        for (slot, amount, name) in [(1, 10, "A"), (2, first, "B")] {
+            assert!(matches!(
+                state
+                    .push_row(
+                        &executor,
+                        &row(slot, Value::BigInt(amount), Value::Varchar(name.to_owned()))
+                    )
+                    .expect("범위 안의 입력을 누적해야 함"),
+                SelectStep::NeedInput
+            ));
+        }
+        assert!(matches!(
+            state.push_row(
+                &executor,
+                &row(3, Value::BigInt(addend), Value::Varchar("B".to_owned()))
+            ),
+            Err(ExecutorError::SumOverflow)
+        ));
     }
 }
 

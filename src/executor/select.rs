@@ -1,5 +1,7 @@
+use std::vec::IntoIter;
+
 use crate::{
-    executor::{Executor, ExecutorError, QueryRow, aggregate::AggregateState},
+    executor::{Executor, ExecutorError, QueryRow, aggregate::AggregateState, group::GroupState},
     query::binder::{BoundProjection, BoundSelect},
     tuple::Value,
 };
@@ -13,6 +15,8 @@ pub enum SelectStep {
 enum SelectMode {
     Rows,
     Aggregate(Vec<AggregateState>),
+    Group(GroupState),
+    GroupOutput(IntoIter<Vec<Value>>),
 }
 
 pub struct SelectState {
@@ -24,11 +28,13 @@ pub struct SelectState {
 
 impl SelectState {
     pub fn new(bound: BoundSelect) -> Result<Self, ExecutorError> {
-        if bound.group_by.is_some() || bound.order_by.is_some() {
+        if bound.order_by.is_some() {
             return Err(ExecutorError::Unsupported);
         }
 
-        let mode = if bound
+        let mode = if bound.group_by.is_some() {
+            SelectMode::Group(GroupState::new())
+        } else if bound
             .projections
             .iter()
             .any(|projection| matches!(projection, BoundProjection::Aggregate(_)))
@@ -95,6 +101,15 @@ impl SelectState {
 
                 Ok(SelectStep::NeedInput)
             }
+            SelectMode::Group(group_state) => {
+                let Some(group_by) = &self.bound.group_by else {
+                    return Err(ExecutorError::Unsupported);
+                };
+
+                group_state.push_row(executor, row, group_by, &self.bound.projections)?;
+                Ok(SelectStep::NeedInput)
+            }
+            SelectMode::GroupOutput(_) => Err(ExecutorError::Unsupported),
         }
     }
 
@@ -107,7 +122,7 @@ impl SelectState {
             return Ok(SelectStep::Done);
         }
 
-        match &self.mode {
+        match &mut self.mode {
             SelectMode::Rows => {
                 self.done = true;
                 Ok(SelectStep::Done)
@@ -119,6 +134,29 @@ impl SelectState {
                 }
                 self.done = true;
                 Ok(SelectStep::Row(row))
+            }
+            SelectMode::Group(group_state) => {
+                let Some(group_by) = &self.bound.group_by else {
+                    return Err(ExecutorError::Unsupported);
+                };
+
+                let group_state = std::mem::replace(group_state, GroupState::new());
+                let mut results = group_state.into_rows(group_by, &self.bound.projections)?;
+
+                if let Some(limit) = self.bound.limit {
+                    results.truncate(limit);
+                }
+
+                self.mode = SelectMode::GroupOutput(results.into_iter());
+                self.finish()
+            }
+            SelectMode::GroupOutput(values_iter) => {
+                if let Some(values) = values_iter.next() {
+                    return Ok(SelectStep::Row(values));
+                }
+
+                self.done = true;
+                Ok(SelectStep::Done)
             }
         }
     }

@@ -44,7 +44,6 @@ impl Database {
         bound: BoundSelect,
     ) -> Result<ExecuteResult<'_>, DatabaseError> {
         if let BoundFromClause::Table(table) = &bound.from
-            && bound.group_by.is_none()
             && bound.order_by.is_none()
             && index_predicate_for_table(bound.filter.as_ref(), table).is_none()
         {

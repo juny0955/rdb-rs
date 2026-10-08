@@ -80,7 +80,7 @@ fn scan_where_limit은_페이지를_넘어_입력을_공급한다() -> Result<()
 }
 
 #[test]
-fn scan_limit_zero는_일반과_집계_모두_페이지를_읽지_않는다() -> Result<(), DatabaseError> {
+fn scan_limit_zero는_일반과_집계와_그룹_모두_페이지를_읽지_않는다() -> Result<(), DatabaseError> {
     let directory = TestDirectory::new("scan-limit-zero-pages");
     let mut database = Database::open(directory.path(), "test")?;
     populate_three_pages(&mut database)?;
@@ -88,11 +88,78 @@ fn scan_limit_zero는_일반과_집계_모두_페이지를_읽지_않는다() ->
     for query in [
         "SELECT id FROM users LIMIT 0;",
         "SELECT COUNT(*), SUM(id) FROM users LIMIT 0;",
+        "SELECT name, COUNT(*), SUM(id) FROM users GROUP BY name LIMIT 0;",
     ] {
         let mut cursor = cursor(&mut database, query)?;
         for _ in 0..2 {
             assert_eq!(cursor.next_row()?, None);
             assert_eq!(next_page(&cursor), 0);
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn group_cursor는_모든_페이지를_누적하고_결과를_재생성하지_않는다() -> Result<(), DatabaseError> {
+    let directory = TestDirectory::new("group-cursor-pages");
+    {
+        let mut database = Database::open(directory.path(), "test")?;
+        database.execute(&sql(
+            "CREATE TABLE users (id BIGINT, category VARCHAR, payload VARCHAR);",
+        ))?;
+        let payload = "x".repeat(5000);
+        for (id, category) in [(10, "A"), (3, "B"), (5, "A")] {
+            database.execute(&sql(&format!(
+                "INSERT INTO users VALUES ({id}, '{category}', '{payload}');"
+            )))?;
+        }
+    }
+    let mut database = Database::open(directory.path(), "reopened")?;
+    for (query, expected) in [
+        (
+            "SELECT category, COUNT(*), SUM(id) FROM users GROUP BY category;",
+            vec![
+                vec![
+                    Value::Varchar("A".to_owned()),
+                    Value::BigInt(2),
+                    Value::BigInt(15),
+                ],
+                vec![
+                    Value::Varchar("B".to_owned()),
+                    Value::BigInt(1),
+                    Value::BigInt(3),
+                ],
+            ],
+        ),
+        (
+            "SELECT category, COUNT(*), SUM(id) FROM users GROUP BY category LIMIT 1;",
+            vec![vec![
+                Value::Varchar("A".to_owned()),
+                Value::BigInt(2),
+                Value::BigInt(15),
+            ]],
+        ),
+        (
+            "SELECT category, SUM(id), COUNT(*) FROM users WHERE id > 5 GROUP BY category;",
+            vec![vec![
+                Value::Varchar("A".to_owned()),
+                Value::BigInt(10),
+                Value::BigInt(1),
+            ]],
+        ),
+    ] {
+        let mut cursor = cursor(&mut database, query)?;
+        for values in expected {
+            assert_eq!(cursor.next_row()?, Some(values), "{query}");
+            assert_eq!(
+                next_page(&cursor),
+                3,
+                "첫 결과 전에 모든 페이지를 읽어야 함"
+            );
+        }
+        for _ in 0..2 {
+            assert_eq!(cursor.next_row()?, None, "{query}");
+            assert_eq!(next_page(&cursor), 3);
         }
     }
     Ok(())

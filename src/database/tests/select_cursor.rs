@@ -169,12 +169,66 @@ fn 스트리밍_sum_overflow는_버퍼와_같은_오류를_전달하고_다음_�
         &[vec![Value::BigInt(2)]],
     )?;
     assert_sql_rows(&mut database, "SELECT SUM(id) FROM users LIMIT 0;", &[])?;
-    assert!(matches!(
-        database.execute(&parse_sql(
-            "SELECT name, SUM(id) FROM users GROUP BY name LIMIT 0;"
-        )),
-        Err(DatabaseError::Executor(ExecutorError::SumOverflow))
-    ));
+    assert_sql_rows(
+        &mut database,
+        "SELECT name, SUM(id) FROM users GROUP BY name LIMIT 0;",
+        &[],
+    )?;
+    {
+        let ExecuteResult::Rows(mut cursor) = database.execute(&parse_sql(
+            "SELECT name, SUM(id) FROM users GROUP BY name LIMIT 1;",
+        ))?
+        else {
+            panic!("GROUP BY도 커서를 반환해야 함");
+        };
+        assert!(matches!(
+            cursor.next_row(),
+            Err(DatabaseError::Executor(ExecutorError::SumOverflow))
+        ));
+    }
+    assert_sql_rows(
+        &mut database,
+        "SELECT name, COUNT(*) FROM users GROUP BY name;",
+        &[vec![Value::Varchar("group".to_owned()), Value::BigInt(2)]],
+    )?;
+    Ok(())
+}
+
+#[test]
+fn group_cursor는_null_키와_빈_입력을_처리한다() -> Result<(), DatabaseError> {
+    let directory = TestDirectory::new("group-null-empty-cursor");
+    let mut database = Database::open(directory.path(), "test")?;
+    database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
+    assert_sql_rows(
+        &mut database,
+        "SELECT name, COUNT(*), SUM(id) FROM users GROUP BY name;",
+        &[],
+    )?;
+    for values in ["NULL, NULL", "NULL, 'A'", "7, 'A'", "NULL, NULL"] {
+        database.execute(&parse_sql(&format!("INSERT INTO users VALUES ({values});")))?;
+    }
+    assert_sql_rows(
+        &mut database,
+        "SELECT name, COUNT(*), SUM(id) FROM users GROUP BY name;",
+        &[
+            vec![Value::Null, Value::BigInt(2), Value::Null],
+            vec![
+                Value::Varchar("A".to_owned()),
+                Value::BigInt(2),
+                Value::BigInt(7),
+            ],
+        ],
+    )?;
+    assert_sql_rows(
+        &mut database,
+        "SELECT name, COUNT(*) FROM users WHERE id > 100 GROUP BY name;",
+        &[],
+    )?;
+    assert_sql_rows(
+        &mut database,
+        "SELECT name FROM users GROUP BY name;",
+        &[vec![Value::Null], vec![Value::Varchar("A".to_owned())]],
+    )?;
     Ok(())
 }
 
