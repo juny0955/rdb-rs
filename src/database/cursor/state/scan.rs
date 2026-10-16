@@ -15,6 +15,11 @@ pub struct ScanState {
 }
 
 impl ScanState {
+    #[cfg(test)]
+    pub(super) fn page_progress(&self) -> (u64, u64) {
+        (self.next_page, self.page_count)
+    }
+
     pub fn new(table: BoundTable, page_count: u64) -> Self {
         Self {
             table,

@@ -4,9 +4,11 @@ use crate::{
     database::{
         Database, DatabaseError,
         cursor::state::{index::IndexScanState, join::JoinScanState, scan::ScanState},
+        execute::index_predicate_for_table,
     },
     executor::{ExecutorError, QueryRow, select::SelectState},
-    query::binder::{BoundFromClause, BoundSelect, TableInstanceId},
+    index::IndexManager,
+    query::binder::{BoundExpression, BoundFromClause, BoundSelect, TableInstanceId},
     storage::page::RowId,
     tuple::Value,
 };
@@ -36,16 +38,30 @@ impl InputState {
     pub fn from_clause(
         database: &mut Database,
         from: &BoundFromClause,
+        filter: Option<&BoundExpression>,
     ) -> Result<Self, DatabaseError> {
         match from {
             BoundFromClause::InnerJoin { left, on, right } => {
-                let left = Self::from_clause(database, left)?;
-                let right = Self::from_clause(database, right)?;
+                let left = Self::from_clause(database, left, filter)?;
+                let right = Self::from_clause(database, right, filter)?;
 
                 let join_state = JoinScanState::new(left, right, on.clone());
                 Ok(Self::HashJoin(join_state))
             }
             BoundFromClause::Table(table) => {
+                if let Some((column, value)) = index_predicate_for_table(filter, table)
+                    && let Some(row_ids) = IndexManager::search_index_row_ids(
+                        &mut database.storage_manager,
+                        database.catalog.metadata().indexes(),
+                        table.table_id,
+                        column.column_id,
+                        value,
+                    )?
+                {
+                    let index_state = IndexScanState::new(table.clone(), row_ids);
+                    return Ok(Self::IndexScan(index_state));
+                }
+
                 let page_count = database
                     .table_manager
                     .page_count(&mut database.storage_manager, table.table_id)?;

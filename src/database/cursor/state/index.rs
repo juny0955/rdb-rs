@@ -13,6 +13,11 @@ pub struct IndexScanState {
 }
 
 impl IndexScanState {
+    #[cfg(test)]
+    pub(super) fn remaining_row_ids(&self) -> usize {
+        self.row_ids.len()
+    }
+
     pub fn new(table: BoundTable, row_ids: Vec<RowId>) -> Self {
         Self {
             table,

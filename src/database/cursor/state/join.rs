@@ -12,6 +12,10 @@ pub struct JoinScanState {
     right_built: bool,
 }
 
+#[cfg(test)]
+#[path = "../../tests/select_cursor_join.rs"]
+mod tests;
+
 impl JoinScanState {
     pub fn new(left: InputState, right: InputState, condition: BoundJoinCondition) -> Self {
         Self {

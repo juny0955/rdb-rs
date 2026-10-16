@@ -75,7 +75,7 @@ impl Database {
         }
 
         if bound.order_by.is_none() && InputState::supports_from_clause(&bound.from) {
-            let input = InputState::from_clause(self, &bound.from)?;
+            let input = InputState::from_clause(self, &bound.from, bound.filter.as_ref())?;
             let state = CursorState::new(bound, input)?;
 
             return Ok(ExecuteResult::Rows(Box::new(SelectCursor::new(
@@ -221,7 +221,7 @@ impl Database {
     }
 }
 
-fn index_predicate_for_table<'a>(
+pub(super) fn index_predicate_for_table<'a>(
     filter: Option<&'a BoundExpression>,
     table: &BoundTable,
 ) -> Option<(&'a BoundColumnReference, &'a Value)> {
