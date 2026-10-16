@@ -19,6 +19,32 @@ enum SelectMode {
     GroupOutput(IntoIter<Vec<Value>>),
 }
 
+impl SelectMode {
+    pub fn new(bound: &BoundSelect) -> Result<Self, ExecutorError> {
+        if bound.group_by.is_some() {
+            return Ok(SelectMode::Group(GroupState::new()));
+        }
+
+        if bound
+            .projections
+            .iter()
+            .any(|projection| matches!(projection, BoundProjection::Aggregate(_)))
+        {
+            let mut states = Vec::new();
+            for projection in &bound.projections {
+                let BoundProjection::Aggregate(aggregate) = projection else {
+                    return Err(ExecutorError::Unsupported);
+                };
+                states.push(AggregateState::new(aggregate));
+            }
+
+            return Ok(SelectMode::Aggregate(states));
+        }
+
+        Ok(SelectMode::Rows)
+    }
+}
+
 pub struct SelectState {
     bound: BoundSelect,
     mode: SelectMode,
@@ -32,24 +58,7 @@ impl SelectState {
             return Err(ExecutorError::Unsupported);
         }
 
-        let mode = if bound.group_by.is_some() {
-            SelectMode::Group(GroupState::new())
-        } else if bound
-            .projections
-            .iter()
-            .any(|projection| matches!(projection, BoundProjection::Aggregate(_)))
-        {
-            let mut states = Vec::new();
-            for projection in &bound.projections {
-                let BoundProjection::Aggregate(aggregate) = projection else {
-                    return Err(ExecutorError::Unsupported);
-                };
-                states.push(AggregateState::new(aggregate));
-            }
-            SelectMode::Aggregate(states)
-        } else {
-            SelectMode::Rows
-        };
+        let mode = SelectMode::new(&bound)?;
 
         let mut done = false;
         if let Some(limit) = bound.limit
@@ -113,10 +122,6 @@ impl SelectState {
         }
     }
 
-    pub fn is_done(&self) -> bool {
-        self.done
-    }
-
     pub fn finish(&mut self) -> Result<SelectStep, ExecutorError> {
         if self.is_done() {
             return Ok(SelectStep::Done);
@@ -159,5 +164,9 @@ impl SelectState {
                 Ok(SelectStep::Done)
             }
         }
+    }
+
+    pub fn is_done(&self) -> bool {
+        self.done
     }
 }

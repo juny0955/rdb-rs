@@ -74,14 +74,14 @@ pub struct BoundTable {
     pub alias: Option<String>,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BoundColumnReference {
     pub table_id: TableId,
     pub instance_id: TableInstanceId,
     pub column_id: ColumnId,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BoundJoinCondition {
     pub left: BoundColumnReference,
     pub right: BoundColumnReference,

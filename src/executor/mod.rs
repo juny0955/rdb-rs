@@ -13,7 +13,7 @@ use thiserror::Error;
 
 pub mod aggregate;
 mod group;
-mod join;
+pub mod join;
 mod order;
 mod predicate;
 mod projection;

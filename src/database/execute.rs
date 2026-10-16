@@ -1,7 +1,10 @@
 use crate::{
     database::{
         Database, DatabaseError, ExecuteResult,
-        cursor::{SelectCursor, state::CursorState},
+        cursor::{
+            SelectCursor,
+            state::{CursorState, InputState},
+        },
     },
     executor::{Executor, QueryRow, TableRow},
     index::IndexManager,
@@ -66,6 +69,15 @@ impl Database {
                 .page_count(&mut self.storage_manager, table.table_id)?;
 
             let state = CursorState::new_scan(bound, page_count)?;
+            return Ok(ExecuteResult::Rows(Box::new(SelectCursor::new(
+                self, state,
+            ))));
+        }
+
+        if bound.order_by.is_none() && InputState::supports_from_clause(&bound.from) {
+            let input = InputState::from_clause(self, &bound.from)?;
+            let state = CursorState::new(bound, input)?;
+
             return Ok(ExecuteResult::Rows(Box::new(SelectCursor::new(
                 self, state,
             ))));
