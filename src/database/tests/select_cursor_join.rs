@@ -3,7 +3,7 @@ use crate::{
         Database, DatabaseError, ExecuteResult,
         cursor::{
             SelectCursor,
-            state::{CursorState, InputState},
+            state::{CursorState, InputState, join::nested_loop::NestedLoopJoin},
         },
     },
     executor::ExecutorError,
@@ -12,7 +12,7 @@ use crate::{
     tuple::Value,
 };
 
-use super::JoinScanState;
+use super::HashJoin;
 
 fn sql(input: &str) -> Statement {
     let tokens = Lexer::new(input).tokenize().expect("SQL을 토큰화해야 함");
@@ -33,15 +33,20 @@ fn cursor<'a>(
     Ok(cursor)
 }
 
-fn join<'a>(cursor: &'a SelectCursor<'_>) -> &'a JoinScanState {
-    let CursorState::Scan {
-        input: InputState::HashJoin(join),
-        ..
-    } = &cursor.state
-    else {
-        panic!("HashJoin 입력을 사용하는 커서여야 함");
+fn hash_join(input: &InputState) -> &HashJoin {
+    let InputState::Join(join) = input else {
+        panic!("Join 입력이어야 함");
     };
-    join
+    join.as_any()
+        .downcast_ref::<HashJoin>()
+        .expect("HashJoin 구현체를 사용하는 입력이어야 함")
+}
+
+fn join<'a>(cursor: &'a SelectCursor<'_>) -> &'a HashJoin {
+    let CursorState::Scan { input, .. } = &cursor.state else {
+        panic!("Scan 경로를 사용하는 커서여야 함");
+    };
+    hash_join(input)
 }
 
 fn seq_progress(input: &InputState) -> (u64, u64) {
@@ -429,9 +434,7 @@ fn join_cursor는_중첩_조인의_리프에도_인덱스를_적용한다() -> R
         &mut database,
         "SELECT u.name, t.label FROM users u JOIN orders o ON u.id = o.user_id JOIN tags t ON t.amount = o.amount WHERE u.id = 7 AND o.user_id = 7;",
     )?;
-    let InputState::HashJoin(inner) = &*join(&cursor).left else {
-        panic!("왼쪽 입력도 HashJoin이어야 함");
-    };
+    let inner = hash_join(&join(&cursor).left);
     assert_eq!(remaining_ids(&inner.left), 2);
     assert_eq!(remaining_ids(&inner.right), 2);
     assert!(!inner.right_built);
@@ -450,13 +453,20 @@ fn join_cursor는_중첩_조인의_리프에도_인덱스를_적용한다() -> R
 }
 
 #[test]
-fn join_cursor는_order_by나_같은쪽_on이_있으면_buffered로_전환한다() -> Result<(), DatabaseError> {
+fn join_cursor는_order_by는_buffered로_같은쪽_on은_nested_loop로_처리한다()
+-> Result<(), DatabaseError> {
+    enum ExpectedPath {
+        Buffered,
+        NestedLoop,
+        HashWithNestedLeft,
+    }
+
     let directory = TestDirectory::new("join-cursor-buffered-fallback");
     let mut database = Database::open(directory.path(), "test")?;
     seed_indexed(&mut database)?;
     database.execute(&sql("CREATE TABLE tags (amount BIGINT);"))?;
     database.execute(&sql("INSERT INTO tags VALUES (20);"))?;
-    for (query, expected) in [
+    for (query, expected, path) in [
         (
             "SELECT o.amount FROM users u JOIN orders o ON u.id = o.user_id WHERE u.id = 7 ORDER BY o.amount DESC;",
             vec![
@@ -465,14 +475,22 @@ fn join_cursor는_order_by나_같은쪽_on이_있으면_buffered로_전환한다
                 vec![Value::BigInt(10)],
                 vec![Value::BigInt(10)],
             ],
+            ExpectedPath::Buffered,
         ),
         (
             "SELECT u.name FROM users u JOIN orders o ON u.id = u.id WHERE u.id = 7 AND o.amount = 20;",
             vec![vec![text("A")], vec![text("B")]],
+            ExpectedPath::NestedLoop,
+        ),
+        (
+            "SELECT u.name FROM users u JOIN orders o ON o.user_id = o.user_id WHERE u.id = 7 AND o.amount = 20;",
+            vec![vec![text("A")], vec![text("B")]],
+            ExpectedPath::NestedLoop,
         ),
         (
             "SELECT u.name FROM users u JOIN orders o ON u.id = u.id JOIN tags t ON o.amount = t.amount WHERE u.id = 7;",
             vec![vec![text("A")], vec![text("B")]],
+            ExpectedPath::HashWithNestedLeft,
         ),
         (
             "SELECT u.name FROM users u JOIN orders o ON u.id = o.user_id JOIN tags t ON u.id = o.user_id WHERE u.id = 7;",
@@ -482,12 +500,47 @@ fn join_cursor는_order_by나_같은쪽_on이_있으면_buffered로_전환한다
                 vec![text("B")],
                 vec![text("B")],
             ],
+            ExpectedPath::NestedLoop,
         ),
     ] {
         let mut cursor = cursor(&mut database, query)?;
-        assert!(matches!(&cursor.state, CursorState::Buffered(_)), "{query}");
+        match path {
+            ExpectedPath::Buffered => {
+                assert!(matches!(&cursor.state, CursorState::Buffered(_)), "{query}");
+            }
+            ExpectedPath::NestedLoop => {
+                let CursorState::Scan {
+                    input: InputState::Join(state),
+                    ..
+                } = &cursor.state
+                else {
+                    panic!("Nested Loop 커서여야 함: {query}");
+                };
+                assert!(state.as_any().is::<NestedLoopJoin>(), "{query}");
+            }
+            ExpectedPath::HashWithNestedLeft => {
+                let InputState::Join(inner) = &*join(&cursor).left else {
+                    panic!("Hash Join의 왼쪽도 조인이어야 함: {query}");
+                };
+                assert!(inner.as_any().is::<NestedLoopJoin>(), "{query}");
+            }
+        }
         assert_rows(&mut cursor, &expected)?;
     }
+    Ok(())
+}
+
+#[test]
+fn buffered_join도_같은쪽_on을_nested_loop로_처리한다() -> Result<(), DatabaseError> {
+    let directory = TestDirectory::new("buffered-join-same-side-on");
+    let mut database = Database::open(directory.path(), "test")?;
+    seed_indexed(&mut database)?;
+    let mut cursor = cursor(
+        &mut database,
+        "SELECT u.name FROM users u JOIN orders o ON u.id = u.id WHERE u.id = 7 AND o.amount = 20 ORDER BY u.name;",
+    )?;
+    assert!(matches!(&cursor.state, CursorState::Buffered(_)));
+    assert_rows(&mut cursor, &[vec![text("A")], vec![text("B")]])?;
     Ok(())
 }
 

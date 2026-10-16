@@ -4,6 +4,12 @@ pub enum SortDirection {
     Desc,
 }
 
+impl SortDirection {
+    pub fn is_desc(&self) -> bool {
+        *self == Self::Desc
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComparisonOperator {
     Equal,

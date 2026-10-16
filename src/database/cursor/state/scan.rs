@@ -15,11 +15,6 @@ pub struct ScanState {
 }
 
 impl ScanState {
-    #[cfg(test)]
-    pub(super) fn page_progress(&self) -> (u64, u64) {
-        (self.next_page, self.page_count)
-    }
-
     pub fn new(table: BoundTable, page_count: u64) -> Self {
         Self {
             table,
@@ -53,6 +48,16 @@ impl ScanState {
             self.current_rows = table_rows.into_iter();
             self.next_page += 1;
         }
+    }
+
+    pub fn rescan(&mut self) {
+        self.next_page = 0;
+        self.current_rows = Vec::<TableRow>::new().into_iter();
+    }
+
+    #[cfg(test)]
+    pub(super) fn page_progress(&self) -> (u64, u64) {
+        (self.next_page, self.page_count)
     }
 }
 

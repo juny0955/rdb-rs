@@ -3,13 +3,21 @@ use std::vec::IntoIter;
 use crate::{
     database::{
         Database, DatabaseError,
-        cursor::state::{index::IndexScanState, join::JoinScanState, scan::ScanState},
-        execute::index_predicate_for_table,
+        cursor::state::{
+            index::IndexScanState,
+            join::{JoinScanState, hash::HashJoin, nested_loop::NestedLoopJoin},
+            scan::ScanState,
+        },
     },
     executor::{ExecutorError, QueryRow, select::SelectState},
     index::IndexManager,
-    query::binder::{BoundExpression, BoundFromClause, BoundSelect, TableInstanceId},
-    storage::page::RowId,
+    query::{
+        binder::{
+            BoundColumnReference, BoundExpression, BoundFromClause, BoundJoinCondition,
+            BoundSelect, BoundTable, TableInstanceId,
+        },
+        common::ComparisonOperator,
+    },
     tuple::Value,
 };
 
@@ -20,7 +28,7 @@ mod scan;
 pub enum InputState {
     SeqScan(ScanState),
     IndexScan(IndexScanState),
-    HashJoin(JoinScanState),
+    Join(Box<dyn JoinScanState>),
 }
 
 impl InputState {
@@ -31,7 +39,7 @@ impl InputState {
         match self {
             Self::SeqScan(state) => state.next_input_row(database),
             Self::IndexScan(state) => state.next_input_row(database),
-            Self::HashJoin(state) => state.next_input_row(database),
+            Self::Join(state) => state.next_input_row(database),
         }
     }
 
@@ -42,11 +50,18 @@ impl InputState {
     ) -> Result<Self, DatabaseError> {
         match from {
             BoundFromClause::InnerJoin { left, on, right } => {
+                let can_hash_join = Self::can_hash_join(left, right, on);
+
                 let left = Self::from_clause(database, left, filter)?;
                 let right = Self::from_clause(database, right, filter)?;
 
-                let join_state = JoinScanState::new(left, right, on.clone());
-                Ok(Self::HashJoin(join_state))
+                let join_state: Box<dyn JoinScanState> = if can_hash_join {
+                    Box::new(HashJoin::new(left, right, on.clone()))
+                } else {
+                    Box::new(NestedLoopJoin::new(left, right, on.clone()))
+                };
+
+                Ok(Self::Join(join_state))
             }
             BoundFromClause::Table(table) => {
                 if let Some((column, value)) = index_predicate_for_table(filter, table)
@@ -71,23 +86,28 @@ impl InputState {
         }
     }
 
-    pub fn supports_from_clause(from: &BoundFromClause) -> bool {
-        match from {
-            BoundFromClause::InnerJoin { left, on, right } => {
-                // 정방향 ex) users u join orders o on u.id = o.user_id
-                let normal = Self::contains_instance(left, on.left.instance_id)
-                    && Self::contains_instance(right, on.right.instance_id);
-
-                // 역방향 ex) users u join orders o on o.user_id = u.id
-                let reverse = Self::contains_instance(left, on.right.instance_id)
-                    && Self::contains_instance(right, on.left.instance_id);
-
-                Self::supports_from_clause(left)
-                    && Self::supports_from_clause(right)
-                    && (normal || reverse)
-            }
-            BoundFromClause::Table(table) => Self::contains_instance(from, table.instance_id),
+    pub fn rescan(&mut self) {
+        match self {
+            Self::SeqScan(state) => state.rescan(),
+            Self::IndexScan(state) => state.rescan(),
+            Self::Join(state) => state.rescan(),
         }
+    }
+
+    fn can_hash_join(
+        left: &BoundFromClause,
+        right: &BoundFromClause,
+        condition: &BoundJoinCondition,
+    ) -> bool {
+        // 정방향 ex) users u join orders o on u.id = o.user_id
+        let normal = Self::contains_instance(left, condition.left.instance_id)
+            && Self::contains_instance(right, condition.right.instance_id);
+
+        // 역방향 ex) users u join orders o on o.user_id = u.id
+        let reverse = Self::contains_instance(left, condition.right.instance_id)
+            && Self::contains_instance(right, condition.left.instance_id);
+
+        normal || reverse
     }
 
     fn contains_instance(from: &BoundFromClause, instance_id: TableInstanceId) -> bool {
@@ -117,22 +137,28 @@ impl CursorState {
             state: Box::new(SelectState::new(bound)?),
         })
     }
+}
 
-    pub fn new_scan(bound: BoundSelect, page_count: u64) -> Result<Self, ExecutorError> {
-        let BoundFromClause::Table(table) = &bound.from else {
-            return Err(ExecutorError::Unsupported);
-        };
-
-        let input = InputState::SeqScan(ScanState::new(table.clone(), page_count));
-        Self::new(bound, input)
-    }
-
-    pub fn new_index_scan(bound: BoundSelect, row_ids: Vec<RowId>) -> Result<Self, ExecutorError> {
-        let BoundFromClause::Table(table) = &bound.from else {
-            return Err(ExecutorError::Unsupported);
-        };
-
-        let input = InputState::IndexScan(IndexScanState::new(table.clone(), row_ids));
-        Self::new(bound, input)
+fn index_predicate_for_table<'a>(
+    filter: Option<&'a BoundExpression>,
+    table: &BoundTable,
+) -> Option<(&'a BoundColumnReference, &'a Value)> {
+    match filter? {
+        BoundExpression::Comparison {
+            column,
+            operator,
+            value,
+        } => {
+            if *operator == ComparisonOperator::Equal && column.instance_id == table.instance_id {
+                Some((column, value))
+            } else {
+                None
+            }
+        }
+        BoundExpression::And { left, right } => {
+            index_predicate_for_table(Some(left.as_ref()), table)
+                .or_else(|| index_predicate_for_table(Some(right.as_ref()), table))
+        }
+        BoundExpression::Or { .. } => None,
     }
 }

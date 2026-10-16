@@ -8,25 +8,19 @@ use crate::{
 };
 
 impl<'a> Executor<'a> {
-    pub fn nested_loop_join(
+    pub fn join_row_pair(
         &self,
-        left_rows: &[QueryRow],
-        right_rows: &[QueryRow],
+        left: &QueryRow,
+        right: &QueryRow,
         condition: &BoundJoinCondition,
-    ) -> Result<Vec<QueryRow>, ExecutorError> {
-        let mut joined_rows = Vec::new();
-
-        for left_row in left_rows {
-            for right_row in right_rows {
-                if self.matches_join_condition(left_row, right_row, condition)? {
-                    let mut table_rows = left_row.table_rows.clone();
-                    table_rows.extend(right_row.table_rows.iter().cloned());
-                    joined_rows.push(QueryRow::new(table_rows));
-                }
-            }
+    ) -> Result<Option<QueryRow>, ExecutorError> {
+        if self.matches_join_condition(left, right, condition)? {
+            let mut table_rows = left.table_rows.clone();
+            table_rows.extend(right.table_rows.iter().cloned());
+            return Ok(Some(QueryRow::new(table_rows)));
         }
 
-        Ok(joined_rows)
+        Ok(None)
     }
 
     fn matches_join_condition(

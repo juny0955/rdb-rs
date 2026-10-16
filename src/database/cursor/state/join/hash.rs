@@ -1,10 +1,13 @@
 use crate::{
-    database::{Database, DatabaseError, cursor::state::InputState},
+    database::{
+        Database, DatabaseError,
+        cursor::state::{InputState, join::JoinScanState},
+    },
     executor::{Executor, QueryRow, join::hash::HashJoinState},
     query::binder::BoundJoinCondition,
 };
 
-pub struct JoinScanState {
+pub struct HashJoin {
     left: Box<InputState>,
     right: Box<InputState>,
     condition: BoundJoinCondition,
@@ -12,11 +15,7 @@ pub struct JoinScanState {
     right_built: bool,
 }
 
-#[cfg(test)]
-#[path = "../../tests/select_cursor_join.rs"]
-mod tests;
-
-impl JoinScanState {
+impl HashJoin {
     pub fn new(left: InputState, right: InputState, condition: BoundJoinCondition) -> Self {
         Self {
             left: Box::new(left),
@@ -24,26 +23,6 @@ impl JoinScanState {
             join: HashJoinState::new(),
             right_built: false,
             condition,
-        }
-    }
-
-    pub fn next_input_row(
-        &mut self,
-        database: &mut Database,
-    ) -> Result<Option<QueryRow>, DatabaseError> {
-        self.build_right(database)?;
-
-        loop {
-            if let Some(row) = self.join.next_joined_row() {
-                return Ok(Some(row));
-            }
-
-            let Some(left_row) = self.left.next_input_row(database)? else {
-                return Ok(None);
-            };
-
-            let executor = Executor::new(database.catalog.metadata());
-            self.join.push_left(&executor, left_row, &self.condition)?;
         }
     }
 
@@ -63,3 +42,39 @@ impl JoinScanState {
         }
     }
 }
+
+impl JoinScanState for HashJoin {
+    fn next_input_row(
+        &mut self,
+        database: &mut Database,
+    ) -> Result<Option<QueryRow>, DatabaseError> {
+        self.build_right(database)?;
+
+        loop {
+            if let Some(row) = self.join.next_joined_row() {
+                return Ok(Some(row));
+            }
+
+            let Some(left_row) = self.left.next_input_row(database)? else {
+                return Ok(None);
+            };
+
+            let executor = Executor::new(database.catalog.metadata());
+            self.join.push_left(&executor, left_row, &self.condition)?;
+        }
+    }
+
+    fn rescan(&mut self) {
+        self.left.rescan();
+        self.join.rescan();
+    }
+
+    #[cfg(test)]
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+#[cfg(test)]
+#[path = "../../../tests/select_cursor_join.rs"]
+mod tests;

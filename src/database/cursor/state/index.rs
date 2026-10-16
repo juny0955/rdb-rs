@@ -1,5 +1,3 @@
-use std::vec::IntoIter;
-
 use crate::{
     database::{Database, DatabaseError},
     executor::{Executor, QueryRow},
@@ -9,19 +7,16 @@ use crate::{
 
 pub struct IndexScanState {
     table: BoundTable,
-    row_ids: IntoIter<RowId>,
+    row_ids: Vec<RowId>,
+    next_row: usize,
 }
 
 impl IndexScanState {
-    #[cfg(test)]
-    pub(super) fn remaining_row_ids(&self) -> usize {
-        self.row_ids.len()
-    }
-
     pub fn new(table: BoundTable, row_ids: Vec<RowId>) -> Self {
         Self {
             table,
-            row_ids: row_ids.into_iter(),
+            row_ids,
+            next_row: 0,
         }
     }
 
@@ -29,7 +24,7 @@ impl IndexScanState {
         &mut self,
         database: &mut Database,
     ) -> Result<Option<QueryRow>, DatabaseError> {
-        if let Some(row_id) = self.row_ids.next() {
+        if let Some(row_id) = self.next_row_id() {
             let rows = database.table_manager.get_rows(
                 &mut database.storage_manager,
                 self.table.table_id,
@@ -42,5 +37,20 @@ impl IndexScanState {
         }
 
         Ok(None)
+    }
+
+    pub fn rescan(&mut self) {
+        self.next_row = 0;
+    }
+
+    fn next_row_id(&mut self) -> Option<RowId> {
+        let row_id = self.row_ids.get(self.next_row).copied()?;
+        self.next_row += 1;
+        Some(row_id)
+    }
+
+    #[cfg(test)]
+    pub(super) fn remaining_row_ids(&self) -> usize {
+        self.row_ids.len() - self.next_row
     }
 }

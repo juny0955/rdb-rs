@@ -2,10 +2,7 @@ use std::cmp::Ordering;
 
 use crate::{
     executor::{Executor, ExecutorError, QueryRow, group::RowGroup},
-    query::{
-        binder::{BoundColumnReference, BoundOrderBy},
-        common::SortDirection,
-    },
+    query::binder::{BoundColumnReference, BoundOrderBy},
     tuple::Value,
 };
 
@@ -23,7 +20,7 @@ impl<'a> Executor<'a> {
 
         keyed_rows.sort_by(|left, right| compare_values(&left.0, &right.0));
 
-        if order.direction == SortDirection::Desc {
+        if order.direction.is_desc() {
             keyed_rows.reverse();
         }
 
@@ -45,7 +42,7 @@ impl<'a> Executor<'a> {
 
         groups.sort_by(|left, right| compare_values(&left.key[key_index], &right.key[key_index]));
 
-        if order.direction == SortDirection::Desc {
+        if order.direction.is_desc() {
             groups.reverse();
         }
 

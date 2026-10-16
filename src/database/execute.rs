@@ -6,17 +6,11 @@ use crate::{
             state::{CursorState, InputState},
         },
     },
-    executor::{Executor, QueryRow, TableRow},
+    executor::{Executor, QueryRow},
     index::IndexManager,
-    query::{
-        binder::{
-            BoundColumnReference, BoundDelete, BoundExpression, BoundFromClause, BoundInsert,
-            BoundSelect, BoundTable, BoundUpdate,
-        },
-        common::ComparisonOperator,
+    query::binder::{
+        BoundDelete, BoundExpression, BoundFromClause, BoundInsert, BoundSelect, BoundUpdate,
     },
-    storage::page::RowId,
-    tuple::Value,
 };
 
 impl Database {
@@ -46,35 +40,7 @@ impl Database {
         &mut self,
         bound: BoundSelect,
     ) -> Result<ExecuteResult<'_>, DatabaseError> {
-        if let BoundFromClause::Table(table) = &bound.from
-            && bound.order_by.is_none()
-        {
-            if let Some((column, value)) = index_predicate_for_table(bound.filter.as_ref(), table)
-                && let Some(row_ids) = IndexManager::search_index_row_ids(
-                    &mut self.storage_manager,
-                    self.catalog.metadata().indexes(),
-                    table.table_id,
-                    column.column_id,
-                    value,
-                )?
-            {
-                let state = CursorState::new_index_scan(bound, row_ids)?;
-                return Ok(ExecuteResult::Rows(Box::new(SelectCursor::new(
-                    self, state,
-                ))));
-            }
-
-            let page_count = self
-                .table_manager
-                .page_count(&mut self.storage_manager, table.table_id)?;
-
-            let state = CursorState::new_scan(bound, page_count)?;
-            return Ok(ExecuteResult::Rows(Box::new(SelectCursor::new(
-                self, state,
-            ))));
-        }
-
-        if bound.order_by.is_none() && InputState::supports_from_clause(&bound.from) {
+        if bound.order_by.is_none() {
             let input = InputState::from_clause(self, &bound.from, bound.filter.as_ref())?;
             let state = CursorState::new(bound, input)?;
 
@@ -158,89 +124,13 @@ impl Database {
         from: &BoundFromClause,
         filter: &Option<BoundExpression>,
     ) -> Result<Vec<QueryRow>, DatabaseError> {
-        match from {
-            BoundFromClause::InnerJoin { left, on, right } => {
-                let left_rows = self.execute_from_clause(left, filter)?;
-                let right_rows = self.execute_from_clause(right, filter)?;
-                let executor = Executor::new(self.catalog.metadata());
-                Ok(executor.hash_join(&left_rows, &right_rows, on)?)
-            }
-            BoundFromClause::Table(table) => {
-                let table_rows = self.fetch_table_rows(table, filter)?;
+        let mut input = InputState::from_clause(self, from, filter.as_ref())?;
 
-                Ok(table_rows
-                    .into_iter()
-                    .map(|table_row| QueryRow {
-                        table_rows: vec![table_row],
-                    })
-                    .collect())
-            }
-        }
-    }
-
-    fn fetch_table_rows(
-        &mut self,
-        table: &BoundTable,
-        filter: &Option<BoundExpression>,
-    ) -> Result<Vec<TableRow>, DatabaseError> {
-        if let Some((column, value)) = index_predicate_for_table(filter.as_ref(), table)
-            && let Some(row_ids) = IndexManager::search_index_row_ids(
-                &mut self.storage_manager,
-                self.catalog.metadata().indexes(),
-                table.table_id,
-                column.column_id,
-                value,
-            )?
-        {
-            return self.get_table_rows(table, row_ids);
+        let mut results = Vec::new();
+        while let Some(row) = input.next_input_row(self)? {
+            results.push(row);
         }
 
-        self.scan_table_rows(table)
-    }
-
-    fn get_table_rows(
-        &mut self,
-        table: &BoundTable,
-        row_ids: Vec<RowId>,
-    ) -> Result<Vec<TableRow>, DatabaseError> {
-        let rows =
-            self.table_manager
-                .get_rows(&mut self.storage_manager, table.table_id, row_ids)?;
-
-        let executor = Executor::new(self.catalog.metadata());
-        Ok(executor.decode_table_rows(table, rows)?)
-    }
-
-    fn scan_table_rows(&mut self, table: &BoundTable) -> Result<Vec<TableRow>, DatabaseError> {
-        let rows = self
-            .table_manager
-            .scan_rows(&mut self.storage_manager, table.table_id)?;
-
-        let executor = Executor::new(self.catalog.metadata());
-        Ok(executor.decode_table_rows(table, rows)?)
-    }
-}
-
-pub(super) fn index_predicate_for_table<'a>(
-    filter: Option<&'a BoundExpression>,
-    table: &BoundTable,
-) -> Option<(&'a BoundColumnReference, &'a Value)> {
-    match filter? {
-        BoundExpression::Comparison {
-            column,
-            operator,
-            value,
-        } => {
-            if *operator == ComparisonOperator::Equal && column.instance_id == table.instance_id {
-                Some((column, value))
-            } else {
-                None
-            }
-        }
-        BoundExpression::And { left, right } => {
-            index_predicate_for_table(Some(left.as_ref()), table)
-                .or_else(|| index_predicate_for_table(Some(right.as_ref()), table))
-        }
-        BoundExpression::Or { .. } => None,
+        Ok(results)
     }
 }
