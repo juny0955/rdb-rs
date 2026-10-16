@@ -91,15 +91,6 @@ impl TableManager {
         heap_table.delete(storage_manager, row_id)
     }
 
-    pub fn scan_rows(
-        &mut self,
-        storage_manager: &mut StorageManager,
-        table_id: TableId,
-    ) -> Result<Vec<(RowId, Row)>, TableError> {
-        let heap_table = self.get_or_open_table(storage_manager, table_id)?;
-        heap_table.scan(storage_manager)
-    }
-
     pub fn scan_page_rows(
         &mut self,
         storage_manager: &mut StorageManager,

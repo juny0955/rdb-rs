@@ -104,30 +104,6 @@ impl HeapTable {
         Ok(())
     }
 
-    pub fn scan(
-        &mut self,
-        storage_manager: &mut StorageManager,
-    ) -> Result<Vec<(RowId, Row)>, TableError> {
-        let mut scans = Vec::new();
-        let page_count = storage_manager.page_count(self.relation_id)?;
-        if page_count == 0 {
-            return Ok(scans);
-        }
-
-        for i in 0..page_count {
-            let page_key = PageKey::new(self.relation_id, PageId::new(i));
-            let frame_guard = storage_manager.fetch_page(page_key)?;
-            let page = frame_guard.page();
-
-            let rows = page.scan_rows()?;
-            for (slot_id, row) in rows {
-                scans.push((RowId::new(page_key.page_id(), slot_id), row));
-            }
-        }
-
-        Ok(scans)
-    }
-
     pub fn scan_page(
         &mut self,
         storage_manager: &mut StorageManager,

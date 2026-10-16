@@ -1,5 +1,3 @@
-use std::vec::IntoIter;
-
 use crate::{
     database::{
         Database, DatabaseError,
@@ -9,12 +7,12 @@ use crate::{
             scan::ScanState,
         },
     },
-    executor::{ExecutorError, QueryRow, select::SelectState},
+    executor::QueryRow,
     index::IndexManager,
     query::{
         binder::{
-            BoundColumnReference, BoundExpression, BoundFromClause, BoundJoinCondition,
-            BoundSelect, BoundTable, TableInstanceId,
+            BoundColumnReference, BoundExpression, BoundFromClause, BoundJoinCondition, BoundTable,
+            TableInstanceId,
         },
         common::ComparisonOperator,
     },
@@ -118,24 +116,6 @@ impl InputState {
             }
             BoundFromClause::Table(table) => table.instance_id == instance_id,
         }
-    }
-}
-
-pub enum CursorState {
-    Scan {
-        input: InputState,
-        state: Box<SelectState>,
-    },
-    Buffered(IntoIter<Vec<Value>>),
-    Done,
-}
-
-impl CursorState {
-    pub fn new(bound: BoundSelect, input: InputState) -> Result<Self, ExecutorError> {
-        Ok(Self::Scan {
-            input,
-            state: Box::new(SelectState::new(bound)?),
-        })
     }
 }
 

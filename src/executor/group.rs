@@ -1,15 +1,12 @@
 use std::collections::HashMap;
 
 use crate::{
-    executor::{Executor, ExecutorError, QueryRow, aggregate::AggregateState},
-    query::binder::{BoundColumnReference, BoundProjection},
+    executor::{
+        Executor, ExecutorError, QueryRow, aggregate::AggregateState, order::compare_values,
+    },
+    query::binder::{BoundColumnReference, BoundOrderBy, BoundProjection},
     tuple::Value,
 };
-
-pub(super) struct RowGroup {
-    pub key: Vec<Value>,
-    pub rows: Vec<QueryRow>,
-}
 
 pub(super) struct GroupAccumulator {
     pub key: Vec<Value>,
@@ -79,11 +76,26 @@ impl GroupState {
     }
 
     pub(super) fn into_rows(
-        self,
+        mut self,
         group_by: &[BoundColumnReference],
         projections: &[BoundProjection],
+        order_by: Option<&BoundOrderBy>,
     ) -> Result<Vec<Vec<Value>>, ExecutorError> {
         let mut results = Vec::new();
+
+        if let Some(order) = order_by {
+            let key_index = group_by
+                .iter()
+                .position(|column| column == &order.column)
+                .ok_or(ExecutorError::Unsupported)?;
+
+            self.groups
+                .sort_by(|left, right| compare_values(&left.key[key_index], &right.key[key_index]));
+
+            if order.direction.is_desc() {
+                self.groups.reverse();
+            }
+        }
 
         for group in self.groups {
             let mut values = Vec::new();
@@ -111,36 +123,6 @@ impl GroupState {
         }
 
         Ok(results)
-    }
-}
-
-impl<'a> Executor<'a> {
-    pub(super) fn group_rows(
-        &self,
-        rows: Vec<QueryRow>,
-        group_by: &[BoundColumnReference],
-    ) -> Result<Vec<RowGroup>, ExecutorError> {
-        let mut groups: Vec<RowGroup> = Vec::new();
-        let mut indices: HashMap<Vec<Value>, usize> = HashMap::new();
-        for row in rows {
-            let mut key = Vec::new();
-            for column_ref in group_by {
-                let value = self.column_value(&row, column_ref)?;
-                key.push(value.clone());
-            }
-
-            if let Some(&group_index) = indices.get(&key) {
-                groups[group_index].rows.push(row);
-            } else {
-                indices.insert(key.clone(), groups.len());
-                groups.push(RowGroup {
-                    key,
-                    rows: vec![row],
-                });
-            }
-        }
-
-        Ok(groups)
     }
 }
 

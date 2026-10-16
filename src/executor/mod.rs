@@ -3,8 +3,7 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     catalog::metadata::{ColumnId, DatabaseMetadata, TableId},
     query::binder::{
-        BoundColumnReference, BoundDelete, BoundInsert, BoundProjection, BoundSelect, BoundTable,
-        BoundUpdate, TableInstanceId,
+        BoundColumnReference, BoundDelete, BoundInsert, BoundTable, BoundUpdate, TableInstanceId,
     },
     storage::page::{Row, RowId},
     tuple::{TupleError, Value, decode, encode},
@@ -196,58 +195,6 @@ impl<'a> Executor<'a> {
                     });
                 }
             }
-        }
-
-        Ok(results)
-    }
-
-    pub fn select_rows(
-        &self,
-        mut rows: Vec<QueryRow>,
-        bound: &BoundSelect,
-    ) -> Result<Vec<Vec<Value>>, ExecutorError> {
-        if let Some(filter) = bound.filter.as_ref() {
-            rows = self.filter_rows(rows, filter)?;
-        }
-
-        if let Some(group_by) = bound.group_by.as_ref() {
-            let mut groups = self.group_rows(rows, group_by)?;
-
-            if let Some(order) = bound.order_by.as_ref() {
-                groups = self.order_groups(groups, group_by, order)?;
-            }
-
-            let mut results = self.aggregate_groups(groups, group_by, &bound.projections)?;
-            if let Some(limit) = bound.limit {
-                results.truncate(limit);
-            }
-
-            return Ok(results);
-        }
-
-        if bound
-            .projections
-            .iter()
-            .any(|projection| matches!(projection, BoundProjection::Aggregate(_)))
-        {
-            if bound.order_by.is_some() {
-                return Err(ExecutorError::Unsupported);
-            }
-
-            let mut results = self.aggregate(rows, &bound.projections)?;
-            if let Some(limit) = bound.limit {
-                results.truncate(limit);
-            }
-            return Ok(results);
-        }
-
-        if let Some(order) = bound.order_by.as_ref() {
-            rows = self.order_rows(rows, order)?;
-        }
-
-        let mut results = self.project_rows(&rows, &bound.projections)?;
-        if let Some(limit) = bound.limit {
-            results.truncate(limit);
         }
 
         Ok(results)

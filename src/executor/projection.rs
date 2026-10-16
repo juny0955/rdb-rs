@@ -29,18 +29,4 @@ impl<'a> Executor<'a> {
 
         Ok(results)
     }
-
-    pub(super) fn project_rows(
-        &self,
-        rows: &[QueryRow],
-        projections: &[BoundProjection],
-    ) -> Result<Vec<Vec<Value>>, ExecutorError> {
-        let mut results = Vec::new();
-        for row in rows {
-            let values = self.project_row(row, projections)?;
-            results.push(values);
-        }
-
-        Ok(results)
-    }
 }

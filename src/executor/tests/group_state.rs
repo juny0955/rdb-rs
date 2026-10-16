@@ -230,7 +230,7 @@ fn group_state는_집계가_없는_column_projection도_그룹을_생성한다()
 fn group_state는_입력이_없으면_그룹이_없다() {
     assert!(
         GroupState::new()
-            .into_rows(&[column(2)], &projections())
+            .into_rows(&[column(2)], &projections(), None)
             .expect("빈 입력은 결과 행을 생성하면 안 됨")
             .is_empty()
     );
@@ -260,7 +260,7 @@ fn into_rows는_그룹_키와_집계를_projection_순서대로_반환한다() {
     }
     assert_eq!(
         state
-            .into_rows(&group_by, &projections)
+            .into_rows(&group_by, &projections, None)
             .expect("projection 순서대로 결과를 확정해야 함"),
         vec![
             vec![

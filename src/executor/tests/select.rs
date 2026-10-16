@@ -43,7 +43,9 @@ fn select_state는_limit_없이_여러_행을_projection_순서로_반환하고_
 
     for _ in 0..2 {
         assert!(matches!(
-            state.finish().expect("일반 SELECT의 EOF를 처리해야 함"),
+            state
+                .finish(&executor)
+                .expect("일반 SELECT의 EOF를 처리해야 함"),
             SelectStep::Done
         ));
         assert!(state.is_done());
@@ -80,7 +82,10 @@ fn aggregate_state는_null_행을_count에_포함하고_sum은_null로_반환한
         ));
         assert!(!state.is_done());
     }
-    match state.finish().expect("NULL 입력의 집계 결과를 확정해야 함") {
+    match state
+        .finish(&executor)
+        .expect("NULL 입력의 집계 결과를 확정해야 함")
+    {
         SelectStep::Row(values) => assert_eq!(values, vec![Value::BigInt(2), Value::Null]),
         _ => panic!("NULL 행도 COUNT에 포함해야 함"),
     }
@@ -114,7 +119,10 @@ fn aggregate_state는_여러_누산기를_독립적으로_관리하고_projectio
             SelectStep::NeedInput
         ));
     }
-    match state.finish().expect("여러 집계 결과를 확정해야 함") {
+    match state
+        .finish(&executor)
+        .expect("여러 집계 결과를 확정해야 함")
+    {
         SelectStep::Row(values) => {
             assert_eq!(
                 values,
@@ -156,13 +164,8 @@ fn aggregate_state는_sum의_양수와_음수_overflow를_전파한다() {
 }
 
 #[test]
-fn select_state는_order_by와_group_by_없는_일반_집계_projection_혼합을_거부한다() {
+fn select_state는_group_by_없는_일반_집계_projection_혼합을_거부한다() {
     let table_id = TableId::new(1);
-    let mut ordered = select(table_id, vec![BoundProjection::All]);
-    ordered.order_by = Some(BoundOrderBy {
-        column: users_column(table_id, 1),
-        direction: SortDirection::Asc,
-    });
     let column_first = select(
         table_id,
         vec![
@@ -177,11 +180,77 @@ fn select_state는_order_by와_group_by_없는_일반_집계_projection_혼합�
             BoundProjection::Column(users_column(table_id, 1)),
         ],
     );
-    for bound in [ordered, column_first, aggregate_first] {
+    for bound in [column_first, aggregate_first] {
         assert!(matches!(
             SelectState::new(bound),
             Err(ExecutorError::Unsupported)
         ));
+    }
+}
+
+#[test]
+fn sort_state는_전체_입력을_정렬한_뒤_limit과_projection을_적용한다() {
+    let table_id = TableId::new(1);
+    let database = database(table_id);
+    let executor = Executor::new(&database);
+
+    for (direction, limit, expected) in [
+        (
+            SortDirection::Asc,
+            None,
+            vec!["one", "two", "three", "null"],
+        ),
+        (
+            SortDirection::Desc,
+            None,
+            vec!["null", "three", "two", "one"],
+        ),
+        (SortDirection::Asc, Some(1), vec!["one"]),
+        (SortDirection::Desc, Some(2), vec!["null", "three"]),
+    ] {
+        let mut bound = select(
+            table_id,
+            vec![BoundProjection::Column(users_column(table_id, 2))],
+        );
+        bound.order_by = Some(BoundOrderBy {
+            column: users_column(table_id, 1),
+            direction,
+        });
+        bound.limit = limit;
+        let mut state = SelectState::new(bound).expect("ORDER BY 상태를 생성해야 함");
+
+        for (slot, id, name) in [
+            (1, Value::BigInt(3), "three"),
+            (2, Value::BigInt(1), "one"),
+            (3, Value::Null, "null"),
+            (4, Value::BigInt(2), "two"),
+        ] {
+            assert!(matches!(
+                state
+                    .push_row(&executor, &row(slot, id, Value::Varchar(name.to_owned())))
+                    .expect("LIMIT이 있어도 전체 입력을 수집해야 함"),
+                SelectStep::NeedInput
+            ));
+            assert!(!state.is_done());
+        }
+
+        for name in expected {
+            match state.finish(&executor).expect("정렬된 행을 반환해야 함") {
+                SelectStep::Row(values) => {
+                    assert_eq!(values, vec![Value::Varchar(name.to_owned())]);
+                }
+                _ => panic!("정렬 후 projection한 행을 반환해야 함"),
+            }
+        }
+        for _ in 0..2 {
+            assert!(matches!(
+                state
+                    .finish(&executor)
+                    .expect("정렬 결과를 다시 생성하면 안 됨"),
+                SelectStep::Done
+            ));
+            assert!(state.is_done());
+        }
     }
 }
 
@@ -253,7 +322,7 @@ fn aggregate_state는_where를_통과한_행만_count와_sum에_반영한다() {
         }
 
         match state
-            .finish()
+            .finish(&executor)
             .expect("필터 적용 후 집계 결과를 확정해야 함")
         {
             SelectStep::Row(values) => assert_eq!(values, expected),
@@ -261,7 +330,9 @@ fn aggregate_state는_where를_통과한_행만_count와_sum에_반영한다() {
         }
         assert!(state.is_done());
         assert!(matches!(
-            state.finish().expect("집계 결과가 다시 생성되면 안 됨"),
+            state
+                .finish(&executor)
+                .expect("집계 결과가 다시 생성되면 안 됨"),
             SelectStep::Done
         ));
     }
@@ -314,7 +385,9 @@ fn limit_zero는_일반과_집계와_그룹_모드에서_입력_계산_없이_�
                 SelectStep::Done
             ));
             assert!(matches!(
-                state.finish().expect("LIMIT 0은 결과를 출력하면 안 됨"),
+                state
+                    .finish(&executor)
+                    .expect("LIMIT 0은 결과를 출력하면 안 됨"),
                 SelectStep::Done
             ));
             assert!(state.is_done());
@@ -368,14 +441,19 @@ fn group_state는_eof까지_where를_적용해_누적하고_여러_결과를_한
             Value::BigInt(1),
         ],
     ] {
-        match state.finish().expect("그룹 결과를 하나씩 반환해야 함") {
+        match state
+            .finish(&executor)
+            .expect("그룹 결과를 하나씩 반환해야 함")
+        {
             SelectStep::Row(values) => assert_eq!(values, expected),
             _ => panic!("미반환 그룹이 있으면 결과 행을 반환해야 함"),
         }
     }
     for _ in 0..2 {
         assert!(matches!(
-            state.finish().expect("그룹 결과가 재생성되면 안 됨"),
+            state
+                .finish(&executor)
+                .expect("그룹 결과가 재생성되면 안 됨"),
             SelectStep::Done
         ));
         assert!(state.is_done());
@@ -416,7 +494,7 @@ fn group_limit_one은_전체_입력을_누적한_후_반환할_그룹만_제한�
         ));
         assert!(!state.is_done());
     }
-    match state.finish().expect("첫 그룹을 반환해야 함") {
+    match state.finish(&executor).expect("첫 그룹을 반환해야 함") {
         SelectStep::Row(values) => assert_eq!(
             values,
             vec![
@@ -430,7 +508,7 @@ fn group_limit_one은_전체_입력을_누적한_후_반환할_그룹만_제한�
     for _ in 0..2 {
         assert!(matches!(
             state
-                .finish()
+                .finish(&executor)
                 .expect("LIMIT으로 제외한 그룹은 반환하면 안 됨"),
             SelectStep::Done
         ));
@@ -466,7 +544,7 @@ fn group_state는_빈_입력과_where_전부_탈락에서_그룹을_생성하지
         }
         for _ in 0..2 {
             assert!(matches!(
-                state.finish().expect("빈 GROUP BY를 종료해야 함"),
+                state.finish(&executor).expect("빈 GROUP BY를 종료해야 함"),
                 SelectStep::Done
             ));
             assert!(state.is_done());
@@ -497,13 +575,16 @@ fn group_state는_집계_없는_column_projection으로_중복_키를_한번씩_
         ));
     }
     for name in ["B", "A"] {
-        match state.finish().expect("중복 없는 그룹 키를 반환해야 함") {
+        match state
+            .finish(&executor)
+            .expect("중복 없는 그룹 키를 반환해야 함")
+        {
             SelectStep::Row(values) => assert_eq!(values, vec![Value::Varchar(name.to_owned())]),
             _ => panic!("그룹 키를 반환해야 함"),
         }
     }
     assert!(matches!(
-        state.finish().expect("그룹 출력을 종료해야 함"),
+        state.finish(&executor).expect("그룹 출력을 종료해야 함"),
         SelectStep::Done
     ));
 }
@@ -547,17 +628,23 @@ fn group_limit_one도_다른_그룹의_sum_overflow를_전파한다() {
 #[test]
 fn select_state는_빈_입력을_결과_없이_종료한다() {
     let table_id = TableId::new(1);
+    let database = database(table_id);
+    let executor = Executor::new(&database);
     let bound = select(table_id, vec![BoundProjection::All]);
     let mut state = SelectState::new(bound).expect("SELECT 계산 상태를 생성해야 함");
     assert!(!state.is_done());
 
     assert!(matches!(
-        state.finish().expect("빈 입력의 SELECT를 마무리해야 함"),
+        state
+            .finish(&executor)
+            .expect("빈 입력의 SELECT를 마무리해야 함"),
         SelectStep::Done
     ));
     assert!(state.is_done());
     assert!(matches!(
-        state.finish().expect("반복 마무리는 Done을 반환해야 함"),
+        state
+            .finish(&executor)
+            .expect("반복 마무리는 Done을 반환해야 함"),
         SelectStep::Done
     ));
 }
@@ -565,6 +652,8 @@ fn select_state는_빈_입력을_결과_없이_종료한다() {
 #[test]
 fn aggregate_state는_빈_입력에서_count_0과_sum_null을_한번만_반환한다() {
     let table_id = TableId::new(1);
+    let database = database(table_id);
+    let executor = Executor::new(&database);
     let bound = select(
         table_id,
         vec![
@@ -575,13 +664,18 @@ fn aggregate_state는_빈_입력에서_count_0과_sum_null을_한번만_반환�
     let mut state = SelectState::new(bound).expect("집계 계산 상태를 생성해야 함");
     assert!(!state.is_done());
 
-    match state.finish().expect("빈 입력의 집계 결과를 확정해야 함") {
+    match state
+        .finish(&executor)
+        .expect("빈 입력의 집계 결과를 확정해야 함")
+    {
         SelectStep::Row(values) => assert_eq!(values, vec![Value::BigInt(0), Value::Null]),
         _ => panic!("빈 입력이어도 COUNT와 SUM 결과 한 행을 반환해야 함"),
     }
     assert!(state.is_done());
     assert!(matches!(
-        state.finish().expect("집계 결과가 다시 생성되면 안 됨"),
+        state
+            .finish(&executor)
+            .expect("집계 결과가 다시 생성되면 안 됨"),
         SelectStep::Done
     ));
 }
@@ -617,7 +711,7 @@ fn aggregate_limit_one은_전체_입력을_누적하고_결과를_한번만_반�
         assert!(!state.is_done());
     }
 
-    match state.finish().expect("집계 결과를 확정해야 함") {
+    match state.finish(&executor).expect("집계 결과를 확정해야 함") {
         SelectStep::Row(values) => {
             assert_eq!(values, vec![Value::BigInt(3), Value::BigInt(13)]);
         }
@@ -626,7 +720,9 @@ fn aggregate_limit_one은_전체_입력을_누적하고_결과를_한번만_반�
     assert!(state.is_done());
 
     assert!(matches!(
-        state.finish().expect("반복 마무리는 Done을 반환해야 함"),
+        state
+            .finish(&executor)
+            .expect("반복 마무리는 Done을 반환해야 함"),
         SelectStep::Done
     ));
     let input = row(4, Value::BigInt(100), Value::Null);
@@ -637,7 +733,9 @@ fn aggregate_limit_one은_전체_입력을_누적하고_결과를_한번만_반�
         SelectStep::Done
     ));
     assert!(matches!(
-        state.finish().expect("집계 결과가 다시 생성되면 안 됨"),
+        state
+            .finish(&executor)
+            .expect("집계 결과가 다시 생성되면 안 됨"),
         SelectStep::Done
     ));
 }
@@ -691,7 +789,9 @@ fn select_state는_필터_탈락과_limit_종료를_구분한다() {
     ));
     assert!(state.is_done());
     assert!(matches!(
-        state.finish().expect("종료된 SELECT를 마무리해야 함"),
+        state
+            .finish(&executor)
+            .expect("종료된 SELECT를 마무리해야 함"),
         SelectStep::Done
     ));
 }

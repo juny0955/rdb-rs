@@ -13,11 +13,39 @@ use crate::{
     tuple::Value,
 };
 
-use super::{Executor, QueryRow, TableRow};
+use super::{
+    Executor, ExecutorError, QueryRow, TableRow,
+    select::{SelectState, SelectStep},
+};
 
 mod aggregate;
-mod join;
 mod select;
+
+fn collect_select(
+    executor: &Executor<'_>,
+    rows: Vec<QueryRow>,
+    bound: BoundSelect,
+) -> Result<Vec<Vec<Value>>, ExecutorError> {
+    let mut state = SelectState::new(bound)?;
+    let mut results = Vec::new();
+    for row in rows {
+        if state.is_done() {
+            break;
+        }
+        match state.push_row(executor, &row)? {
+            SelectStep::Row(values) => results.push(values),
+            SelectStep::NeedInput => {}
+            SelectStep::Done => break,
+        }
+    }
+    loop {
+        match state.finish(executor)? {
+            SelectStep::Row(values) => results.push(values),
+            SelectStep::Done => return Ok(results),
+            SelectStep::NeedInput => panic!("EOF 후에는 추가 입력을 요구하면 안 됨"),
+        }
+    }
+}
 
 fn users_columns() -> Vec<ColumnMetadata> {
     vec![
@@ -169,9 +197,12 @@ fn select는_all과_column_projection을반환한다() {
     let executor = Executor::new(&database);
 
     assert_eq!(
-        executor
-            .select_rows(rows(), &select(table_id, vec![BoundProjection::All]))
-            .expect("SELECT가 성공해야 함"),
+        collect_select(
+            &executor,
+            rows(),
+            select(table_id, vec![BoundProjection::All])
+        )
+        .expect("SELECT가 성공해야 함"),
         vec![
             vec![Value::BigInt(1), Value::Varchar("Kim".to_owned())],
             vec![Value::BigInt(2), Value::Varchar("Lee".to_owned())],
@@ -179,15 +210,15 @@ fn select는_all과_column_projection을반환한다() {
         ]
     );
     assert_eq!(
-        executor
-            .select_rows(
-                rows(),
-                &select(
-                    table_id,
-                    vec![BoundProjection::Column(users_column(table_id, 2))]
-                ),
-            )
-            .expect("SELECT가 성공해야 함"),
+        collect_select(
+            &executor,
+            rows(),
+            select(
+                table_id,
+                vec![BoundProjection::Column(users_column(table_id, 2))]
+            ),
+        )
+        .expect("SELECT가 성공해야 함"),
         vec![
             vec![Value::Varchar("Kim".to_owned())],
             vec![Value::Varchar("Lee".to_owned())],
@@ -220,12 +251,14 @@ fn select는_comparison_and_or_filter를적용한다() {
         )),
     });
     assert_eq!(
-        executor
-            .select_rows(rows(), &bound)
-            .expect("AND filter가 성공해야 함"),
+        collect_select(&executor, rows(), bound).expect("AND filter가 성공해야 함"),
         vec![vec![Value::Varchar("Kim".to_owned())]]
     );
 
+    let mut bound = select(
+        table_id,
+        vec![BoundProjection::Column(users_column(table_id, 2))],
+    );
     bound.filter = Some(BoundExpression::Or {
         left: Box::new(comparison(
             table_id,
@@ -241,9 +274,7 @@ fn select는_comparison_and_or_filter를적용한다() {
         )),
     });
     assert_eq!(
-        executor
-            .select_rows(rows(), &bound)
-            .expect("OR filter가 성공해야 함"),
+        collect_select(&executor, rows(), bound).expect("OR filter가 성공해야 함"),
         vec![
             vec![Value::Varchar("Kim".to_owned())],
             vec![Value::Varchar("Lee".to_owned())],
@@ -264,8 +295,7 @@ fn select의_null_comparison은_일치하지않는다() {
     ));
 
     assert!(
-        Executor::new(&database)
-            .select_rows(rows(), &bound)
+        collect_select(&Executor::new(&database), rows(), bound)
             .expect("NULL filter가 성공해야 함")
             .is_empty()
     );
@@ -286,8 +316,7 @@ fn select는_order_by와_limit을적용한다() {
     bound.limit = Some(2);
 
     assert_eq!(
-        Executor::new(&database)
-            .select_rows(rows(), &bound)
+        collect_select(&Executor::new(&database), rows(), bound)
             .expect("ORDER BY와 LIMIT이 성공해야 함"),
         vec![
             vec![Value::Varchar("Null".to_owned())],

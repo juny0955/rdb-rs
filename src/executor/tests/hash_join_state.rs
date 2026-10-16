@@ -110,6 +110,12 @@ fn hash_join_state는_중복키를_하나씩_결합하고_다른_키와_null을_
         &other,
     );
     assert!(state.next_joined_row().is_none());
+
+    state
+        .push_left(&executor, row(0, 3, Value::Null, "null left"), &condition)
+        .expect("NULL 키도 오류 없이 처리해야 함");
+    assert!(state.next_joined_row().is_none());
+    assert!(state.next_joined_row().is_none());
 }
 
 #[test]

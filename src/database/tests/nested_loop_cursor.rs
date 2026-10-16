@@ -3,7 +3,7 @@ use crate::{
         Database, DatabaseError, ExecuteResult,
         cursor::{
             SelectCursor,
-            state::{CursorState, InputState, join::hash::HashJoin},
+            state::{InputState, join::hash::HashJoin},
         },
     },
     query::{
@@ -95,10 +95,7 @@ fn cursor<'a>(
 }
 
 fn cursor_join<'a>(cursor: &'a SelectCursor<'_>) -> &'a NestedLoopJoin {
-    let CursorState::Scan { input, .. } = &cursor.state else {
-        panic!("Scan 커서여야 함");
-    };
-    nested_loop(input)
+    nested_loop(&cursor.input)
 }
 
 fn page_progress(input: &InputState) -> (u64, u64) {

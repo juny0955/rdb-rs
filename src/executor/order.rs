@@ -1,8 +1,8 @@
 use std::cmp::Ordering;
 
 use crate::{
-    executor::{Executor, ExecutorError, QueryRow, group::RowGroup},
-    query::binder::{BoundColumnReference, BoundOrderBy},
+    executor::{Executor, ExecutorError, QueryRow},
+    query::binder::BoundOrderBy,
     tuple::Value,
 };
 
@@ -28,29 +28,9 @@ impl<'a> Executor<'a> {
 
         Ok(results)
     }
-
-    pub(super) fn order_groups(
-        &self,
-        mut groups: Vec<RowGroup>,
-        group_by: &[BoundColumnReference],
-        order: &BoundOrderBy,
-    ) -> Result<Vec<RowGroup>, ExecutorError> {
-        let key_index = group_by
-            .iter()
-            .position(|group_column_id| group_column_id == &order.column)
-            .ok_or(ExecutorError::Unsupported)?;
-
-        groups.sort_by(|left, right| compare_values(&left.key[key_index], &right.key[key_index]));
-
-        if order.direction.is_desc() {
-            groups.reverse();
-        }
-
-        Ok(groups)
-    }
 }
 
-fn compare_values(left: &Value, right: &Value) -> Ordering {
+pub(super) fn compare_values(left: &Value, right: &Value) -> Ordering {
     match (left, right) {
         (Value::Null, Value::Null) => Ordering::Equal,
         (Value::Null, _) => Ordering::Greater,

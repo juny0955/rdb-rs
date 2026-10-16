@@ -1,12 +1,9 @@
 use crate::{
     database::{
         Database, DatabaseError, ExecuteResult,
-        cursor::{
-            SelectCursor,
-            state::{CursorState, InputState},
-        },
+        cursor::{SelectCursor, state::InputState},
     },
-    executor::{Executor, QueryRow},
+    executor::{Executor, QueryRow, select::SelectState},
     index::IndexManager,
     query::binder::{
         BoundDelete, BoundExpression, BoundFromClause, BoundInsert, BoundSelect, BoundUpdate,
@@ -40,22 +37,12 @@ impl Database {
         &mut self,
         bound: BoundSelect,
     ) -> Result<ExecuteResult<'_>, DatabaseError> {
-        if bound.order_by.is_none() {
-            let input = InputState::from_clause(self, &bound.from, bound.filter.as_ref())?;
-            let state = CursorState::new(bound, input)?;
-
-            return Ok(ExecuteResult::Rows(Box::new(SelectCursor::new(
-                self, state,
-            ))));
-        }
-
-        let rows = self.execute_from_clause(&bound.from, &bound.filter)?;
-        let executor = Executor::new(self.catalog.metadata());
-        let results = executor.select_rows(rows, &bound)?;
+        let input = InputState::from_clause(self, &bound.from, bound.filter.as_ref())?;
 
         Ok(ExecuteResult::Rows(Box::new(SelectCursor::new(
             self,
-            CursorState::Buffered(results.into_iter()),
+            input,
+            SelectState::new(bound)?,
         ))))
     }
 

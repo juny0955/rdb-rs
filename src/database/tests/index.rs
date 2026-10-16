@@ -14,7 +14,7 @@ use crate::{
     tuple::Value,
 };
 
-use super::{bind_sql, collect_select_rows, parse_sql};
+use super::{bind_sql, collect_select_rows, collect_table_rows, parse_sql};
 
 #[test]
 fn create_index는_index_file과_metadata를_생성하고_재시작후에도_유지한다()
@@ -111,11 +111,7 @@ fn create_index는_재시작후_기존_행을_backfill한다() -> Result<(), Box
         database.execute(&parse_sql("INSERT INTO users VALUES (42, 'Kim');"))?;
         database.execute(&parse_sql("INSERT INTO users VALUES (NULL, 'Null');"))?;
 
-        let heap_table = database
-            .table_manager
-            .get_or_open_table(&mut database.storage_manager, TableId::new(1))?;
-        heap_table
-            .scan(&mut database.storage_manager)?
+        collect_table_rows(&mut database, TableId::new(1))?
             .into_iter()
             .next()
             .expect("인덱싱할 행이 있어야 함")
@@ -154,11 +150,7 @@ fn insert는_생성된_index에_반영하고_재시작후_검색된다() -> Resu
         database.execute(&parse_sql("CREATE INDEX idx_users_id ON users(id);"))?;
         database.execute(&parse_sql("INSERT INTO users VALUES (42, 'Kim');"))?;
 
-        let heap_table = database
-            .table_manager
-            .get_or_open_table(&mut database.storage_manager, TableId::new(1))?;
-        heap_table
-            .scan(&mut database.storage_manager)?
+        collect_table_rows(&mut database, TableId::new(1))?
             .into_iter()
             .next()
             .expect("삽입한 행이 있어야 함")
@@ -245,11 +237,7 @@ fn update는_index_entry를_교체하고_재시작후_검색된다() -> Result<(
         database.execute(&parse_sql("CREATE INDEX idx_users_id ON users(id);"))?;
         database.execute(&parse_sql("INSERT INTO users VALUES (42, 'Kim');"))?;
 
-        let heap_table = database
-            .table_manager
-            .get_or_open_table(&mut database.storage_manager, TableId::new(1))?;
-        let row_id = heap_table
-            .scan(&mut database.storage_manager)?
+        let row_id = collect_table_rows(&mut database, TableId::new(1))?
             .into_iter()
             .next()
             .expect("수정할 행이 있어야 함")
@@ -291,11 +279,7 @@ fn index_manager_update_row은_변경된_인덱스만_갱신한다() -> Result<(
         database.execute(&parse_sql("CREATE INDEX idx_users_name ON users(name);"))?;
         database.execute(&parse_sql("INSERT INTO users VALUES (42, 'Kim');"))?;
 
-        let heap_table = database
-            .table_manager
-            .get_or_open_table(&mut database.storage_manager, TableId::new(1))?;
-        let row_id = heap_table
-            .scan(&mut database.storage_manager)?
+        let row_id = collect_table_rows(&mut database, TableId::new(1))?
             .into_iter()
             .next()
             .expect("수정할 행이 있어야 함")

@@ -1,15 +1,11 @@
 use crate::{
-    database::{
-        Database, DatabaseError, ExecuteResult,
-        cursor::{SelectCursor, state::CursorState},
-    },
-    executor::{Executor, ExecutorError, QueryRow},
-    query::binder::{BoundFromClause, BoundStatement},
+    database::{Database, DatabaseError, ExecuteResult},
+    executor::ExecutorError,
     test_supports::TestDirectory,
     tuple::Value,
 };
 
-use super::{bind_sql, parse_sql};
+use super::parse_sql;
 
 fn assert_sql_rows(
     database: &mut Database,
@@ -66,8 +62,8 @@ fn null_행의_집계는_count에_포함하고_sum은_null을_반환한다() -> 
 }
 
 #[test]
-fn 재시작후_스트리밍_집계는_버퍼_계산과_같은_결과를_반환한다() -> Result<(), DatabaseError> {
-    let directory = TestDirectory::new("streaming-buffered-aggregate-parity");
+fn 재시작후_스트리밍_집계는_예상한_합계와_개수를_반환한다() -> Result<(), DatabaseError> {
+    let directory = TestDirectory::new("streaming-aggregate-reopen");
     {
         let mut database = Database::open(directory.path(), "test")?;
         database.execute(&parse_sql("CREATE TABLE users (id BIGINT, amount BIGINT);"))?;
@@ -90,39 +86,13 @@ fn 재시작후_스트리밍_집계는_버퍼_계산과_같은_결과를_반환�
             vec![Value::Null, Value::BigInt(0), Value::Null],
         ),
     ] {
-        let BoundStatement::Select(bound) = bind_sql(query, database.catalog.metadata()) else {
-            panic!("SELECT를 bind해야 함");
-        };
-        let BoundFromClause::Table(table) = &bound.from else {
-            panic!("단일 테이블 SELECT여야 함");
-        };
-        let raw_rows = database
-            .table_manager
-            .scan_rows(&mut database.storage_manager, table.table_id)?;
-        let executor = Executor::new(database.catalog.metadata());
-        let input = executor
-            .decode_table_rows(table, raw_rows)?
-            .into_iter()
-            .map(|row| QueryRow::new(vec![row]))
-            .collect();
-        let buffered = executor.select_rows(input, &bound)?;
-        assert_eq!(buffered, vec![expected]);
-
-        let ExecuteResult::Rows(mut cursor) = database.execute_select(bound)? else {
-            panic!("스트리밍 커서를 반환해야 함");
-        };
-        for values in buffered {
-            assert_eq!(cursor.next_row()?, Some(values));
-        }
-        assert_eq!(cursor.next_row()?, None);
-        assert_eq!(cursor.next_row()?, None);
+        assert_sql_rows(&mut database, query, &[expected])?;
     }
     Ok(())
 }
 
 #[test]
-fn 스트리밍_sum_overflow는_버퍼와_같은_오류를_전달하고_다음_쿼리를_막지_않는다()
--> Result<(), DatabaseError> {
+fn 스트리밍_sum_overflow는_오류를_전달하고_다음_쿼리를_막지_않는다() -> Result<(), DatabaseError> {
     let directory = TestDirectory::new("streaming-sum-overflow-cursor");
     let mut database = Database::open(directory.path(), "test")?;
     database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
@@ -131,31 +101,10 @@ fn 스트리밍_sum_overflow는_버퍼와_같은_오류를_전달하고_다음_�
             "INSERT INTO users VALUES ({id}, 'group');"
         )))?;
     }
-    let BoundStatement::Select(bound) = bind_sql(
-        "SELECT COUNT(*), SUM(id) FROM users;",
-        database.catalog.metadata(),
-    ) else {
-        panic!("집계 SELECT를 bind해야 함");
-    };
-    let BoundFromClause::Table(table) = &bound.from else {
-        panic!("단일 테이블 SELECT여야 함");
-    };
-    let raw_rows = database
-        .table_manager
-        .scan_rows(&mut database.storage_manager, table.table_id)?;
-    let executor = Executor::new(database.catalog.metadata());
-    let input = executor
-        .decode_table_rows(table, raw_rows)?
-        .into_iter()
-        .map(|row| QueryRow::new(vec![row]))
-        .collect();
-    assert!(matches!(
-        executor.select_rows(input, &bound),
-        Err(ExecutorError::SumOverflow)
-    ));
-
     {
-        let ExecuteResult::Rows(mut cursor) = database.execute_select(bound)? else {
+        let ExecuteResult::Rows(mut cursor) =
+            database.execute(&parse_sql("SELECT COUNT(*), SUM(id) FROM users;"))?
+        else {
             panic!("スト리밍 커서를 반환해야 함");
         };
         assert!(matches!(
@@ -233,11 +182,12 @@ fn group_cursor는_null_키와_빈_입력을_처리한다() -> Result<(), Databa
 }
 
 #[test]
-fn order_by와_group_by의_버퍼_결과는_계산을_다시_적용하지_않는다() -> Result<(), DatabaseError> {
-    let directory = TestDirectory::new("buffered-sql-select-cursor");
+fn order_by와_group_by_cursor는_정렬후_limit을_적용하고_결과를_한번씩_반환한다()
+-> Result<(), DatabaseError> {
+    let directory = TestDirectory::new("ordered-sql-select-cursor");
     let mut database = Database::open(directory.path(), "test")?;
     database.execute(&parse_sql("CREATE TABLE users (id BIGINT, name VARCHAR);"))?;
-    for values in ["1, 'a'", "2, 'a'", "3, 'b'"] {
+    for values in ["3, 'b'", "1, 'a'", "2, 'a'"] {
         database.execute(&parse_sql(&format!("INSERT INTO users VALUES ({values});")))?;
     }
     assert_sql_rows(
@@ -254,23 +204,52 @@ fn order_by와_group_by의_버퍼_결과는_계산을_다시_적용하지_않는
             Value::BigInt(3),
         ]],
     )?;
+    assert_sql_rows(
+        &mut database,
+        "SELECT name, COUNT(*), SUM(id) FROM users GROUP BY name ORDER BY name DESC;",
+        &[
+            vec![
+                Value::Varchar("b".to_owned()),
+                Value::BigInt(1),
+                Value::BigInt(3),
+            ],
+            vec![
+                Value::Varchar("a".to_owned()),
+                Value::BigInt(2),
+                Value::BigInt(3),
+            ],
+        ],
+    )?;
+    assert_sql_rows(
+        &mut database,
+        "SELECT COUNT(*) FROM users GROUP BY name ORDER BY name;",
+        &[vec![Value::BigInt(2)], vec![Value::BigInt(1)]],
+    )?;
+    assert_sql_rows(
+        &mut database,
+        "SELECT id FROM users ORDER BY id LIMIT 0;",
+        &[],
+    )?;
+    assert_sql_rows(
+        &mut database,
+        "SELECT name, COUNT(*) FROM users GROUP BY name ORDER BY name LIMIT 0;",
+        &[],
+    )?;
     Ok(())
 }
 
 #[test]
-fn buffered_cursor는_행을_소진한_뒤_계속_none을_반환한다() -> Result<(), DatabaseError> {
-    let directory = TestDirectory::new("buffered-select-cursor");
+fn order_by_cursor는_행을_소진한_뒤_계속_none을_반환한다() -> Result<(), DatabaseError> {
+    let directory = TestDirectory::new("ordered-select-cursor-eof");
     let mut database = Database::open(directory.path(), "test")?;
-    let first = vec![Value::BigInt(1)];
-    let second = vec![Value::BigInt(2)];
-    let mut cursor = SelectCursor::new(
+    database.execute(&parse_sql("CREATE TABLE users (id BIGINT);"))?;
+    for id in [2, 1] {
+        database.execute(&parse_sql(&format!("INSERT INTO users VALUES ({id});")))?;
+    }
+    assert_sql_rows(
         &mut database,
-        CursorState::Buffered(vec![first.clone(), second.clone()].into_iter()),
-    );
-
-    assert_eq!(cursor.next_row()?, Some(first));
-    assert_eq!(cursor.next_row()?, Some(second));
-    assert_eq!(cursor.next_row()?, None);
-    assert_eq!(cursor.next_row()?, None);
+        "SELECT id FROM users ORDER BY id;",
+        &[vec![Value::BigInt(1)], vec![Value::BigInt(2)]],
+    )?;
     Ok(())
 }
