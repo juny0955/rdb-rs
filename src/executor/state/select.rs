@@ -1,7 +1,15 @@
 use std::vec::IntoIter;
 
 use crate::{
-    executor::{Executor, ExecutorError, QueryRow, aggregate::AggregateState, group::GroupState},
+    catalog::metadata::DatabaseMetadata,
+    executor::{
+        ExecutorError, QueryRow,
+        aggregate::{AggregateState, accumulate_aggregate},
+        group::GroupState,
+        order::order_rows,
+        predicate::row_matches_filter,
+        projection::project_row,
+    },
     query::binder::{BoundProjection, BoundSelect},
     tuple::Value,
 };
@@ -79,7 +87,7 @@ impl SelectState {
 
     pub fn push_row(
         &mut self,
-        executor: &Executor<'_>,
+        metadata: &DatabaseMetadata,
         row: &QueryRow,
     ) -> Result<SelectStep, ExecutorError> {
         if self.is_done() {
@@ -87,14 +95,14 @@ impl SelectState {
         }
 
         if let Some(filter) = &self.bound.filter
-            && !executor.row_matches_filter(row, filter)?
+            && !row_matches_filter(metadata, row, filter)?
         {
             return Ok(SelectStep::NeedInput);
         }
 
         match &mut self.mode {
             SelectMode::Rows => {
-                let values = executor.project_row(row, &self.bound.projections)?;
+                let values = project_row(metadata, row, &self.bound.projections)?;
                 self.emitted += 1;
 
                 if let Some(limit) = self.bound.limit
@@ -107,7 +115,7 @@ impl SelectState {
             }
             SelectMode::Aggregate(states) => {
                 for (state, projection) in states.iter_mut().zip(&self.bound.projections) {
-                    executor.accumulate_aggregate(state, projection, row)?;
+                    accumulate_aggregate(metadata, state, projection, row)?;
                 }
 
                 Ok(SelectStep::NeedInput)
@@ -117,7 +125,7 @@ impl SelectState {
                     return Err(ExecutorError::Unsupported);
                 };
 
-                group_state.push_row(executor, row, group_by, &self.bound.projections)?;
+                group_state.push_row(metadata, row, group_by, &self.bound.projections)?;
                 Ok(SelectStep::NeedInput)
             }
             SelectMode::Sort(rows) => {
@@ -130,7 +138,7 @@ impl SelectState {
         }
     }
 
-    pub fn finish(&mut self, executor: &Executor<'_>) -> Result<SelectStep, ExecutorError> {
+    pub fn finish(&mut self, metadata: &DatabaseMetadata) -> Result<SelectStep, ExecutorError> {
         if self.is_done() {
             return Ok(SelectStep::Done);
         }
@@ -165,7 +173,7 @@ impl SelectState {
                 }
 
                 self.mode = SelectMode::GroupOutput(results.into_iter());
-                self.finish(executor)
+                self.finish(metadata)
             }
             SelectMode::GroupOutput(values_iter) => {
                 if let Some(values) = values_iter.next() {
@@ -182,17 +190,17 @@ impl SelectState {
                     return Err(ExecutorError::Unsupported);
                 };
 
-                let mut ordered_rows = executor.order_rows(collected_rows, order_by)?;
+                let mut ordered_rows = order_rows(metadata, collected_rows, order_by)?;
                 if let Some(limit) = self.bound.limit {
                     ordered_rows.truncate(limit);
                 }
 
                 self.mode = SelectMode::SortOutput(ordered_rows.into_iter());
-                self.finish(executor)
+                self.finish(metadata)
             }
             SelectMode::SortOutput(rows_iter) => {
                 if let Some(row) = rows_iter.next() {
-                    let values = executor.project_row(&row, &self.bound.projections)?;
+                    let values = project_row(metadata, &row, &self.bound.projections)?;
                     return Ok(SelectStep::Row(values));
                 }
 

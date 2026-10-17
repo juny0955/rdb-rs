@@ -5,7 +5,7 @@ use crate::{
         cursor::{SelectCursor, state::InputState},
     },
     executor::{
-        Executor,
+        encode_insert,
         state::{delete::DeleteState, select::SelectState, update::UpdateState},
     },
     index::IndexManager,
@@ -19,8 +19,7 @@ impl Database {
         &mut self,
         bound: BoundInsert,
     ) -> Result<ExecuteResult<'_>, DatabaseError> {
-        let executor = Executor::new(self.catalog.metadata());
-        let row = executor.encode_insert(&bound)?;
+        let row = encode_insert(self.catalog.metadata(), &bound)?;
 
         let row_id =
             self.table_manager
@@ -61,12 +60,10 @@ impl Database {
 
         if is_join {
             while let Some(row) = input.next_input_row(self)? {
-                let executor = Executor::new(self.catalog.metadata());
-                state.prepare_row(&executor, &row)?;
+                state.prepare_row(self.catalog.metadata(), &row)?;
             }
 
-            let executor = Executor::new(self.catalog.metadata());
-            for prepared_update in state.finish(&executor)? {
+            for prepared_update in state.finish(self.catalog.metadata())? {
                 self.update_target(
                     prepared_update.table_id,
                     prepared_update.row_id,
@@ -78,9 +75,8 @@ impl Database {
             }
         } else {
             while let Some(row) = input.next_input_row(self)? {
-                let executor = Executor::new(self.catalog.metadata());
-                state.prepare_row(&executor, &row)?;
-                let prepared_updates = state.finish(&executor)?;
+                state.prepare_row(self.catalog.metadata(), &row)?;
+                let prepared_updates = state.finish(self.catalog.metadata())?;
 
                 for prepared_update in prepared_updates {
                     self.update_target(
@@ -111,8 +107,7 @@ impl Database {
         // DeleteState.seen에 누적된 식별자들을 꺼내어 삭제한다
         if is_join {
             while let Some(row) = input.next_input_row(self)? {
-                let executor = Executor::new(self.catalog.metadata());
-                state.prepare_row(&executor, &row)?;
+                state.prepare_row(self.catalog.metadata(), &row)?;
             }
 
             for (table_id, row_id) in state.into_targets() {
@@ -128,8 +123,7 @@ impl Database {
             }
         } else {
             while let Some(row) = input.next_input_row(self)? {
-                let executor = Executor::new(self.catalog.metadata());
-                let prepared_deletes = state.prepare_row(&executor, &row)?;
+                let prepared_deletes = state.prepare_row(self.catalog.metadata(), &row)?;
 
                 for prepared_delete in prepared_deletes {
                     self.delete_target(

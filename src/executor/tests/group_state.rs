@@ -2,7 +2,7 @@ use crate::{
     catalog::metadata::{
         ColumnId, ColumnMetadata, DataType, DatabaseMetadata, TableId, TableMetadata,
     },
-    executor::{Executor, ExecutorError, QueryRow, TableRow},
+    executor::{ExecutorError, QueryRow, TableRow},
     query::binder::{BoundAggregate, BoundColumnReference, BoundProjection, TableInstanceId},
     storage::page::{PageId, RowId, SlotId},
     tuple::Value,
@@ -70,14 +70,13 @@ fn results(state: &GroupState) -> Vec<(Vec<Value>, Vec<Value>)> {
 #[test]
 fn group_state는_첫_행과_다른_페이지의_같은_키를_누적한다() {
     let database = database();
-    let executor = Executor::new(&database);
     let mut state = GroupState::new();
     let group_by = [column(2)];
     let projections = projections();
 
     state
         .push_row(
-            &executor,
+            &database,
             &row(1, Value::BigInt(10), text("A")),
             &group_by,
             &projections,
@@ -91,7 +90,7 @@ fn group_state는_첫_행과_다른_페이지의_같은_키를_누적한다() {
     for (page, amount, category) in [(2, 3, "B"), (3, 5, "A")] {
         state
             .push_row(
-                &executor,
+                &database,
                 &row(page, Value::BigInt(amount), text(category)),
                 &group_by,
                 &projections,
@@ -110,7 +109,6 @@ fn group_state는_첫_행과_다른_페이지의_같은_키를_누적한다() {
 #[test]
 fn group_state는_column을_건너뛰고_집계_projection_순서를_유지한다() {
     let database = database();
-    let executor = Executor::new(&database);
     let mut state = GroupState::new();
     let projections = [
         BoundProjection::Column(column(2)),
@@ -123,7 +121,7 @@ fn group_state는_column을_건너뛰고_집계_projection_순서를_유지한�
     for (page, amount) in [(1, 10), (2, 5)] {
         state
             .push_row(
-                &executor,
+                &database,
                 &row(page, Value::BigInt(amount), text("A")),
                 &[column(2)],
                 &projections,
@@ -142,7 +140,6 @@ fn group_state는_column을_건너뛰고_집계_projection_순서를_유지한�
 #[test]
 fn group_state는_null_키를_묶고_sum의_null을_건너뛴다() {
     let database = database();
-    let executor = Executor::new(&database);
     let mut state = GroupState::new();
     for (page, amount, category) in [
         (1, Value::Null, Value::Null),
@@ -153,7 +150,7 @@ fn group_state는_null_키를_묶고_sum의_null을_건너뛴다() {
     ] {
         state
             .push_row(
-                &executor,
+                &database,
                 &row(page, amount, category),
                 &[column(2)],
                 &projections(),
@@ -172,7 +169,6 @@ fn group_state는_null_키를_묶고_sum의_null을_건너뛴다() {
 #[test]
 fn group_state는_복합_키의_모든_컬럼과_null을_구분한다() {
     let database = database();
-    let executor = Executor::new(&database);
     let mut state = GroupState::new();
     let projections = [BoundProjection::Aggregate(BoundAggregate::CountAll)];
     for (page, amount, category) in [
@@ -186,7 +182,7 @@ fn group_state는_복합_키의_모든_컬럼과_null을_구분한다() {
     ] {
         state
             .push_row(
-                &executor,
+                &database,
                 &row(page, amount, category),
                 &[column(1), column(2)],
                 &projections,
@@ -208,12 +204,11 @@ fn group_state는_복합_키의_모든_컬럼과_null을_구분한다() {
 #[test]
 fn group_state는_집계가_없는_column_projection도_그룹을_생성한다() {
     let database = database();
-    let executor = Executor::new(&database);
     let mut state = GroupState::new();
     for (page, category) in [(1, "B"), (2, "A"), (3, "B")] {
         state
             .push_row(
-                &executor,
+                &database,
                 &row(page, Value::BigInt(1), text(category)),
                 &[column(2)],
                 &[BoundProjection::Column(column(2))],
@@ -239,7 +234,6 @@ fn group_state는_입력이_없으면_그룹이_없다() {
 #[test]
 fn into_rows는_그룹_키와_집계를_projection_순서대로_반환한다() {
     let database = database();
-    let executor = Executor::new(&database);
     let mut state = GroupState::new();
     let group_by = [column(1), column(2)];
     let projections = [
@@ -251,7 +245,7 @@ fn into_rows는_그룹_키와_집계를_projection_순서대로_반환한다() {
     for (page, amount, category) in [(1, 10, "A"), (2, 3, "B"), (3, 10, "A")] {
         state
             .push_row(
-                &executor,
+                &database,
                 &row(page, Value::BigInt(amount), text(category)),
                 &group_by,
                 &projections,
@@ -282,14 +276,13 @@ fn into_rows는_그룹_키와_집계를_projection_순서대로_반환한다() {
 #[test]
 fn group_state는_같은_그룹의_sum_overflow만_오류로_반환한다() {
     let database = database();
-    let executor = Executor::new(&database);
     let projections = [BoundProjection::Aggregate(BoundAggregate::Sum(column(1)))];
     for (first, addend) in [(i64::MAX, 1), (i64::MIN, -1)] {
         let mut state = GroupState::new();
         for (page, amount, category) in [(1, first, "A"), (2, addend, "B")] {
             state
                 .push_row(
-                    &executor,
+                    &database,
                     &row(page, Value::BigInt(amount), text(category)),
                     &[column(2)],
                     &projections,
@@ -305,7 +298,7 @@ fn group_state는_같은_그룹의_sum_overflow만_오류로_반환한다() {
         );
         assert!(matches!(
             state.push_row(
-                &executor,
+                &database,
                 &row(3, Value::BigInt(addend), text("A")),
                 &[column(2)],
                 &projections,
@@ -318,7 +311,6 @@ fn group_state는_같은_그룹의_sum_overflow만_오류로_반환한다() {
 #[test]
 fn group_state는_키와_sum의_컬럼_조회_오류를_전파한다() {
     let database = database();
-    let executor = Executor::new(&database);
     let input = row(1, Value::BigInt(10), text("A"));
     for (group_by, projections) in [
         (vec![column(99)], projections()),
@@ -328,7 +320,7 @@ fn group_state는_키와_sum의_컬럼_조회_오류를_전파한다() {
         ),
     ] {
         assert!(matches!(
-            GroupState::new().push_row(&executor, &input, &group_by, &projections),
+            GroupState::new().push_row(&database, &input, &group_by, &projections),
             Err(ExecutorError::ColumnNotFound(id)) if id == ColumnId::new(99)
         ));
     }
@@ -337,10 +329,9 @@ fn group_state는_키와_sum의_컬럼_조회_오류를_전파한다() {
 #[test]
 fn group_state는_all_projection을_거부한다() {
     let database = database();
-    let executor = Executor::new(&database);
     assert!(matches!(
         GroupState::new().push_row(
-            &executor,
+            &database,
             &row(1, Value::BigInt(10), text("A")),
             &[column(2)],
             &[BoundProjection::All],

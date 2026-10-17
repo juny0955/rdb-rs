@@ -15,7 +15,7 @@ use crate::{
 };
 
 use super::{
-    Executor, ExecutorError, QueryRow, TableRow,
+    ExecutorError, QueryRow, TableRow, encode_insert,
     state::{
         delete::DeleteState,
         select::{SelectState, SelectStep},
@@ -27,7 +27,7 @@ mod aggregate;
 mod select;
 
 fn collect_select(
-    executor: &Executor<'_>,
+    metadata: &DatabaseMetadata,
     rows: Vec<QueryRow>,
     bound: BoundSelect,
 ) -> Result<Vec<Vec<Value>>, ExecutorError> {
@@ -37,14 +37,14 @@ fn collect_select(
         if state.is_done() {
             break;
         }
-        match state.push_row(executor, &row)? {
+        match state.push_row(metadata, &row)? {
             SelectStep::Row(values) => results.push(values),
             SelectStep::NeedInput => {}
             SelectStep::Done => break,
         }
     }
     loop {
-        match state.finish(executor)? {
+        match state.finish(metadata)? {
             SelectStep::Row(values) => results.push(values),
             SelectStep::Done => return Ok(results),
             SelectStep::NeedInput => panic!("EOF 후에는 추가 입력을 요구하면 안 됨"),
@@ -137,7 +137,7 @@ fn insert는_리터럴을_row로_변환한다() {
         values: vec![Value::BigInt(1), Value::Varchar("Kim".to_owned())],
     };
 
-    assert!(Executor::new(&database).encode_insert(&bound).is_ok());
+    assert!(encode_insert(&database, &bound).is_ok());
 }
 
 #[test]
@@ -158,14 +158,13 @@ fn update는_filter와_일치하는_query_row만_준비한다() {
         )),
     };
 
-    let executor = Executor::new(&database);
     let mut state = UpdateState::new(bound);
     for row in rows() {
         state
-            .prepare_row(&executor, &row)
+            .prepare_row(&database, &row)
             .expect("UPDATE 입력을 준비해야 함");
     }
-    let prepared = state.finish(&executor).expect("UPDATE 대상을 반환해야 함");
+    let prepared = state.finish(&database).expect("UPDATE 대상을 반환해야 함");
 
     assert_eq!(prepared.len(), 1);
     assert_eq!(prepared[0].table_id, table_id);
@@ -191,7 +190,6 @@ fn update는_filter와_일치하는_query_row만_준비한다() {
 fn update_state는_여러_assignment를_합치고_finish후_다음_입력에_재사용한다() {
     let table_id = TableId::new(1);
     let database = database(table_id);
-    let executor = Executor::new(&database);
     let mut state = UpdateState::new(BoundUpdate {
         from: users_from(table_id),
         assignments: vec![
@@ -208,7 +206,7 @@ fn update_state는_여러_assignment를_합치고_finish후_다음_입력에_재
     });
     assert!(
         state
-            .finish(&executor)
+            .finish(&database)
             .expect("빈 상태를 처리해야 함")
             .is_empty()
     );
@@ -219,10 +217,10 @@ fn update_state는_여러_assignment를_합치고_finish후_다음_입력에_재
         row(1, Value::BigInt(10), Value::Varchar("Park".to_owned())),
     ] {
         state
-            .prepare_row(&executor, &input)
+            .prepare_row(&database, &input)
             .expect("현재 행을 준비해야 함");
         let prepared = state
-            .finish(&executor)
+            .finish(&database)
             .expect("현재 입력의 변경만 반환해야 함");
         assert_eq!(prepared.len(), 1);
         assert_eq!(prepared[0].row_id, input.table_rows[0].row_id);
@@ -237,7 +235,7 @@ fn update_state는_여러_assignment를_합치고_finish후_다음_입력에_재
         );
         assert!(
             state
-                .finish(&executor)
+                .finish(&database)
                 .expect("반환한 변경을 다시 내보내면 안 됨")
                 .is_empty()
         );
@@ -248,7 +246,6 @@ fn update_state는_여러_assignment를_합치고_finish후_다음_입력에_재
 fn update_state는_self_join의_다른_입력에서_동일행의_변경을_병합한다() {
     let table_id = TableId::new(1);
     let database = database(table_id);
-    let executor = Executor::new(&database);
     let mut other = users_table(table_id);
     other.instance_id = TableInstanceId(1);
     other.alias = Some("other".to_owned());
@@ -289,11 +286,11 @@ fn update_state는_self_join의_다른_입력에서_동일행의_변경을_병�
         let mut right = right.clone();
         right.instance_id = other.instance_id;
         state
-            .prepare_row(&executor, &QueryRow::new(vec![left.clone(), right]))
+            .prepare_row(&database, &QueryRow::new(vec![left.clone(), right]))
             .expect("별칭별 변경을 동일한 물리행에 병합해야 함");
     }
 
-    let prepared = state.finish(&executor).expect("병합된 변경을 반환해야 함");
+    let prepared = state.finish(&database).expect("병합된 변경을 반환해야 함");
     assert_eq!(prepared.len(), 2);
     for original in [&first, &second] {
         let update = prepared
@@ -328,13 +325,12 @@ fn delete는_filter와_일치하는_query_row만_준비한다() {
         )),
     };
 
-    let executor = Executor::new(&database);
     let mut state = DeleteState::new(bound);
     let mut prepared = Vec::new();
     for row in rows() {
         prepared.extend(
             state
-                .prepare_row(&executor, &row)
+                .prepare_row(&database, &row)
                 .expect("DELETE 대상을 준비해야 함"),
         );
     }
@@ -354,7 +350,6 @@ fn delete는_filter와_일치하는_query_row만_준비한다() {
 fn delete_state는_다른_입력과_별칭의_동일한_물리행을_한번만_준비한다() {
     let table_id = TableId::new(1);
     let database = database(table_id);
-    let executor = Executor::new(&database);
     let first_target = users_table(table_id);
     let mut second_target = first_target.clone();
     second_target.instance_id = TableInstanceId(1);
@@ -380,14 +375,14 @@ fn delete_state는_다른_입력과_별칭의_동일한_물리행을_한번만_�
     input.table_rows.push(alias_row);
 
     let prepared = state
-        .prepare_row(&executor, &input)
+        .prepare_row(&database, &input)
         .expect("첫 입력에서 삭제 대상을 준비해야 함");
     assert_eq!(prepared.len(), 1);
     assert_eq!(prepared[0].table_id, table_id);
     assert_eq!(prepared[0].row_id, input.table_rows[0].row_id);
     assert!(
         state
-            .prepare_row(&executor, &input)
+            .prepare_row(&database, &input)
             .expect("반복 입력은 오류 없이 처리해야 함")
             .is_empty()
     );
@@ -401,7 +396,6 @@ fn delete_state는_다른_입력과_별칭의_동일한_물리행을_한번만_�
 fn delete_state는_필터_불일치_대상을_seen에_기록하지_않는다() {
     let table_id = TableId::new(1);
     let database = database(table_id);
-    let executor = Executor::new(&database);
     let mut other = users_table(table_id);
     other.instance_id = TableInstanceId(1);
     other.alias = Some("other".to_owned());
@@ -439,12 +433,12 @@ fn delete_state는_필터_불일치_대상을_seen에_기록하지_않는다() {
 
     assert!(
         state
-            .prepare_row(&executor, &rejected)
+            .prepare_row(&database, &rejected)
             .expect("필터 불일치는 오류 없이 처리해야 함")
             .is_empty()
     );
     let prepared = state
-        .prepare_row(&executor, &accepted)
+        .prepare_row(&database, &accepted)
         .expect("이전에 제외된 식별자도 조건에 맞으면 준비해야 함");
     assert_eq!(prepared.len(), 1);
     assert_eq!(prepared[0].values, accepted.table_rows[0].values);
@@ -469,7 +463,6 @@ fn delete_state는_row_id가_같아도_테이블이_다르면_구분한다() {
         vec![],
     )
     .expect("서로 다른 두 테이블이 유효해야 함");
-    let executor = Executor::new(&database);
     let mut second_target = users_table(second_table_id);
     second_target.instance_id = TableInstanceId(1);
     let mut state = DeleteState::new(BoundDelete {
@@ -493,7 +486,7 @@ fn delete_state는_row_id가_같아도_테이블이_다르면_구분한다() {
     input.table_rows.push(second_row);
 
     let prepared = state
-        .prepare_row(&executor, &input)
+        .prepare_row(&database, &input)
         .expect("서로 다른 테이블의 행을 각각 준비해야 함");
     assert_eq!(prepared.len(), 2);
     assert_eq!(
@@ -510,11 +503,10 @@ fn delete_state는_row_id가_같아도_테이블이_다르면_구분한다() {
 fn select는_all과_column_projection을반환한다() {
     let table_id = TableId::new(1);
     let database = database(table_id);
-    let executor = Executor::new(&database);
 
     assert_eq!(
         collect_select(
-            &executor,
+            &database,
             rows(),
             select(table_id, vec![BoundProjection::All])
         )
@@ -527,7 +519,7 @@ fn select는_all과_column_projection을반환한다() {
     );
     assert_eq!(
         collect_select(
-            &executor,
+            &database,
             rows(),
             select(
                 table_id,
@@ -547,7 +539,6 @@ fn select는_all과_column_projection을반환한다() {
 fn select는_comparison_and_or_filter를적용한다() {
     let table_id = TableId::new(1);
     let database = database(table_id);
-    let executor = Executor::new(&database);
     let mut bound = select(
         table_id,
         vec![BoundProjection::Column(users_column(table_id, 2))],
@@ -567,7 +558,7 @@ fn select는_comparison_and_or_filter를적용한다() {
         )),
     });
     assert_eq!(
-        collect_select(&executor, rows(), bound).expect("AND filter가 성공해야 함"),
+        collect_select(&database, rows(), bound).expect("AND filter가 성공해야 함"),
         vec![vec![Value::Varchar("Kim".to_owned())]]
     );
 
@@ -590,7 +581,7 @@ fn select는_comparison_and_or_filter를적용한다() {
         )),
     });
     assert_eq!(
-        collect_select(&executor, rows(), bound).expect("OR filter가 성공해야 함"),
+        collect_select(&database, rows(), bound).expect("OR filter가 성공해야 함"),
         vec![
             vec![Value::Varchar("Kim".to_owned())],
             vec![Value::Varchar("Lee".to_owned())],
@@ -611,7 +602,7 @@ fn select의_null_comparison은_일치하지않는다() {
     ));
 
     assert!(
-        collect_select(&Executor::new(&database), rows(), bound)
+        collect_select(&database, rows(), bound)
             .expect("NULL filter가 성공해야 함")
             .is_empty()
     );
@@ -632,8 +623,7 @@ fn select는_order_by와_limit을적용한다() {
     bound.limit = Some(2);
 
     assert_eq!(
-        collect_select(&Executor::new(&database), rows(), bound)
-            .expect("ORDER BY와 LIMIT이 성공해야 함"),
+        collect_select(&database, rows(), bound).expect("ORDER BY와 LIMIT이 성공해야 함"),
         vec![
             vec![Value::Varchar("Null".to_owned())],
             vec![Value::Varchar("Lee".to_owned())],

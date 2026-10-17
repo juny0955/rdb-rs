@@ -1,33 +1,32 @@
 use std::cmp::Ordering;
 
 use crate::{
-    executor::{Executor, ExecutorError, QueryRow},
+    catalog::metadata::DatabaseMetadata,
+    executor::{ExecutorError, QueryRow, column_value},
     query::binder::BoundOrderBy,
     tuple::Value,
 };
 
-impl<'a> Executor<'a> {
-    pub(super) fn order_rows(
-        &self,
-        rows: Vec<QueryRow>,
-        order: &BoundOrderBy,
-    ) -> Result<Vec<QueryRow>, ExecutorError> {
-        let mut keyed_rows = Vec::new();
-        for row in rows {
-            let key = self.column_value(&row, &order.column)?;
-            keyed_rows.push((key.clone(), row));
-        }
-
-        keyed_rows.sort_by(|left, right| compare_values(&left.0, &right.0));
-
-        if order.direction.is_desc() {
-            keyed_rows.reverse();
-        }
-
-        let results = keyed_rows.into_iter().map(|r| r.1).collect();
-
-        Ok(results)
+pub(super) fn order_rows(
+    metadata: &DatabaseMetadata,
+    rows: Vec<QueryRow>,
+    order: &BoundOrderBy,
+) -> Result<Vec<QueryRow>, ExecutorError> {
+    let mut keyed_rows = Vec::new();
+    for row in rows {
+        let key = column_value(metadata, &row, &order.column)?;
+        keyed_rows.push((key.clone(), row));
     }
+
+    keyed_rows.sort_by(|left, right| compare_values(&left.0, &right.0));
+
+    if order.direction.is_desc() {
+        keyed_rows.reverse();
+    }
+
+    let results = keyed_rows.into_iter().map(|r| r.1).collect();
+
+    Ok(results)
 }
 
 pub(super) fn compare_values(left: &Value, right: &Value) -> Ordering {

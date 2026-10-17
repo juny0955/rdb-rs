@@ -3,7 +3,7 @@ use crate::{
         Database, DatabaseError,
         cursor::state::{InputState, join::JoinScanState},
     },
-    executor::{Executor, QueryRow, join::hash::HashJoinState},
+    executor::{QueryRow, join::hash::HashJoinState},
     query::binder::BoundJoinCondition,
 };
 
@@ -37,8 +37,8 @@ impl HashJoin {
                 return Ok(());
             };
 
-            let executor = Executor::new(database.catalog.metadata());
-            self.join.push_right(&executor, row, &self.condition)?;
+            self.join
+                .push_right(database.catalog.metadata(), row, &self.condition)?;
         }
     }
 }
@@ -59,8 +59,8 @@ impl JoinScanState for HashJoin {
                 return Ok(None);
             };
 
-            let executor = Executor::new(database.catalog.metadata());
-            self.join.push_left(&executor, left_row, &self.condition)?;
+            self.join
+                .push_left(database.catalog.metadata(), left_row, &self.condition)?;
         }
     }
 

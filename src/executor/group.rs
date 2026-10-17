@@ -1,8 +1,12 @@
 use std::collections::HashMap;
 
 use crate::{
+    catalog::metadata::DatabaseMetadata,
     executor::{
-        Executor, ExecutorError, QueryRow, aggregate::AggregateState, order::compare_values,
+        ExecutorError, QueryRow,
+        aggregate::{AggregateState, accumulate_aggregate},
+        column_value,
+        order::compare_values,
     },
     query::binder::{BoundColumnReference, BoundOrderBy, BoundProjection},
     tuple::Value,
@@ -28,14 +32,14 @@ impl GroupState {
 
     pub(super) fn push_row(
         &mut self,
-        executor: &Executor<'_>,
+        metadata: &DatabaseMetadata,
         row: &QueryRow,
         group_by: &[BoundColumnReference],
         projections: &[BoundProjection],
     ) -> Result<(), ExecutorError> {
         let mut key = Vec::new();
         for column_ref in group_by {
-            let value = executor.column_value(row, column_ref)?;
+            let value = column_value(metadata, row, column_ref)?;
             key.push(value.clone());
         }
 
@@ -69,7 +73,7 @@ impl GroupState {
         let accumulator = &mut self.groups[group_index];
 
         for (projection, state) in aggregate_projections.zip(accumulator.aggregates.iter_mut()) {
-            executor.accumulate_aggregate(state, projection, row)?;
+            accumulate_aggregate(metadata, state, projection, row)?;
         }
 
         Ok(())

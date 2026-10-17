@@ -2,7 +2,7 @@ use std::vec::IntoIter;
 
 use crate::{
     database::{Database, DatabaseError},
-    executor::{Executor, QueryRow, TableRow},
+    executor::{QueryRow, TableRow, decode_table_rows},
     query::binder::BoundTable,
     storage::page::PageId,
 };
@@ -43,8 +43,7 @@ impl ScanState {
                 PageId::new(self.next_page),
             )?;
 
-            let executor = Executor::new(database.catalog.metadata());
-            let table_rows = executor.decode_table_rows(&self.table, rows)?;
+            let table_rows = decode_table_rows(database.catalog.metadata(), &self.table, rows)?;
             self.current_rows = table_rows.into_iter();
             self.next_page += 1;
         }

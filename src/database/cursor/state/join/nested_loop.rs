@@ -3,7 +3,7 @@ use crate::{
         Database, DatabaseError,
         cursor::state::{InputState, join::JoinScanState},
     },
-    executor::{Executor, QueryRow},
+    executor::{QueryRow, join::nested_loop::join_row_pair},
     query::binder::BoundJoinCondition,
 };
 
@@ -54,8 +54,9 @@ impl JoinScanState for NestedLoopJoin {
                 continue;
             };
 
-            let executor = Executor::new(database.catalog.metadata());
-            if let Some(row) = executor.join_row_pair(left, &right, &self.condition)? {
+            if let Some(row) =
+                join_row_pair(database.catalog.metadata(), left, &right, &self.condition)?
+            {
                 return Ok(Some(row));
             }
         }

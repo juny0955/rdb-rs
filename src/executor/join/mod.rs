@@ -1,2 +1,2 @@
 pub mod hash;
-mod nested_loop;
+pub mod nested_loop;

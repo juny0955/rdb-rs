@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use crate::{
-    executor::{Executor, ExecutorError, QueryRow},
+    catalog::metadata::DatabaseMetadata,
+    executor::{ExecutorError, QueryRow, column_value},
     query::binder::{BoundColumnReference, BoundJoinCondition},
     tuple::Value,
 };
@@ -25,13 +26,13 @@ impl HashJoinState {
 
     pub fn push_right(
         &mut self,
-        executor: &Executor<'_>,
+        metadata: &DatabaseMetadata,
         row: QueryRow,
         condition: &BoundJoinCondition,
     ) -> Result<(), ExecutorError> {
-        let column_ref = executor.hash_join_column(&row, condition)?;
+        let column_ref = hash_join_column(&row, condition)?;
 
-        let value = executor.column_value(&row, column_ref)?;
+        let value = column_value(metadata, &row, column_ref)?;
         if *value != Value::Null {
             self.buckets.entry(value.clone()).or_default().push(row);
         }
@@ -41,15 +42,15 @@ impl HashJoinState {
 
     pub fn push_left(
         &mut self,
-        executor: &Executor<'_>,
+        metadata: &DatabaseMetadata,
         row: QueryRow,
         condition: &BoundJoinCondition,
     ) -> Result<(), ExecutorError> {
         self.init_left();
 
-        let column_ref = executor.hash_join_column(&row, condition)?;
+        let column_ref = hash_join_column(&row, condition)?;
 
-        let value = executor.column_value(&row, column_ref)?;
+        let value = column_value(metadata, &row, column_ref)?;
         if *value == Value::Null || !self.buckets.contains_key(value) {
             return Ok(());
         }
@@ -92,19 +93,16 @@ impl HashJoinState {
     }
 }
 
-impl<'a> Executor<'a> {
-    fn hash_join_column<'row>(
-        &self,
-        row: &'row QueryRow,
-        condition: &'row BoundJoinCondition,
-    ) -> Result<&'row BoundColumnReference, ExecutorError> {
-        if row.find_table_row(condition.left.instance_id).is_some() {
-            Ok(&condition.left)
-        } else if row.find_table_row(condition.right.instance_id).is_some() {
-            Ok(&condition.right)
-        } else {
-            Err(ExecutorError::Unsupported)
-        }
+fn hash_join_column<'row>(
+    row: &'row QueryRow,
+    condition: &'row BoundJoinCondition,
+) -> Result<&'row BoundColumnReference, ExecutorError> {
+    if row.find_table_row(condition.left.instance_id).is_some() {
+        Ok(&condition.left)
+    } else if row.find_table_row(condition.right.instance_id).is_some() {
+        Ok(&condition.right)
+    } else {
+        Err(ExecutorError::Unsupported)
     }
 }
 

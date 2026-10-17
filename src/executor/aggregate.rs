@@ -1,5 +1,6 @@
 use crate::{
-    executor::{Executor, ExecutorError, QueryRow},
+    catalog::metadata::DatabaseMetadata,
+    executor::{ExecutorError, QueryRow, column_value},
     query::binder::{BoundAggregate, BoundProjection},
     tuple::Value,
 };
@@ -28,36 +29,34 @@ impl AggregateState {
     }
 }
 
-impl Executor<'_> {
-    pub(crate) fn accumulate_aggregate(
-        &self,
-        state: &mut AggregateState,
-        projection: &BoundProjection,
-        row: &QueryRow,
-    ) -> Result<(), ExecutorError> {
-        match state {
-            AggregateState::CountAll { count } => *count += 1,
-            AggregateState::Sum { total } => {
-                let BoundProjection::Aggregate(BoundAggregate::Sum(column)) = projection else {
-                    return Err(ExecutorError::Unsupported);
-                };
+pub(crate) fn accumulate_aggregate(
+    metadata: &DatabaseMetadata,
+    state: &mut AggregateState,
+    projection: &BoundProjection,
+    row: &QueryRow,
+) -> Result<(), ExecutorError> {
+    match state {
+        AggregateState::CountAll { count } => *count += 1,
+        AggregateState::Sum { total } => {
+            let BoundProjection::Aggregate(BoundAggregate::Sum(column)) = projection else {
+                return Err(ExecutorError::Unsupported);
+            };
 
-                let addend = match self.column_value(row, column)? {
-                    Value::Int(value) => i64::from(*value),
-                    Value::BigInt(value) => *value,
-                    Value::Null => return Ok(()),
-                    _ => return Err(ExecutorError::Unsupported),
-                };
+            let addend = match column_value(metadata, row, column)? {
+                Value::Int(value) => i64::from(*value),
+                Value::BigInt(value) => *value,
+                Value::Null => return Ok(()),
+                _ => return Err(ExecutorError::Unsupported),
+            };
 
-                *total = Some(
-                    (*total)
-                        .unwrap_or(0)
-                        .checked_add(addend)
-                        .ok_or(ExecutorError::SumOverflow)?,
-                );
-            }
+            *total = Some(
+                (*total)
+                    .unwrap_or(0)
+                    .checked_add(addend)
+                    .ok_or(ExecutorError::SumOverflow)?,
+            );
         }
-
-        Ok(())
     }
+
+    Ok(())
 }

@@ -56,69 +56,57 @@ pub struct TableRow {
     pub values: Vec<Value>,
 }
 
-pub struct Executor<'a> {
-    database: &'a DatabaseMetadata,
+pub fn encode_insert(
+    metadata: &DatabaseMetadata,
+    bound: &BoundInsert,
+) -> Result<Row, ExecutorError> {
+    let table_meta = metadata
+        .table_by_id(bound.table_id)
+        .ok_or(ExecutorError::TableNotFound(bound.table_id))?;
+
+    Ok(encode(&bound.values, table_meta.columns())?)
 }
 
-impl<'a> Executor<'a> {
-    pub fn new(database: &'a DatabaseMetadata) -> Self {
-        Self { database }
+pub fn decode_table_rows(
+    metadata: &DatabaseMetadata,
+    table: &BoundTable,
+    rows: Vec<(RowId, Row)>,
+) -> Result<Vec<TableRow>, ExecutorError> {
+    let table_meta = metadata
+        .table_by_id(table.table_id)
+        .ok_or(ExecutorError::TableNotFound(table.table_id))?;
+
+    let mut table_rows = Vec::new();
+    for (row_id, row) in rows {
+        table_rows.push(TableRow {
+            row_id,
+            instance_id: table.instance_id,
+            values: decode(&row, table_meta.columns())?,
+        });
     }
 
-    pub fn encode_insert(&self, bound: &BoundInsert) -> Result<Row, ExecutorError> {
-        let table_id = bound.table_id;
-        let table = self
-            .database
-            .table_by_id(table_id)
-            .ok_or(ExecutorError::TableNotFound(table_id))?;
+    Ok(table_rows)
+}
 
-        Ok(encode(&bound.values, table.columns())?)
-    }
+pub fn column_value<'row>(
+    metadata: &DatabaseMetadata,
+    row: &'row QueryRow,
+    column: &BoundColumnReference,
+) -> Result<&'row Value, ExecutorError> {
+    let table_row = row
+        .find_table_row(column.instance_id)
+        .ok_or(ExecutorError::TableInstanceNotFound(column.instance_id))?;
 
-    pub fn decode_table_rows(
-        &self,
-        table: &BoundTable,
-        rows: Vec<(RowId, Row)>,
-    ) -> Result<Vec<TableRow>, ExecutorError> {
-        let table_meta = self
-            .database
-            .table_by_id(table.table_id)
-            .ok_or(ExecutorError::TableNotFound(table.table_id))?;
+    let column_index = metadata
+        .table_by_id(column.table_id)
+        .ok_or(ExecutorError::TableNotFound(column.table_id))?
+        .column_index(column.column_id)
+        .ok_or(ExecutorError::ColumnNotFound(column.column_id))?;
 
-        let mut table_rows = Vec::new();
-        for (row_id, row) in rows {
-            table_rows.push(TableRow {
-                row_id,
-                instance_id: table.instance_id,
-                values: decode(&row, table_meta.columns())?,
-            });
-        }
-
-        Ok(table_rows)
-    }
-
-    pub fn column_value<'row>(
-        &self,
-        row: &'row QueryRow,
-        column: &BoundColumnReference,
-    ) -> Result<&'row Value, ExecutorError> {
-        let table_row = row
-            .find_table_row(column.instance_id)
-            .ok_or(ExecutorError::TableInstanceNotFound(column.instance_id))?;
-
-        let table_meta = self
-            .database
-            .table_by_id(column.table_id)
-            .ok_or(ExecutorError::TableNotFound(column.table_id))?;
-
-        let column_index = table_meta
-            .column_index(column.column_id)
-            .ok_or(ExecutorError::ColumnNotFound(column.column_id))?;
-        table_row
-            .values
-            .get(column_index)
-            .ok_or(ExecutorError::ColumnNotFound(column.column_id))
-    }
+    table_row
+        .values
+        .get(column_index)
+        .ok_or(ExecutorError::ColumnNotFound(column.column_id))
 }
 
 #[cfg(test)]

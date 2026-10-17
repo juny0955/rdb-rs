@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use crate::{
-    catalog::metadata::TableId,
-    executor::{Executor, ExecutorError, QueryRow},
+    catalog::metadata::{DatabaseMetadata, TableId},
+    executor::{ExecutorError, QueryRow, predicate::row_matches_filter},
     query::binder::BoundUpdate,
     storage::page::{Row, RowId},
     tuple::{Value, encode},
@@ -42,13 +42,13 @@ impl UpdateState {
 
     pub fn prepare_row(
         &mut self,
-        executor: &Executor<'_>,
+        metadata: &DatabaseMetadata,
         row: &QueryRow,
     ) -> Result<(), ExecutorError> {
         if let Some(filter) = self.bound.filter.as_ref()
-            && !executor.row_matches_filter(row, filter)?
+            && !row_matches_filter(metadata, row, filter)?
         {
-            return Ok(())
+            return Ok(());
         }
 
         for assignment in &self.bound.assignments {
@@ -56,8 +56,7 @@ impl UpdateState {
                 ExecutorError::TableInstanceNotFound(assignment.column.instance_id),
             )?;
 
-            let table_meta = executor
-                .database
+            let table_meta = metadata
                 .table_by_id(assignment.column.table_id)
                 .ok_or(ExecutorError::TableNotFound(assignment.column.table_id))?;
 
@@ -88,14 +87,16 @@ impl UpdateState {
         Ok(())
     }
 
-    pub fn finish(&mut self, executor: &Executor<'_>) -> Result<Vec<PreparedUpdate>, ExecutorError> {
+    pub fn finish(
+        &mut self,
+        metadata: &DatabaseMetadata,
+    ) -> Result<Vec<PreparedUpdate>, ExecutorError> {
         let mut results = Vec::new();
         let pendings = std::mem::take(&mut self.pendings);
         self.positions.clear();
 
         for pending in pendings {
-            let table_meta = executor
-                .database
+            let table_meta = metadata
                 .table_by_id(pending.table_id)
                 .ok_or(ExecutorError::TableNotFound(pending.table_id))?;
 
@@ -111,5 +112,4 @@ impl UpdateState {
 
         Ok(results)
     }
-    
 }

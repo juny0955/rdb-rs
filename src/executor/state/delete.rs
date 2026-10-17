@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
 use crate::{
-    catalog::metadata::TableId,
-    executor::{Executor, ExecutorError, QueryRow},
+    catalog::metadata::{DatabaseMetadata, TableId},
+    executor::{ExecutorError, QueryRow, predicate::row_matches_filter},
     query::binder::BoundDelete,
     storage::page::RowId,
     tuple::Value,
@@ -30,11 +30,11 @@ impl DeleteState {
 
     pub fn prepare_row(
         &mut self,
-        executor: &Executor<'_>,
+        metadata: &DatabaseMetadata,
         row: &QueryRow,
     ) -> Result<Vec<PreparedDelete>, ExecutorError> {
         if let Some(filter) = self.bound.filter.as_ref()
-            && !executor.row_matches_filter(row, filter)?
+            && !row_matches_filter(metadata, row, filter)?
         {
             return Ok(vec![]);
         }

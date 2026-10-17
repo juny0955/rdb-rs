@@ -1,9 +1,6 @@
 use crate::{
     database::{Database, DatabaseError, cursor::state::InputState},
-    executor::{
-        Executor,
-        state::select::{SelectState, SelectStep},
-    },
+    executor::state::select::{SelectState, SelectStep},
     tuple::Value,
 };
 
@@ -31,11 +28,10 @@ impl<'a> SelectCursor<'a> {
             }
 
             let step = if let Some(row) = self.input.next_input_row(self.database)? {
-                let executor = Executor::new(self.database.catalog.metadata());
-                self.state.push_row(&executor, &row)?
+                self.state
+                    .push_row(self.database.catalog.metadata(), &row)?
             } else {
-                let executor = Executor::new(self.database.catalog.metadata());
-                self.state.finish(&executor)?
+                self.state.finish(self.database.catalog.metadata())?
             };
 
             return match step {

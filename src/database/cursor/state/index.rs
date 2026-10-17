@@ -1,6 +1,6 @@
 use crate::{
     database::{Database, DatabaseError},
-    executor::{Executor, QueryRow},
+    executor::{QueryRow, decode_table_rows},
     query::binder::BoundTable,
     storage::page::RowId,
 };
@@ -30,8 +30,8 @@ impl IndexScanState {
                 self.table.table_id,
                 vec![row_id],
             )?;
-            let executor = Executor::new(database.catalog.metadata());
-            let table_rows = executor.decode_table_rows(&self.table, rows)?;
+
+            let table_rows = decode_table_rows(database.catalog.metadata(), &self.table, rows)?;
 
             return Ok(Some(QueryRow::new(table_rows)));
         }
