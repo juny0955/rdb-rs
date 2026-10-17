@@ -1,10 +1,8 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::{
     catalog::metadata::{ColumnId, DatabaseMetadata, TableId},
-    query::binder::{
-        BoundColumnReference, BoundDelete, BoundInsert, BoundTable, BoundUpdate, TableInstanceId,
-    },
+    query::binder::{BoundColumnReference, BoundInsert, BoundTable, BoundUpdate, TableInstanceId},
     storage::page::{Row, RowId},
     tuple::{TupleError, Value, decode, encode},
 };
@@ -16,7 +14,7 @@ pub mod join;
 mod order;
 mod predicate;
 mod projection;
-pub mod select;
+pub mod state;
 
 #[derive(Debug, Error)]
 pub enum ExecutorError {
@@ -165,36 +163,6 @@ impl<'a> Executor<'a> {
                 new_values: pending.new_values,
                 new_row,
             });
-        }
-
-        Ok(results)
-    }
-
-    pub fn prepare_delete(
-        &self,
-        mut rows: Vec<QueryRow>,
-        bound: &BoundDelete,
-    ) -> Result<Vec<PreparedDelete>, ExecutorError> {
-        if let Some(filter) = bound.filter.as_ref() {
-            rows = self.filter_rows(rows, filter)?;
-        }
-
-        let mut results: Vec<PreparedDelete> = Vec::new();
-        let mut seen = HashSet::new();
-        for row in rows {
-            for target in &bound.targets {
-                let table_row = row
-                    .find_table_row(target.instance_id)
-                    .ok_or(ExecutorError::TableInstanceNotFound(target.instance_id))?;
-
-                if seen.insert((target.table_id, table_row.row_id)) {
-                    results.push(PreparedDelete {
-                        table_id: target.table_id,
-                        row_id: table_row.row_id,
-                        values: table_row.values.clone(),
-                    });
-                }
-            }
         }
 
         Ok(results)

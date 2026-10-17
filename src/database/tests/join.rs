@@ -1,5 +1,6 @@
 use crate::{
     database::{Database, DatabaseError, ExecuteResult},
+    index::IndexManager,
     query::binder::BinderError,
     test_supports::TestDirectory,
     tuple::Value,
@@ -225,5 +226,85 @@ fn join_delete는_별칭_없이_테이블_이름으로_대상을_지정한다() 
         collect_select_rows(rows)?,
         vec![vec![Value::BigInt(2)], vec![Value::Null]]
     );
+    Ok(())
+}
+
+#[test]
+fn self_join_delete는_다음_페이지의_원본을_삭제해도_대상을_누락하지_않는다()
+-> Result<(), DatabaseError> {
+    for indexed in [false, true] {
+        let directory = TestDirectory::new("self-join-delete-across-pages");
+        {
+            let mut database = Database::open(directory.path(), "test")?;
+            database.execute(&parse_sql(
+                "CREATE TABLE nodes (id BIGINT, next_id BIGINT, payload VARCHAR);",
+            ))?;
+            if indexed {
+                database.execute(&parse_sql("CREATE INDEX idx_nodes_id ON nodes(id);"))?;
+            }
+            let payload = "x".repeat(5000);
+            for (id, next_id) in [(1, "2"), (2, "3"), (3, "NULL")] {
+                database.execute(&parse_sql(&format!(
+                    "INSERT INTO nodes VALUES ({id}, {next_id}, '{payload}');"
+                )))?;
+            }
+            let table_id = database
+                .catalog
+                .metadata()
+                .table("nodes")
+                .expect("nodes 테이블이 존재해야 함")
+                .id();
+            assert_eq!(
+                database
+                    .table_manager
+                    .page_count(&mut database.storage_manager, table_id)?,
+                3,
+                "각 원본 행은 서로 다른 페이지에 저장되어야 함"
+            );
+            assert_eq!(
+                collect_select_rows(database.execute(&parse_sql(
+                    "SELECT b.id FROM nodes a JOIN nodes b ON a.next_id = b.id ORDER BY b.id;",
+                ))?)?,
+                vec![vec![Value::BigInt(2)], vec![Value::BigInt(3)]]
+            );
+
+            assert!(matches!(
+                database.execute(&parse_sql(
+                    "DELETE b FROM nodes a JOIN nodes b ON a.next_id = b.id;",
+                ))?,
+                ExecuteResult::AffectedRows { affected_rows: 2 }
+            ));
+            assert_eq!(
+                collect_select_rows(
+                    database.execute(&parse_sql("SELECT id FROM nodes ORDER BY id;"))?
+                )?,
+                vec![vec![Value::BigInt(1)]]
+            );
+        }
+
+        let mut database = Database::open(directory.path(), "reopened")?;
+        assert_eq!(
+            collect_select_rows(
+                database.execute(&parse_sql("SELECT id FROM nodes ORDER BY id;"))?
+            )?,
+            vec![vec![Value::BigInt(1)]]
+        );
+        if indexed {
+            let metadata = database.catalog.metadata();
+            let table = metadata.table("nodes").expect("nodes 테이블이 존재해야 함");
+            let column = table.columns()[0].id();
+            for id in [1, 2, 3] {
+                let row_ids = IndexManager::search_index_row_ids(
+                    &mut database.storage_manager,
+                    metadata.indexes(),
+                    table.id(),
+                    column,
+                    &Value::BigInt(id),
+                )?
+                .expect("기존 id 인덱스로 검색해야 함");
+                assert_eq!(row_ids.len(), usize::from(id == 1));
+            }
+        }
+    }
     Ok(())
 }

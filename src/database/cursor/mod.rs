@@ -2,7 +2,7 @@ use crate::{
     database::{Database, DatabaseError, cursor::state::InputState},
     executor::{
         Executor,
-        select::{SelectState, SelectStep},
+        state::select::{SelectState, SelectStep},
     },
     tuple::Value,
 };

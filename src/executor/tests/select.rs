@@ -2,7 +2,7 @@ use crate::{
     catalog::metadata::{ColumnId, TableId},
     executor::{
         ExecutorError,
-        select::{SelectState, SelectStep},
+        state::select::{SelectState, SelectStep},
     },
     query::{
         binder::{BoundAggregate, BoundOrderBy, BoundProjection},

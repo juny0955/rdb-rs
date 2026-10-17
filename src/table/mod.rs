@@ -118,6 +118,17 @@ impl TableManager {
         Ok(rows)
     }
 
+    pub fn get_row(
+        &mut self,
+        storage_manager: &mut StorageManager,
+        table_id: TableId,
+        row_id: RowId,
+    ) -> Result<Row, TableError> {
+        let heap_table = self.get_or_open_table(storage_manager, table_id)?;
+        let row = heap_table.get(storage_manager, row_id)?;
+        Ok(row)
+    }
+
     pub fn page_count(
         &mut self,
         storage_manager: &mut StorageManager,
