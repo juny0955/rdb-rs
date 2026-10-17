@@ -2,10 +2,18 @@ use std::collections::HashSet;
 
 use crate::{
     catalog::metadata::TableId,
-    executor::{Executor, ExecutorError, PreparedDelete, QueryRow},
+    executor::{Executor, ExecutorError, QueryRow},
     query::binder::BoundDelete,
     storage::page::RowId,
+    tuple::Value,
 };
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct PreparedDelete {
+    pub table_id: TableId,
+    pub row_id: RowId,
+    pub values: Vec<Value>,
+}
 
 pub struct DeleteState {
     bound: BoundDelete,

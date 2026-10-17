@@ -4,22 +4,6 @@ use crate::{
 };
 
 impl<'a> Executor<'a> {
-    pub(super) fn filter_rows(
-        &self,
-        rows: Vec<QueryRow>,
-        filter: &BoundExpression,
-    ) -> Result<Vec<QueryRow>, ExecutorError> {
-        let mut results = Vec::new();
-
-        for row in rows {
-            if self.row_matches_filter(&row, filter)? {
-                results.push(row);
-            }
-        }
-
-        Ok(results)
-    }
-
     pub(crate) fn row_matches_filter(
         &self,
         row: &QueryRow,

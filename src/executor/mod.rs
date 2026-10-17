@@ -1,8 +1,6 @@
-use std::collections::HashMap;
-
 use crate::{
     catalog::metadata::{ColumnId, DatabaseMetadata, TableId},
-    query::binder::{BoundColumnReference, BoundInsert, BoundTable, BoundUpdate, TableInstanceId},
+    query::binder::{BoundColumnReference, BoundInsert, BoundTable, TableInstanceId},
     storage::page::{Row, RowId},
     tuple::{TupleError, Value, decode, encode},
 };
@@ -32,30 +30,6 @@ pub enum ExecutorError {
     SumOverflow,
     #[error("현재 쿼리 형태는 실행기에서 지원하지 않습니다")]
     Unsupported,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct PreparedUpdate {
-    pub table_id: TableId,
-    pub row_id: RowId,
-    pub new_row: Row,
-    pub old_values: Vec<Value>,
-    pub new_values: Vec<Value>,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-struct PendingUpdate {
-    pub table_id: TableId,
-    pub row_id: RowId,
-    pub old_values: Vec<Value>,
-    pub new_values: Vec<Value>,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct PreparedDelete {
-    pub table_id: TableId,
-    pub row_id: RowId,
-    pub values: Vec<Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -99,73 +73,6 @@ impl<'a> Executor<'a> {
             .ok_or(ExecutorError::TableNotFound(table_id))?;
 
         Ok(encode(&bound.values, table.columns())?)
-    }
-
-    pub fn prepare_update(
-        &self,
-        mut rows: Vec<QueryRow>,
-        bound: &BoundUpdate,
-    ) -> Result<Vec<PreparedUpdate>, ExecutorError> {
-        if let Some(filter) = bound.filter.as_ref() {
-            rows = self.filter_rows(rows, filter)?;
-        }
-
-        let mut pendings: Vec<PendingUpdate> = Vec::new();
-        let mut positions: HashMap<(TableId, RowId), usize> = HashMap::new();
-        for row in rows {
-            for assignment in &bound.assignments {
-                let table_row = row.find_table_row(assignment.column.instance_id).ok_or(
-                    ExecutorError::TableInstanceNotFound(assignment.column.instance_id),
-                )?;
-
-                let table_meta = self
-                    .database
-                    .table_by_id(assignment.column.table_id)
-                    .ok_or(ExecutorError::TableNotFound(assignment.column.table_id))?;
-
-                let column_index = table_meta
-                    .column_index(assignment.column.column_id)
-                    .ok_or(ExecutorError::ColumnNotFound(assignment.column.column_id))?;
-
-                let key = (assignment.column.table_id, table_row.row_id);
-                if let Some(&index) = positions.get(&key) {
-                    let prepared = &mut pendings[index];
-                    prepared.new_values[column_index] = assignment.value.clone();
-                } else {
-                    let old_values = table_row.values.clone();
-                    let mut new_values = old_values.clone();
-                    new_values[column_index] = assignment.value.clone();
-
-                    let index = pendings.len();
-                    pendings.push(PendingUpdate {
-                        table_id: assignment.column.table_id,
-                        row_id: table_row.row_id,
-                        old_values,
-                        new_values,
-                    });
-                    positions.insert(key, index);
-                }
-            }
-        }
-
-        let mut results = Vec::new();
-        for pending in pendings {
-            let table_meta = self
-                .database
-                .table_by_id(pending.table_id)
-                .ok_or(ExecutorError::TableNotFound(pending.table_id))?;
-
-            let new_row = encode(&pending.new_values, table_meta.columns())?;
-            results.push(PreparedUpdate {
-                table_id: pending.table_id,
-                row_id: pending.row_id,
-                old_values: pending.old_values,
-                new_values: pending.new_values,
-                new_row,
-            });
-        }
-
-        Ok(results)
     }
 
     pub fn decode_table_rows(

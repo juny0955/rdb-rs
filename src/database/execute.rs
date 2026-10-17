@@ -1,13 +1,17 @@
 use crate::{
-    catalog::metadata::TableId, database::{
+    catalog::metadata::TableId,
+    database::{
         Database, DatabaseError, ExecuteResult,
         cursor::{SelectCursor, state::InputState},
-    }, executor::{
-        Executor, QueryRow,
-        state::{delete::DeleteState, select::SelectState},
-    }, index::IndexManager, query::binder::{
-        BoundDelete, BoundExpression, BoundFromClause, BoundInsert, BoundSelect, BoundUpdate,
-    }, storage::page::RowId, tuple::{Value, decode}
+    },
+    executor::{
+        Executor,
+        state::{delete::DeleteState, select::SelectState, update::UpdateState},
+    },
+    index::IndexManager,
+    query::binder::{BoundDelete, BoundFromClause, BoundInsert, BoundSelect, BoundUpdate},
+    storage::page::{Row, RowId},
+    tuple::{Value, decode},
 };
 
 impl Database {
@@ -50,28 +54,45 @@ impl Database {
         &mut self,
         bound: BoundUpdate,
     ) -> Result<ExecuteResult<'_>, DatabaseError> {
-        let rows = self.execute_from_clause(&bound.from, &bound.filter)?;
+        let is_join = matches!(&bound.from, BoundFromClause::InnerJoin { .. });
+        let mut input = InputState::from_clause(self, &bound.from, bound.filter.as_ref())?;
+        let mut state = UpdateState::new(bound);
+        let mut affected_rows = 0;
 
-        let executor = Executor::new(self.catalog.metadata());
-        let prepared_updates = executor.prepare_update(rows, &bound)?;
-        let affected_rows = prepared_updates.len();
+        if is_join {
+            while let Some(row) = input.next_input_row(self)? {
+                let executor = Executor::new(self.catalog.metadata());
+                state.prepare_row(&executor, &row)?;
+            }
 
-        for prepared_update in prepared_updates {
-            IndexManager::update_row(
-                &mut self.storage_manager,
-                &self.catalog,
-                prepared_update.table_id,
-                prepared_update.row_id,
-                &prepared_update.old_values,
-                &prepared_update.new_values,
-            )?;
+            let executor = Executor::new(self.catalog.metadata());
+            for prepared_update in state.finish(&executor)? {
+                self.update_target(
+                    prepared_update.table_id,
+                    prepared_update.row_id,
+                    &prepared_update.old_values,
+                    &prepared_update.new_values,
+                    &prepared_update.new_row,
+                )?;
+                affected_rows += 1;
+            }
+        } else {
+            while let Some(row) = input.next_input_row(self)? {
+                let executor = Executor::new(self.catalog.metadata());
+                state.prepare_row(&executor, &row)?;
+                let prepared_updates = state.finish(&executor)?;
 
-            self.table_manager.update_row(
-                &mut self.storage_manager,
-                prepared_update.table_id,
-                prepared_update.row_id,
-                &prepared_update.new_row,
-            )?;
+                for prepared_update in prepared_updates {
+                    self.update_target(
+                        prepared_update.table_id,
+                        prepared_update.row_id,
+                        &prepared_update.old_values,
+                        &prepared_update.new_values,
+                        &prepared_update.new_row,
+                    )?;
+                    affected_rows += 1;
+                }
+            }
         }
 
         Ok(ExecuteResult::AffectedRows { affected_rows })
@@ -96,7 +117,9 @@ impl Database {
 
             for (table_id, row_id) in state.into_targets() {
                 if let Some(table_meta) = self.catalog.metadata().table_by_id(table_id) {
-                    let row = self.table_manager.get_row(&mut self.storage_manager, table_id, row_id)?;
+                    let row =
+                        self.table_manager
+                            .get_row(&mut self.storage_manager, table_id, row_id)?;
                     let values = decode(&row, table_meta.columns())?;
 
                     self.delete_target(table_id, row_id, &values)?;
@@ -109,7 +132,11 @@ impl Database {
                 let prepared_deletes = state.prepare_row(&executor, &row)?;
 
                 for prepared_delete in prepared_deletes {
-                    self.delete_target(prepared_delete.table_id, prepared_delete.row_id, &prepared_delete.values)?;
+                    self.delete_target(
+                        prepared_delete.table_id,
+                        prepared_delete.row_id,
+                        &prepared_delete.values,
+                    )?;
                     affected_rows += 1;
                 }
             }
@@ -118,22 +145,35 @@ impl Database {
         Ok(ExecuteResult::AffectedRows { affected_rows })
     }
 
-    fn execute_from_clause(
+    fn update_target(
         &mut self,
-        from: &BoundFromClause,
-        filter: &Option<BoundExpression>,
-    ) -> Result<Vec<QueryRow>, DatabaseError> {
-        let mut input = InputState::from_clause(self, from, filter.as_ref())?;
+        table_id: TableId,
+        row_id: RowId,
+        old_values: &[Value],
+        new_values: &[Value],
+        new_row: &Row,
+    ) -> Result<(), DatabaseError> {
+        IndexManager::update_row(
+            &mut self.storage_manager,
+            &self.catalog,
+            table_id,
+            row_id,
+            old_values,
+            new_values,
+        )?;
 
-        let mut results = Vec::new();
-        while let Some(row) = input.next_input_row(self)? {
-            results.push(row);
-        }
+        self.table_manager
+            .update_row(&mut self.storage_manager, table_id, row_id, new_row)?;
 
-        Ok(results)
+        Ok(())
     }
 
-    fn delete_target(&mut self, table_id: TableId, row_id: RowId, values: &[Value]) -> Result<(), DatabaseError> {
+    fn delete_target(
+        &mut self,
+        table_id: TableId,
+        row_id: RowId,
+        values: &[Value],
+    ) -> Result<(), DatabaseError> {
         IndexManager::delete_row(
             &mut self.storage_manager,
             &self.catalog,
@@ -142,11 +182,8 @@ impl Database {
             values,
         )?;
 
-        self.table_manager.delete_row(
-            &mut self.storage_manager,
-            table_id,
-            row_id,
-        )?;
+        self.table_manager
+            .delete_row(&mut self.storage_manager, table_id, row_id)?;
 
         Ok(())
     }
